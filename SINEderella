@@ -311,6 +311,9 @@ run_step2_step3(){
   # Consensus used
   [[ -f consensuses.clean.fa ]] && ln -sf ../consensuses.clean.fa results/consensuses.fa
 
+  # Assembly QC
+  [[ -f genome.clean_assembly_qc.tsv ]] && ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
+
   log "DONE: $(pwd -P)"
 }
 
@@ -442,6 +445,8 @@ mode_full(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
+  local QC_SRC="$SCRIPT_DIR/assembly_qc.sh"
+  [[ -f "$QC_SRC" ]] && cp -f "$QC_SRC" "$RUN/assembly_qc.sh"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
   [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
 
@@ -456,6 +461,25 @@ mode_full(){
   [[ -s "$RUN/consensuses.clean.fa" ]] || die "consensuses.clean.fa is empty (normalize failed)"
 
   cd "$RUN" || die "Cannot cd into run dir: $RUN"
+
+  ###########################################################################
+  # ASSEMBLY QC (diagnostic — does not block pipeline)
+  ###########################################################################
+  if [[ -f assembly_qc.sh ]]; then
+    log "Running assembly QC diagnostic"
+    bash ./assembly_qc.sh genome.clean.fa genome.clean 2>&1 | tee assembly_qc.log || true
+    if [[ -f genome.clean_assembly_qc.tsv ]]; then
+      local verdict
+      verdict="$(awk -F'\t' '$1=="verdict"{print $2}' genome.clean_assembly_qc.tsv)"
+      if [[ "$verdict" == "WARN" ]]; then
+        log "WARNING: Assembly quality is WARN — results may contain false positives from N-rich regions"
+      elif [[ "$verdict" == "CAUTION" ]]; then
+        log "CAUTION: Assembly quality flags detected — review genome.clean_assembly_qc.tsv"
+      else
+        log "Assembly QC: $verdict"
+      fi
+    fi
+  fi
 
   ###########################################################################
   # STEP1
