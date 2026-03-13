@@ -26,7 +26,7 @@ A reproducible Bash pipeline for genome-wide identification, classification, and
 
 | Script | Purpose |
 |--------|---------|
-| `asSINEment` | Subfamily assignment engine (called by step2) |
+| `asSINEment` | Standalone subfamily assignment engine (earlier version of step2 logic) |
 | `SubFam` | Subfamily identification via chunk-sort-consensus-align |
 | `sine_consensus.sh` | Bootstrap consensus builder (gaps excluded from denominator) |
 | `sine_consensus_smart.sh` | Enhanced consensus with variance detection and early stopping |
@@ -36,7 +36,8 @@ A reproducible Bash pipeline for genome-wide identification, classification, and
 | `extract_subfam_only.sh` | Extract subfamily-only sequences |
 | `benchmark_sear.sh` | Benchmark sear vs sear_multi performance |
 | `run_step5_wrapper.sh` | Step 5 batch runner |
-| `import_squamata_run.py` | Import SINEderella run results into SINEdb data format |
+| `step5_direct.sh` | Direct single-run subfamily alignment (simplified step 5) |
+| `import_squamata_run.py` | Import SINEderella run results into SINEdb data format (requires sine-kb models) |
 
 ## Dependencies
 
