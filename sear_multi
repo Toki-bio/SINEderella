@@ -1,0 +1,416 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# sear_multi — multi-query short query search with fragment scanning
+#
+# Like sear, but processes ALL consensus queries in a single ssearch36 pass
+# per genome fragment. One ssearch36 call per fragment instead of N.
+#
+# Produces per-query output files identical to separate sear calls:
+#   <prefix>-<seqname>.bed   Merged genomic hit coordinates
+#   <prefix>-<seqname>.bnk   Extracted sequences with flanks
+#
+# Usage:
+#   sear_multi [options] <multi_query.fasta> <bank.fasta> [Slf=0.8] [Homology=65] [Flank=50]
+#
+# Options:
+#   -k, --keep       Keep genome split files for reuse across runs
+#   --slop L,R       Override flank sizes for extraction
+
+usage() {
+  cat <<'EOF'
+sear_multi — multi-query search with fragment scanning (ssearch36 + bedtools)
+
+Processes all query sequences in a single ssearch36 pass per genome fragment.
+Produces identical per-query output files to running sear once per query.
+
+Usage:
+  sear_multi [options] <multi_query.fasta> <bank.fasta> [Slf=0.8] [Homology=65] [Flank=50]
+
+Options:
+  -k, --keep       Keep split files for reuse
+  --slop L,R       Override flank sizes
+EOF
+}
+
+if [[ $# -eq 0 ]]; then
+  echo "No arguments supplied!"
+  usage
+  exit 1
+fi
+
+###############################################################################
+# PARSE ARGUMENTS
+###############################################################################
+KEEP_FLAG=0
+SLOP_L=""
+SLOP_R=""
+
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --keep|-k)
+      KEEP_FLAG=1
+      shift ;;
+    --slop)
+      if [[ $# -ge 2 && "$2" =~ ^[0-9]+,[0-9]+$ ]]; then
+        SLOP_L="${2%,*}"
+        SLOP_R="${2#*,}"
+        shift 2
+      else
+        echo "Invalid --slop value (use L,R)"; exit 1
+      fi ;;
+    --slop=*)
+      slop_val="${1#--slop=}"
+      if [[ "$slop_val" =~ ^[0-9]+,[0-9]+$ ]]; then
+        SLOP_L="${slop_val%,*}"
+        SLOP_R="${slop_val#*,}"
+        shift
+      else
+        echo "Invalid --slop value (use L,R)"; exit 1
+      fi ;;
+    -h|--help)
+      usage; exit 0 ;;
+    --)
+      shift; args+=("$@"); break ;;
+    *)
+      args+=("$1"); shift ;;
+  esac
+done
+set -- "${args[@]}"
+
+if [[ $# -lt 2 || "$1" == -* || "$2" == -* ]]; then
+  usage; exit 1
+fi
+
+query_in="$1"
+bank_in="$2"
+
+[[ -f "$query_in" ]] || { echo "File $query_in: not found"; exit 1; }
+[[ -f "$bank_in"  ]] || { echo "File $bank_in: not found";  exit 1; }
+
+# Dependency check
+for b in ssearch36 bedtools seqkit samtools; do
+  command -v "$b" >/dev/null 2>&1 || { echo "Program $b: not found in PATH"; exit 1; }
+done
+
+###############################################################################
+# BANK SANITIZATION  (identical to sear)
+###############################################################################
+ORIGINAL_BANK="$bank_in"
+WORKING_BANK="$bank_in"
+TEMP_BANK_CREATED=0
+
+if [[ -f "$ORIGINAL_BANK".fai ]]; then
+  echo "fai index found"
+else
+  echo "Creating fai index..."
+  samtools faidx "$ORIGINAL_BANK"
+fi
+
+underscores=$(awk '/_/' "$ORIGINAL_BANK".fai 2>/dev/null || true)
+tabs_in_headers=$(head -n 100 "$ORIGINAL_BANK" 2>/dev/null | grep -c $'^>[^\t]*\t' || true)
+tabs_in_headers="${tabs_in_headers:-0}"
+
+if [[ -n "$underscores" ]] || [[ "$tabs_in_headers" -gt 0 ]]; then
+  TEMP_BANK="${ORIGINAL_BANK%.*}_temp_clean.${ORIGINAL_BANK##*.}"
+
+  if [[ -f "$TEMP_BANK" && -f "$TEMP_BANK".fai && "$TEMP_BANK" -nt "$ORIGINAL_BANK" ]]; then
+    echo "Reusing existing cleaned bank: $TEMP_BANK"
+  else
+    echo "WARNING: Bank file contains underscores or tabs in sequence names"
+    echo "Creating temporary copy with simple sequence names..."
+    awk '
+    /^>/ {
+        name = $1
+        sub(/^>/, "", name)
+        gsub(/_/, "@U@", name)
+        print ">" name
+        next
+    }
+    { print }
+    ' "$ORIGINAL_BANK" > "$TEMP_BANK"
+    samtools faidx "$TEMP_BANK"
+  fi
+
+  WORKING_BANK="$TEMP_BANK"
+  TEMP_BANK_CREATED=1
+  echo "Using temporary cleaned bank: $WORKING_BANK"
+else
+  echo "No underscores or tabs detected — using original bank file"
+fi
+
+###############################################################################
+# PARAMETERS
+###############################################################################
+Slf=${3:-0.8}
+Homology=${4:-65}
+FlankSize=${5:-50}
+
+MainSlopL="$FlankSize"
+MainSlopR="$FlankSize"
+
+if [[ -n "$SLOP_L" ]]; then
+  MainSlopL="$SLOP_L"
+  MainSlopR="$SLOP_R"
+fi
+
+KeepSplits=0
+[[ $KEEP_FLAG -eq 1 ]] && KeepSplits=1
+
+###############################################################################
+# PARSE MULTI-QUERY FASTA — compute per-sequence lengths
+###############################################################################
+declare -A QUERY_LENS=()
+declare -a QUERY_NAMES=()
+
+_cur="" ; _len=0
+while IFS= read -r line; do
+  if [[ "$line" == ">"* ]]; then
+    [[ -n "$_cur" ]] && QUERY_LENS["$_cur"]=$_len
+    _cur="${line#>}"; _cur="${_cur%% *}"; _len=0
+    QUERY_NAMES+=("$_cur")
+  else
+    line="${line%$'\r'}"   # strip CR if present
+    _len=$((_len + ${#line}))
+  fi
+done < "$query_in"
+[[ -n "$_cur" ]] && QUERY_LENS["$_cur"]=$_len
+
+N_QUERIES=${#QUERY_NAMES[@]}
+echo "Multi-query: $N_QUERIES sequences"
+
+# Pre-compute flen (minimum overlap) per query
+declare -A QUERY_FLENS=()
+for qn in "${QUERY_NAMES[@]}"; do
+  ql="${QUERY_LENS[$qn]}"
+  QUERY_FLENS["$qn"]=$(awk -v a="$Slf" -v b="$ql" 'BEGIN{print int(a*b)}')
+  echo "  $qn: len=$ql, flen=${QUERY_FLENS[$qn]}"
+done
+
+###############################################################################
+# CLEANUP FUNCTION
+###############################################################################
+cleanup() {
+  rm -f _sm_*.tmp _sm_*.txt _sm_sorted_*.tmp _sm_translated_*.tmp \
+        "$WORKING_BANK".stripped.genome \
+        2>/dev/null || true
+}
+trap cleanup EXIT
+
+###############################################################################
+# CREATE / REUSE 2K SLIDING-WINDOW SPLITS  (identical to sear)
+###############################################################################
+if compgen -G "*.2k.part_*.bnk" >/dev/null 2>&1; then
+  echo "Skipping 2k split (reusing existing)"
+else
+  seqkit sliding -g -s 2000 -W 2500 "$WORKING_BANK" > "$WORKING_BANK".2k.bnk
+  seqkit split2 -p 20 -O . "$WORKING_BANK".2k.bnk
+fi
+
+taxname=$(basename "$WORKING_BANK" | cut -c 1-3)
+
+###############################################################################
+# GENOME SIZE FILE  (for bedtools slop / merge later — shared across queries)
+###############################################################################
+awk 'BEGIN{OFS="\t"}
+     {
+       chrom=$1
+       sub(/_sliding:.*$/, "", chrom)
+       sub(/_sliding_.*$/, "", chrom)
+       sub(/_slidin.*$/, "", chrom)
+       sub(/_slidi.*$/, "", chrom)
+       sub(/_slid.*$/, "", chrom)
+       sub(/_sli.*$/, "", chrom)
+       sub(/_sl.*$/, "", chrom)
+       if (!seen[chrom]) { seen[chrom]=1; len[chrom]=$2 }
+       else if ($2 > len[chrom]) { len[chrom]=$2 }
+     }
+     END { for (c in len) print c, len[c] }' \
+  "$WORKING_BANK".fai | sort -V > "$WORKING_BANK".stripped.genome
+
+###############################################################################
+# INITIALIZE PER-QUERY HIT FILES
+###############################################################################
+for qn in "${QUERY_NAMES[@]}"; do
+  : > "_sm_allhits_${qn}.txt"
+done
+
+###############################################################################
+# MAIN SEARCH LOOP — one ssearch36 call per genome split, ALL queries at once
+###############################################################################
+n_splits=0
+for bank in *.2k.part_*.bnk; do
+  [[ "$bank" == minus_* ]] && continue
+  [[ "$bank" == *.fai ]]   && continue
+  [[ "$bank" == *_s.fai ]] && continue
+  n_splits=$((n_splits + 1))
+done
+
+echo ""
+echo "=== Searching $N_QUERIES queries × $n_splits splits (single-pass) ==="
+echo ""
+
+split_i=0
+for bank in *.2k.part_*.bnk; do
+  [[ "$bank" == minus_* ]] && continue
+  [[ "$bank" == *.fai ]]   && continue
+  [[ "$bank" == *_s.fai ]] && continue
+
+  split_i=$((split_i + 1))
+  echo "[split $split_i/$n_splits] Searching $bank ($N_QUERIES queries)"
+
+  # ── Single ssearch36 call with multi-query FASTA ──────────────────────
+  # Output is BLAST-tab with comment lines.  Column 1 = query name.
+  # Note: use || true to prevent pipefail from killing script if ssearch36
+  # returns non-zero (e.g. no hits for some queries)
+  { ssearch36 -g -3 -T "${THREADS:-$(nproc 2>/dev/null || echo 1)}" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8C \
+    "$query_in" "$bank" 3 \
+  | awk '/^[^#]/ {
+      OFS="\t"
+      qname  = $1
+      sname  = $2
+      pctid  = $3
+      qstart = $7;  qend = $8
+      sstart = $9;  send = $10
+      bits   = $12
+
+      hitlen = send - (sstart - 1)
+      if (qend - qstart > 0) { qlen = qend - qstart + 1; strand = "+" }
+      else                    { qlen = -(qend - qstart) + 1; strand = "-" }
+
+      # 9 cols: qname, sname, start(0-based), end, hitlen, qlen, strand, pctid, bits
+      print qname, sname, sstart - 1, send, hitlen, qlen, strand, pctid, bits
+    }' > _sm_parsed.tmp ; } || true
+
+  # ── Split by query name into per-query temp files ─────────────────────
+  # Clear split files from previous fragment
+  rm -f _sm_split_*.tmp 2>/dev/null || true
+
+  awk -F'\t' 'BEGIN{OFS="\t"} {
+    f = "_sm_split_" $1 ".tmp"
+    print $2,$3,$4,$5,$6,$7,$8,$9 >> f
+  }' _sm_parsed.tmp
+
+  # ── Per-query: sort → merge → filter → append to cumulative file ─────
+  for qn in "${QUERY_NAMES[@]}"; do
+    splitfile="_sm_split_${qn}.tmp"
+    [[ -s "$splitfile" ]] || continue
+
+    flen="${QUERY_FLENS[$qn]}"
+
+    # Guard: write sorted data to temp file, check non-empty before merge
+    sort -V "$splitfile" > "_sm_sorted_${qn}.tmp"
+    if [[ -s "_sm_sorted_${qn}.tmp" ]]; then
+      bedtools merge -s -c 4,5,6,7,8 -o max,max,distinct,max,max \
+        < "_sm_sorted_${qn}.tmp" \
+      | awk '{if ($7>='"$Homology"' && $4>='"$flen"') print}' \
+      >> "_sm_allhits_${qn}.txt"
+    fi
+    rm -f "_sm_sorted_${qn}.tmp"
+  done
+
+  rm -f _sm_split_*.tmp _sm_parsed.tmp 2>/dev/null || true
+done
+
+echo ""
+echo "=== Search complete — translating coordinates per query ==="
+echo ""
+
+###############################################################################
+# PER-QUERY: coordinate translation → merge → extract
+###############################################################################
+for qn in "${QUERY_NAMES[@]}"; do
+  hitfile="_sm_allhits_${qn}.txt"
+
+  if [[ ! -s "$hitfile" ]]; then
+    : > "${taxname}-${qn}.bed"
+    : > "${taxname}-${qn}.bnk"
+    echo "  $qn: 0 hits"
+    continue
+  fi
+
+  # ── Compute sliding-window offsets (same logic as sear) ───────────────
+  awk '{sub(/_sliding:/," ")}{sub(/_sliding_/," ")}{print $2}' "$hitfile" \
+  | awk '{gsub(/_/," ")}{print}' \
+  | awk '{gsub(/-/," -")}1' \
+  | awk '{sum=0; for(i=1;i<=NF;i++) if($i>0) sum+=$i; print sum}' \
+  > "_sm_offsets_${qn}.txt"
+
+  # ── Translate to genome coordinates + merge ───────────────────────────
+  paste "$hitfile" "_sm_offsets_${qn}.txt" \
+  | awk 'BEGIN{OFS="\t"} {print $0, $2+$NF, $3+$NF}' \
+  | awk 'BEGIN{OFS="\t"}
+    {
+      chrom=$1
+      sub(/_sliding:.*/, "", chrom)
+      sub(/_sliding_.*/, "", chrom)
+      sub(/_slidin.*/, "", chrom)
+      sub(/_slidi.*/, "", chrom)
+      sub(/_slid.*/, "", chrom)
+      sub(/_sli.*/, "", chrom)
+      sub(/_sl.*/, "", chrom)
+      print chrom, $(NF-1), $NF, $7, $5, $6, $8
+    }' \
+  | bedtools sort -i - \
+  > "_sm_translated_${qn}.tmp"
+
+  if [[ -s "_sm_translated_${qn}.tmp" ]]; then
+    bedtools slop -l 1 -r -1 -i "_sm_translated_${qn}.tmp" -g "$WORKING_BANK".stripped.genome \
+    | bedtools merge -s -i - -c 4,5,6,7 -o max,max,distinct,max \
+    > "${taxname}-${qn}.bed"
+  else
+    : > "${taxname}-${qn}.bed"
+  fi
+  rm -f "_sm_translated_${qn}.tmp"
+
+  # ── Extract sequences with flanks ─────────────────────────────────────
+  if [[ -s "${taxname}-${qn}.bed" ]]; then
+    bedtools slop -s -i "${taxname}-${qn}.bed" -g "$WORKING_BANK".stripped.genome \
+      -l "$MainSlopL" -r "$MainSlopR" > "_sm_extract_${qn}.bed"
+    bedtools getfasta -s -fi "$WORKING_BANK" -bed "_sm_extract_${qn}.bed" \
+      > "${taxname}-${qn}.bnk"
+    rm -f "_sm_extract_${qn}.bed"
+  else
+    : > "${taxname}-${qn}.bnk"
+  fi
+
+  # ── Restore original names (@U@ → underscore) ────────────────────────
+  if [[ $TEMP_BANK_CREATED -eq 1 ]]; then
+    awk '{gsub(/@U@/,"_")}1' "${taxname}-${qn}.bed" > "${taxname}-${qn}.bed._tmp"
+    mv "${taxname}-${qn}.bed._tmp" "${taxname}-${qn}.bed"
+    awk '{gsub(/@U@/,"_")}1' "${taxname}-${qn}.bnk" > "${taxname}-${qn}.bnk._tmp"
+    mv "${taxname}-${qn}.bnk._tmp" "${taxname}-${qn}.bnk"
+  fi
+
+  nhits=$(wc -l < "${taxname}-${qn}.bed")
+  echo "  $qn: $nhits hits"
+done
+
+###############################################################################
+# CLEANUP
+###############################################################################
+rm -f _sm_allhits_*.txt _sm_offsets_*.txt 2>/dev/null || true
+
+# Split files: keep or remove
+if [[ $KeepSplits -eq 0 ]]; then
+  rm -f *.2k.bnk *.2k.bnk.fai *.2k.part_* *.2k.part_*.bnk.fai *_s.fai 2>/dev/null || true
+  echo "Temporary split files removed"
+else
+  echo "Temporary split files kept for reuse"
+fi
+
+# Temporary cleaned bank
+if [[ $TEMP_BANK_CREATED -eq 1 && $KeepSplits -eq 0 ]]; then
+  rm -f "$TEMP_BANK" "$TEMP_BANK".fai 2>/dev/null || true
+fi
+
+cleanup
+trap - EXIT
+
+echo ""
+echo "=== sear_multi complete ==="
+for qn in "${QUERY_NAMES[@]}"; do
+  r=$(wc -l < "${taxname}-${qn}.bed" 2>/dev/null || echo 0)
+  echo "  ${taxname}-${qn}.bed : $r hits"
+done

@@ -1,0 +1,22 @@
+# Force LF line endings for shell scripts (critical for Linux execution)
+*.sh text eol=lf
+sear text eol=lf
+sear_multi text eol=lf
+SINEderella text eol=lf
+SINEderella_multi text eol=lf
+asSINEment text eol=lf
+SubFam text eol=lf
+
+# Python scripts: LF
+*.py text eol=lf
+
+# Docs: auto
+*.md text eol=auto
+*.txt text eol=auto
+*.tsv text eol=auto
+
+# Binary / data files
+*.fa binary
+*.fas binary
+*.fasta binary
+*.fai binary

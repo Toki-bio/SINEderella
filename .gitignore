@@ -1,0 +1,37 @@
+# SINEderella output folders
+thr*/
+run_*/
+step2/
+logs/
+
+# Temporary or auto-generated files
+*.tmp
+*.log
+summary.txt
+
+# Test data (never commit genomes)
+test_*/
+*.2k.bnk
+*.2k.part_*
+*.fai
+
+# Conda installer
+Miniconda3-latest-Linux-x86_64.sh
+
+# VS Code settings
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Secrets / environment files
+.env
+*.key
+secrets.*
+
+# macOS trash
+.DS_Store
+
+# Server artifacts
+*.pid

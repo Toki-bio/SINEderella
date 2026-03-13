@@ -1,0 +1,821 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+###############################################################################
+# SINEderella
+#
+# Usage:
+#   SINEderella <GENOME_FASTA> <CONSENSUS_FASTA>           # Full run
+#   SINEderella --add|-a  <newSINE.fas> [--run <run_dir>]  # Add new consensus
+#   SINEderella --exclude|-e <SINE_name> [--run <run_dir>] # Exclude a family
+#
+# Scripts co-located:
+#     step1_search_extract.sh
+#     step2_asSINEment.sh
+#     step3_postprocess.sh
+###############################################################################
+
+log(){ printf '[%s] %s\n' "$(date '+%F %T')" "$*" >&2; }
+die(){ printf '[%s] ERROR: %s\n' "$(date '+%F %T')" "$*" >&2; exit 1; }
+need(){ command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"; }
+
+usage(){
+  cat >&2 <<'EOF'
+Usage:
+  SINEderella <GENOME_FASTA> <CONSENSUS_FASTA>
+  SINEderella --add|-a  <newSINE.fas> [--run <run_dir>]
+  SINEderella --exclude|-e <SINE_name> [--run <run_dir>]
+
+Modes:
+  (default)   Full pipeline: search, assign, postprocess
+  --add/-a    Add new SINE consensus(es) to existing run.
+              Searches only for new queries, then re-runs assignment.
+  --exclude/-e  Remove a SINE family from existing run.
+              Filters out search data for that family, then re-runs assignment.
+
+Options:
+  --run <dir>   Specify existing run directory (default: auto-detect latest)
+
+Environment:
+  THREADS     Number of CPU threads (default: nproc)
+  CHUNK_BP    Step1 chunk size (default: 30000)
+  FLANK       Step1 flank size (default: 50)
+EOF
+  exit 2
+}
+
+# Resolve script directory deterministically
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+
+# Add SINEderella tools to PATH
+export PATH="$SCRIPT_DIR:$PATH"
+
+MASTER_SELF="$SCRIPT_DIR/$(basename -- "${BASH_SOURCE[0]}")"
+STEP1_SRC="$SCRIPT_DIR/step1_search_extract.sh"
+ASSIGN_SRC="$SCRIPT_DIR/step2_asSINEment.sh"
+POST_SRC="$SCRIPT_DIR/step3_postprocess.sh"
+PLOT_SRC="$SCRIPT_DIR/step4_plots.sh"
+PLOT_PY_SRC="$SCRIPT_DIR/plot_subfamily.py"
+
+[[ -f "$STEP1_SRC"  && -s "$STEP1_SRC"  ]] || die "Missing step1_search_extract.sh in: $SCRIPT_DIR"
+[[ -f "$ASSIGN_SRC" && -s "$ASSIGN_SRC" ]] || die "Missing step2_asSINEment.sh in: $SCRIPT_DIR"
+[[ -f "$POST_SRC"   && -s "$POST_SRC"   ]] || die "Missing step3_postprocess.sh in: $SCRIPT_DIR"
+# step4 + plot_subfamily.py are optional (warn but don't die)
+if [[ ! -f "$PLOT_SRC" || ! -s "$PLOT_SRC" ]]; then
+  log "WARNING: step4_plots.sh not found in $SCRIPT_DIR — plotting will be skipped"
+  PLOT_SRC=""
+fi
+if [[ -n "$PLOT_SRC" ]] && [[ ! -f "$PLOT_PY_SRC" || ! -s "$PLOT_PY_SRC" ]]; then
+  log "WARNING: plot_subfamily.py not found in $SCRIPT_DIR — plotting will be skipped"
+  PLOT_SRC=""
+fi
+
+chmod +x "$MASTER_SELF" "$STEP1_SRC" "$ASSIGN_SRC" "$POST_SRC" 2>/dev/null || true
+[[ -z "$PLOT_SRC" ]] || chmod +x "$PLOT_SRC" "$PLOT_PY_SRC" 2>/dev/null || true
+
+# Minimal tools
+need awk; need sort; need find; need ls; need date; need tee
+
+# Threads
+THREADS="${THREADS:-}"
+if [[ -z "$THREADS" ]]; then
+  if command -v nproc >/dev/null 2>&1; then THREADS="$(nproc)"; else THREADS=1; fi
+fi
+CHUNK_BP="${CHUNK_BP:-30000}"
+FLANK="${FLANK:-50}"
+
+###############################################################################
+# PARSE ARGUMENTS
+###############################################################################
+MODE="full"
+ADD_FILE=""
+EXCLUDE_NAME=""
+EXISTING_RUN=""
+GENOME_IN=""
+CONS_IN=""
+
+if [[ $# -eq 0 ]]; then usage; fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -a|--add)
+      MODE="add"
+      shift
+      [[ $# -gt 0 ]] || die "--add requires a FASTA file argument"
+      ADD_FILE="$1"
+      shift
+      ;;
+    -e|--exclude)
+      MODE="exclude"
+      shift
+      [[ $# -gt 0 ]] || die "--exclude requires a SINE family name argument"
+      EXCLUDE_NAME="$1"
+      shift
+      ;;
+    --run)
+      shift
+      [[ $# -gt 0 ]] || die "--run requires a directory argument"
+      EXISTING_RUN="$1"
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    -*)
+      die "Unknown option: $1"
+      ;;
+    *)
+      # Positional: GENOME then CONSENSUS
+      if [[ -z "$GENOME_IN" ]]; then
+        GENOME_IN="$1"
+      elif [[ -z "$CONS_IN" ]]; then
+        CONS_IN="$1"
+      else
+        die "Unexpected argument: $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+###############################################################################
+# HELPER: find latest run directory
+###############################################################################
+find_latest_run(){
+  local candidate s2out
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" && -d "$candidate" ]] || continue
+    [[ -s "$candidate/consensuses.clean.fa" ]] || continue
+    [[ -s "$candidate/genome.clean.fa" ]] || continue
+    [[ -s "$candidate/genome.clean_step1/extracted.fasta" ]] || continue
+
+    s2out="$(ls -dt "$candidate"/step2/step2_output* 2>/dev/null | head -n1 || true)"
+    if [[ -n "$s2out" ]]; then
+      [[ -s "$s2out/assignment_full.tsv" ]] || continue
+    elif [[ -s "$candidate/results/assignment_full.tsv" ]]; then
+      :
+    else
+      continue
+    fi
+
+    readlink -f "$candidate"
+    return 0
+  done < <(ls -dt ./run_* 2>/dev/null || true)
+
+  die "No completed run_* directory found in $(pwd -P)"
+}
+
+###############################################################################
+# HELPER: sanitize FASTA
+###############################################################################
+sanitize_fasta(){
+  # $1=input $2=output $3=mode (genome|consensus)
+  local mode="${3:-genome}"
+  if [[ "$mode" == "consensus" ]]; then
+    awk 'BEGIN{RS=">"; ORS=""; FS="\n"}
+         NR==1{next}
+         {
+           hdr=$1
+           gsub(/\r/,"",hdr)
+           sub(/[ \t].*$/,"",hdr)
+           seq=""
+           for(i=2;i<=NF;i++){ line=$i; gsub(/[ \t\r]/,"",line); seq=seq line }
+           if(hdr!="" && seq!=""){
+             print ">" hdr "\n"
+             for(i=1;i<=length(seq);i+=60) print substr(seq,i,60) "\n"
+           }
+         }' "$1" > "$2"
+  else
+    awk 'BEGIN{RS=">"; ORS=""; FS="\n"}
+         NR==1{next}
+         {
+           hdr=$1
+           gsub(/\r/,"",hdr)
+           seq=""
+           for(i=2;i<=NF;i++){ line=$i; gsub(/[ \t\r]/,"",line); seq=seq line }
+           if(hdr!="" && seq!=""){
+             print ">" hdr "\n"
+             for(i=1;i<=length(seq);i+=60) print substr(seq,i,60) "\n"
+           }
+         }' "$1" > "$2"
+  fi
+}
+
+###############################################################################
+# HELPER: run step2 + step3 (shared by all modes)
+###############################################################################
+run_step2_step3(){
+  local rundir="$1"
+  shift
+  # Remaining args are extra flags for step2 (e.g. --incremental ...)
+  local -a step2_args=()
+  if [[ $# -gt 0 ]]; then
+    step2_args=("$@")
+  fi
+  cd "$rundir" || die "Cannot cd into: $rundir"
+
+  [[ -s genome.clean_step1/extracted.fasta ]] || die "Missing: genome.clean_step1/extracted.fasta"
+  [[ -s consensuses.clean.fa ]] || die "Missing: consensuses.clean.fa"
+
+  log "Running Step2 assignment (step2_asSINEment.sh)"
+  mkdir -p step2
+
+  set +e
+  (
+    cd step2 || exit 1
+    ../step2_asSINEment.sh ${step2_args[@]+"${step2_args[@]}"} ../consensuses.clean.fa ../genome.clean_step1/extracted.fasta "$THREADS" step2_output
+  ) > >(tee step2.stdout.log) \
+    2> >(tee step2.stderr.log >&2)
+  step2_rc=$?
+  set -e
+  if (( step2_rc != 0 )); then
+    log "Step2 exit code: $step2_rc"
+    tail -n 120 step2.stderr.log >&2 || true
+    die "Step2 failed; see step2.stderr.log"
+  fi
+
+  local OUT_STEP2
+  OUT_STEP2="$(ls -dt step2/step2_output* 2>/dev/null | head -n1 || true)"
+  [[ -n "$OUT_STEP2" && -d "$OUT_STEP2" ]] || die "Step2 output directory not found"
+  log "Step2 output dir: $OUT_STEP2"
+  [[ -s "$OUT_STEP2/assignment_full.tsv" ]] || die "Missing Step2 output: $OUT_STEP2/assignment_full.tsv"
+
+  log "Running Step3 postprocess (step3_postprocess.sh)"
+  set +e
+  ./step3_postprocess.sh "$(pwd -P)" "$THREADS" \
+    > >(tee step3.stdout.log) \
+    2> >(tee step3.stderr.log >&2)
+  step3_rc=$?
+  set -e
+  if (( step3_rc != 0 )); then
+    log "Step3 exit code: $step3_rc"
+    tail -n 120 step3.stderr.log >&2 || true
+    die "Step3 failed; see step3.stderr.log"
+  fi
+
+  for f in "$OUT_STEP2/all_sines.bedlike.ALL.tsv" "$OUT_STEP2/summary.by_subfam.tsv" "$OUT_STEP2/unassigned.tsv"; do
+    if [[ -s "$f" ]]; then
+      log "OK: $f"
+    else
+      log "WARNING: missing/empty $f"
+    fi
+  done
+
+  # --- Step 4: Diagnostic plots (optional) ---
+  if [[ -n "${PLOT_SRC:-}" && -f "./step4_plots.sh" && -f "./plot_subfamily.py" ]]; then
+    log "Running Step4 plots (step4_plots.sh)"
+    set +e
+    ./step4_plots.sh "$(pwd -P)" "$THREADS" \
+      > >(tee step4.stdout.log) \
+      2> >(tee step4.stderr.log >&2)
+    step4_rc=$?
+    set -e
+    if (( step4_rc != 0 )); then
+      log "WARNING: Step4 plots failed (exit $step4_rc) — continuing without plots"
+    fi
+  else
+    log "Step4 plots skipped (step4_plots.sh or plot_subfamily.py not found in run dir)"
+  fi
+
+  # Create results/ directory with symlinks to key output files
+  log "Creating results/ directory"
+  rm -rf results
+  mkdir -p results
+
+  # Stats & tables
+  for f in summary.by_subfam.tsv all_sines.bedlike.ALL.tsv unassigned.tsv \
+           assignment_stats.tsv assignment_full.tsv all_votes.tsv self_bits.tsv \
+           self_bits_real.tsv sim_scores.tsv; do
+    [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
+  done
+
+  # Sequence files
+  for f in assigned.fasta unassigned.fasta; do
+    [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
+  done
+
+  # Subfamilies directory
+  [[ -d "$OUT_STEP2/subfamilies" ]] && ln -sf "../$OUT_STEP2/subfamilies" "results/subfamilies"
+
+  # Plots directory
+  [[ -d "$OUT_STEP2/plots" ]] && ln -sf "../$OUT_STEP2/plots" "results/plots"
+
+  # Genomic data from step1
+  [[ -f genome.clean_step1/extracted.fasta ]] && \
+    ln -sf ../genome.clean_step1/extracted.fasta results/extracted.fasta
+  [[ -f genome.clean_step1/searches/all_hits.labeled.bed ]] && \
+    ln -sf ../genome.clean_step1/searches/all_hits.labeled.bed results/all_hits.labeled.bed
+  [[ -f genome.clean_step1/searches/regions.by_subfam.bed ]] && \
+    ln -sf ../genome.clean_step1/searches/regions.by_subfam.bed results/regions.by_subfam.bed
+
+  # Consensus used
+  [[ -f consensuses.clean.fa ]] && ln -sf ../consensuses.clean.fa results/consensuses.fa
+
+  log "DONE: $(pwd -P)"
+}
+
+###############################################################################
+# HELPER: rebuild merged_hits.bed + extracted.fasta + labeled bed from searches/
+###############################################################################
+rebuild_from_searches(){
+  local step1dir="$1"
+  local cons_ext="$2"  # extension of consensus split files (e.g. "fa")
+
+  # Run in subshell to avoid changing caller's cwd
+  (
+  cd "$step1dir" || die "Cannot cd into: $step1dir"
+  local GENOME
+  GENOME="$(cat genome.path 2>/dev/null || true)"
+  [[ -n "$GENOME" && -f "$GENOME" ]] || die "Cannot find genome from genome.path in $step1dir"
+
+  log "Rebuilding labeled BED and merged intervals from searches/ ..."
+
+  (
+    cd searches || exit 1
+
+    # rebuild all_hits.labeled.bed
+    : > all_hits.labeled.bed
+
+    for bed in *.bed; do
+      [[ "$bed" == "all_hits.labeled.bed" ]] && continue
+      [[ "$bed" == "regions.by_subfam.bed" ]] && continue
+      [[ -s "$bed" ]] || continue
+
+      base="${bed%.bed}"
+      base="${base#gen-}"
+
+      # find the corresponding split FASTA file
+      qfile=""
+      if [[ -f "${base}.${cons_ext}" ]]; then
+        qfile="${base}.${cons_ext}"
+      else
+        for f in "${base}".part_*.* "${base}".* ; do
+          [[ -f "$f" && "$f" != *.bed ]] && { qfile="$f"; break; }
+        done
+      fi
+
+      sf="$base"
+      if [[ -n "$qfile" && -f "$qfile" ]]; then
+        sf="$(awk '/^>/{h=$1; sub(/^>/,"",h); print h; exit}' "$qfile")"
+        [[ -n "$sf" ]] || sf="$base"
+      fi
+
+      awk -v sf="$sf" 'BEGIN{OFS="\t"}
+        {
+          score = (NF>=5 ? $5 : 1)
+          strand = (NF>=6 ? $6 : ".")
+          print $1,$2,$3,sf,score,strand
+        }' "$bed" >> all_hits.labeled.bed
+    done
+
+    [[ -s all_hits.labeled.bed ]] || { echo "WARNING: all_hits.labeled.bed empty after rebuild"; }
+
+    if [[ -s all_hits.labeled.bed ]]; then
+      bedtools sort -i all_hits.labeled.bed > all_hits.labeled.bed.tmp
+      mv all_hits.labeled.bed.tmp all_hits.labeled.bed
+
+      bedtools merge -i all_hits.labeled.bed -c 4 -o distinct > regions.by_subfam.bed
+
+      reg_n=$(wc -l < regions.by_subfam.bed)
+      conf_n=$(awk -F'\t' '$4 ~ /,/' regions.by_subfam.bed | wc -l)
+      echo "[$(date)] regions.by_subfam.bed: $reg_n regions ($conf_n with conflicts)"
+    fi
+  )
+
+  # rebuild merged_hits.bed
+  local BED_FILES
+  mapfile -t BED_FILES < <(find searches -maxdepth 1 -name '*.bed' \
+    ! -name 'all_hits.labeled.bed' ! -name 'regions.by_subfam.bed' -type f | sort)
+
+  if [[ ${#BED_FILES[@]} -eq 0 ]]; then
+    log "WARNING: No BED files left in searches/"
+    : > merged_hits.bed
+    : > extracted.fasta
+    return
+  fi
+
+  cat "${BED_FILES[@]}" | bedtools sort -i - | \
+    bedtools merge -i - -c 4,5,6 -o max,max,distinct > merged_hits.bed
+
+  local BED_COUNT
+  BED_COUNT=$(wc -l < merged_hits.bed)
+  log "Rebuilt merged_hits.bed: $BED_COUNT intervals"
+
+  # re-extract sequences
+  bedtools getfasta -s -fi "$GENOME" -bed merged_hits.bed > extracted.fasta
+  local EXTRACTED
+  EXTRACTED=$(grep -c "^>" extracted.fasta || echo 0)
+  log "Re-extracted $EXTRACTED sequences"
+  )  # end outer subshell
+}
+
+
+###############################################################################
+# MODE: FULL (original behavior)
+###############################################################################
+mode_full(){
+  [[ -f "$GENOME_IN" && -s "$GENOME_IN" ]] || die "GENOME_FASTA must be a non-empty regular file: $GENOME_IN"
+  [[ -f "$CONS_IN"   && -s "$CONS_IN"   ]] || die "CONSENSUS_FASTA must be a non-empty regular file: $CONS_IN"
+
+  RUN_TAG="$(date '+%Y%m%d_%H%M%S')"
+  RUN="$(pwd -P)/run_${RUN_TAG}"
+  mkdir -p "$RUN" || die "Failed to create run dir: $RUN"
+  log "Run directory: $RUN"
+
+  # manifest
+  {
+    printf "RUN\t%s\n" "$RUN"
+    printf "PWD\t%s\n" "$(pwd -P)"
+    printf "SCRIPT_DIR\t%s\n" "$SCRIPT_DIR"
+    printf "GENOME_IN\t%s\n" "$(readlink -f "$GENOME_IN" 2>/dev/null || echo "$GENOME_IN")"
+    printf "CONS_IN\t%s\n"   "$(readlink -f "$CONS_IN"   2>/dev/null || echo "$CONS_IN")"
+    printf "THREADS\t%s\n" "$THREADS"
+    printf "CHUNK_BP\t%s\n" "$CHUNK_BP"
+    printf "FLANK\t%s\n" "$FLANK"
+    printf "MODE\tfull\n"
+    printf "DATE\t%s\n" "$(date)"
+  } > "$RUN/manifest.txt"
+
+  # copy scripts into run dir (frozen copy for reproducibility)
+  cp -f "$STEP1_SRC"  "$RUN/step1_search_extract.sh"
+  cp -f "$ASSIGN_SRC" "$RUN/step2_asSINEment.sh"
+  cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
+  [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
+  [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
+  chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
+  [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
+
+  # sanitize genome
+  log "Sanitizing genome -> genome.clean.fa"
+  sanitize_fasta "$GENOME_IN" "$RUN/genome.clean.fa" genome
+  [[ -s "$RUN/genome.clean.fa" ]] || die "genome.clean.fa is empty (sanitize failed)"
+
+  # normalize consensuses
+  log "Normalizing consensuses -> consensuses.clean.fa"
+  sanitize_fasta "$CONS_IN" "$RUN/consensuses.clean.fa" consensus
+  [[ -s "$RUN/consensuses.clean.fa" ]] || die "consensuses.clean.fa is empty (normalize failed)"
+
+  cd "$RUN" || die "Cannot cd into run dir: $RUN"
+
+  ###########################################################################
+  # STEP1
+  ###########################################################################
+  if [[ -s genome.clean_step1/extracted.fasta ]]; then
+    log "Step1 already complete -> skipping"
+  else
+    log "Running Step1"
+    set +e
+    bash ./step1_search_extract.sh ./consensuses.clean.fa ./genome.clean.fa "$CHUNK_BP" "$FLANK" \
+      > >(tee step1.stdout.log) \
+      2> >(tee step1.stderr.log >&2)
+    step1_rc=$?
+    set -e
+    if (( step1_rc != 0 )); then
+      log "Step1 exit code: $step1_rc"
+      tail -n 120 step1.stderr.log >&2 || true
+      die "Step1 failed; see step1.stderr.log"
+    fi
+  fi
+
+  # Resolve Step1 output dir
+  if [[ -d genome.clean_step1 ]]; then
+    log "Step1 output dir present: genome.clean_step1"
+  else
+    mapfile -t STEP1_DIRS < <(find . -maxdepth 1 -mindepth 1 -type d -name '*_step1' -printf '%f\n' | sort)
+    if (( ${#STEP1_DIRS[@]} == 1 )); then
+      mv -- "${STEP1_DIRS[0]}" genome.clean_step1
+      log "Renamed Step1 dir ${STEP1_DIRS[0]} -> genome.clean_step1"
+    else
+      die "Cannot resolve Step1 output directory"
+    fi
+  fi
+
+  [[ -s genome.clean_step1/extracted.fasta ]] || die "Missing Step1 output: genome.clean_step1/extracted.fasta"
+
+  ###########################################################################
+  # STEP2 + STEP3
+  ###########################################################################
+  run_step2_step3 "$(pwd -P)"
+}
+
+
+###############################################################################
+# MODE: ADD - add new SINE consensus(es)
+###############################################################################
+mode_add(){
+  [[ -f "$ADD_FILE" && -s "$ADD_FILE" ]] || die "--add file must be a non-empty FASTA: $ADD_FILE"
+
+  # Find existing run
+  local SRC_RUN
+  if [[ -n "$EXISTING_RUN" ]]; then
+    SRC_RUN="$(readlink -f "$EXISTING_RUN")"
+  else
+    SRC_RUN="$(find_latest_run)"
+    SRC_RUN="$(readlink -f "$SRC_RUN")"
+  fi
+  [[ -d "$SRC_RUN" ]] || die "Run directory not found: $SRC_RUN"
+  [[ -s "$SRC_RUN/consensuses.clean.fa" ]] || die "Missing consensuses.clean.fa in: $SRC_RUN"
+  [[ -d "$SRC_RUN/genome.clean_step1" ]] || die "Missing genome.clean_step1 in: $SRC_RUN"
+  [[ -s "$SRC_RUN/genome.clean.fa" ]] || die "Missing genome.clean.fa in: $SRC_RUN"
+  log "Source run: $SRC_RUN"
+
+  # Normalize new consensus
+  local new_clean
+  new_clean="$(mktemp "${TMPDIR:-/tmp}/sinederella_add_XXXX.fa")"
+  sanitize_fasta "$ADD_FILE" "$new_clean" consensus
+  [[ -s "$new_clean" ]] || die "New consensus file is empty after normalization"
+
+  # Find which names are truly new
+  local old_names new_names
+  old_names="$(awk '/^>/{sub(/^>/,""); print $1}' "$SRC_RUN/consensuses.clean.fa" | sort -u)"
+  new_names="$(awk '/^>/{sub(/^>/,""); print $1}' "$new_clean" | sort -u)"
+
+  local truly_new
+  truly_new="$(comm -23 <(echo "$new_names") <(echo "$old_names"))"
+
+  if [[ -z "$truly_new" ]]; then
+    die "All consensus sequences in $ADD_FILE already exist in the previous run. Nothing to add."
+  fi
+
+  log "New consensus sequences to add:"
+  echo "$truly_new" | sed 's/^/  /' >&2
+
+  local already_exist
+  already_exist="$(comm -12 <(echo "$new_names") <(echo "$old_names"))"
+  if [[ -n "$already_exist" ]]; then
+    log "Already existing (will skip search): $(echo "$already_exist" | tr '\n' ' ')"
+  fi
+
+  # Create new run directory
+  RUN_TAG="$(date '+%Y%m%d_%H%M%S')"
+  RUN="$(pwd -P)/run_add_${RUN_TAG}"
+  mkdir -p "$RUN" || die "Failed to create run dir: $RUN"
+  log "New run directory: $RUN"
+
+  # Copy scripts
+  cp -f "$STEP1_SRC"  "$RUN/step1_search_extract.sh"
+  cp -f "$ASSIGN_SRC" "$RUN/step2_asSINEment.sh"
+  cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
+  [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
+  [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
+  chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
+  [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
+
+  # Copy genome
+  ln -sf "$SRC_RUN/genome.clean.fa" "$RUN/genome.clean.fa"
+  [[ -f "$SRC_RUN/genome.clean.fa.fai" ]] && ln -sf "$SRC_RUN/genome.clean.fa.fai" "$RUN/genome.clean.fa.fai"
+
+  # Merge consensuses: old + new (unique only)
+  log "Merging consensuses (old + new unique)"
+  cat "$SRC_RUN/consensuses.clean.fa" > "$RUN/consensuses.clean.fa"
+  # Append only truly new sequences
+  awk -v names="$truly_new" '
+    BEGIN{ n=split(names,arr,"\n"); for(i=1;i<=n;i++) wanted[arr[i]]=1 }
+    /^>/{ hdr=$0; sub(/^>/,"",hdr); sub(/[ \t].*/,"",hdr); keep=(hdr in wanted) }
+    keep{ print }
+  ' "$new_clean" >> "$RUN/consensuses.clean.fa"
+  rm -f "$new_clean"
+
+  # Copy step1 output from old run, preserving searches/
+  log "Copying step1 output from source run..."
+  cp -r "$SRC_RUN/genome.clean_step1" "$RUN/genome.clean_step1"
+
+  # Fix genome.path to point to this run's genome (absolute)
+  echo "$RUN/genome.clean.fa" > "$RUN/genome.clean_step1/genome.path"
+
+  # Search only for new consensus sequences
+  log "Running sear searches for new consensuses only..."
+  cd "$RUN/genome.clean_step1/searches" || die "Cannot cd into searches"
+
+  local GENOME_PATH
+  GENOME_PATH="$(cat ../genome.path 2>/dev/null || true)"
+  if [[ -z "$GENOME_PATH" || ! -f "$GENOME_PATH" ]]; then
+    # Try to resolve from the run's genome
+    GENOME_PATH="$(readlink -f "../../genome.clean.fa")"
+  fi
+  [[ -f "$GENOME_PATH" ]] || die "Cannot find genome for sear search"
+
+  # Get consensus extension from existing split files
+  local CONS_EXT="fa"
+  local sample_split
+  sample_split="$(ls -1 *.part_*.* 2>/dev/null | head -n1 || true)"
+  if [[ -n "$sample_split" ]]; then
+    CONS_EXT="${sample_split##*.}"
+  fi
+
+  # Create split files for new consensuses and run sear
+  while IFS= read -r cname; do
+    [[ -z "$cname" ]] && continue
+    log "  Searching for new consensus: $cname"
+
+    # Extract this consensus from the merged file
+    local qfile="consensuses.clean.part_${cname}.${CONS_EXT}"
+    awk -v name="$cname" '
+      /^>/{ hdr=$0; sub(/^>/,"",hdr); sub(/[ \t].*/,"",hdr); keep=(hdr==name) }
+      keep{ print }
+    ' "../../consensuses.clean.fa" > "$qfile"
+
+    if [[ -s "$qfile" ]]; then
+      sear -k "$qfile" "$GENOME_PATH" 0.8 65 50 || {
+        log "WARNING: sear failed for $cname (continuing)"
+      }
+    else
+      log "WARNING: Could not extract consensus for $cname"
+    fi
+  done <<< "$truly_new"
+
+  # Clean sear temp files
+  rm -f *.2k.bnk *.2k.bnk.fai *.2k.part_* *.2k.part_*.bnk.fai *_s.fai 2>/dev/null || true
+
+  cd "$RUN" || die "Cannot cd back to run dir"
+
+  # Rebuild all BED/extracted data from combined searches
+  rebuild_from_searches "$(pwd -P)/genome.clean_step1" "$CONS_EXT"
+
+  # Write manifest
+  {
+    printf "RUN\t%s\n" "$RUN"
+    printf "PWD\t%s\n" "$(pwd -P)"
+    printf "SCRIPT_DIR\t%s\n" "$SCRIPT_DIR"
+    printf "SOURCE_RUN\t%s\n" "$SRC_RUN"
+    printf "ADD_FILE\t%s\n" "$(readlink -f "$ADD_FILE" 2>/dev/null || echo "$ADD_FILE")"
+    printf "NEW_FAMILIES\t%s\n" "$(echo "$truly_new" | tr '\n' ',' | sed 's/,$//')"
+    printf "THREADS\t%s\n" "$THREADS"
+    printf "MODE\tadd\n"
+    printf "DATE\t%s\n" "$(date)"
+  } > manifest.txt
+
+  # Collect new-consensus BED hits for incremental step2
+  local new_beds_combined="$RUN/.new_consensus_hits.bed"
+  : > "$new_beds_combined"
+  while IFS= read -r cname; do
+    [[ -z "$cname" ]] && continue
+    local bed_file="$RUN/genome.clean_step1/searches/gen-consensuses.clean.part_${cname}.bed"
+    if [[ -s "$bed_file" ]]; then
+      cat "$bed_file" >> "$new_beds_combined"
+    fi
+  done <<< "$truly_new"
+
+  # Find old assignment_full.tsv from source run
+  local old_step2_out
+  old_step2_out="$(ls -dt "$SRC_RUN"/step2/step2_output* 2>/dev/null | head -n1 || true)"
+  local old_assign="${old_step2_out}/assignment_full.tsv"
+
+  # Run step2 + step3 (incremental if old assignment available)
+  if [[ -s "$old_assign" ]]; then
+    log "Using incremental assignment (carrying forward old firm assignments)"
+    run_step2_step3 "$(pwd -P)" --incremental --old-assignment "$old_assign" --new-beds "$new_beds_combined"
+  else
+    log "Falling back to full assignment (no previous assignment found)"
+    run_step2_step3 "$(pwd -P)"
+  fi
+}
+
+
+###############################################################################
+# MODE: EXCLUDE - remove a SINE family
+###############################################################################
+mode_exclude(){
+  [[ -n "$EXCLUDE_NAME" ]] || die "--exclude requires a SINE family name"
+
+  # Find existing run
+  local SRC_RUN
+  if [[ -n "$EXISTING_RUN" ]]; then
+    SRC_RUN="$(readlink -f "$EXISTING_RUN")"
+  else
+    SRC_RUN="$(find_latest_run)"
+    SRC_RUN="$(readlink -f "$SRC_RUN")"
+  fi
+  [[ -d "$SRC_RUN" ]] || die "Run directory not found: $SRC_RUN"
+  [[ -s "$SRC_RUN/consensuses.clean.fa" ]] || die "Missing consensuses.clean.fa in: $SRC_RUN"
+  [[ -d "$SRC_RUN/genome.clean_step1" ]] || die "Missing genome.clean_step1 in: $SRC_RUN"
+  log "Source run: $SRC_RUN"
+
+  # Verify the family exists
+  local found
+  found="$(awk -v name="$EXCLUDE_NAME" '/^>/{hdr=$0; sub(/^>/,"",hdr); sub(/[ \t].*/,"",hdr); if(hdr==name) print hdr}' "$SRC_RUN/consensuses.clean.fa")"
+  [[ -n "$found" ]] || die "SINE family '$EXCLUDE_NAME' not found in consensuses.clean.fa of $SRC_RUN"
+
+  log "Excluding SINE family: $EXCLUDE_NAME"
+
+  # Create new run directory
+  RUN_TAG="$(date '+%Y%m%d_%H%M%S')"
+  RUN="$(pwd -P)/run_excl_${RUN_TAG}"
+  mkdir -p "$RUN" || die "Failed to create run dir: $RUN"
+  log "New run directory: $RUN"
+
+  # Copy scripts
+  cp -f "$STEP1_SRC"  "$RUN/step1_search_extract.sh"
+  cp -f "$ASSIGN_SRC" "$RUN/step2_asSINEment.sh"
+  cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
+  [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
+  [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
+  chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
+  [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
+
+  # Copy genome (symlink)
+  ln -sf "$SRC_RUN/genome.clean.fa" "$RUN/genome.clean.fa"
+  [[ -f "$SRC_RUN/genome.clean.fa.fai" ]] && ln -sf "$SRC_RUN/genome.clean.fa.fai" "$RUN/genome.clean.fa.fai"
+
+  # Create consensus WITHOUT excluded family
+  log "Creating consensus file without $EXCLUDE_NAME"
+  awk -v excl="$EXCLUDE_NAME" '
+    /^>/{ hdr=$0; sub(/^>/,"",hdr); sub(/[ \t].*/,"",hdr); skip=(hdr==excl) }
+    !skip{ print }
+  ' "$SRC_RUN/consensuses.clean.fa" > "$RUN/consensuses.clean.fa"
+
+  local remaining
+  remaining="$(grep -c "^>" "$RUN/consensuses.clean.fa" || echo 0)"
+  log "Remaining consensuses: $remaining"
+  [[ $remaining -gt 0 ]] || die "No consensuses left after exclusion!"
+
+  # Copy step1 output, then remove BED files for excluded family
+  log "Copying step1 output from source run..."
+  cp -r "$SRC_RUN/genome.clean_step1" "$RUN/genome.clean_step1"
+
+  # Fix genome.path to point to this run's genome (absolute)
+  echo "$RUN/genome.clean.fa" > "$RUN/genome.clean_step1/genome.path"
+
+  # Remove BED files and split files for the excluded family
+  cd "$RUN/genome.clean_step1/searches" || die "Cannot cd into searches"
+
+  local removed_beds=0
+  for bed in *.bed; do
+    [[ "$bed" == "all_hits.labeled.bed" ]] && continue
+    [[ "$bed" == "regions.by_subfam.bed" ]] && continue
+    [[ -s "$bed" ]] || continue
+
+    base="${bed%.bed}"
+    base="${base#gen-}"
+
+    # Determine what subfamily this bed belongs to
+    local qfile sf
+    qfile=""
+    for f in "${base}".part_*.* "${base}".*; do
+      [[ -f "$f" && "$f" != *.bed ]] && { qfile="$f"; break; }
+    done
+    sf="$base"
+    if [[ -n "$qfile" && -f "$qfile" ]]; then
+      sf="$(awk '/^>/{h=$1; sub(/^>/,"",h); print h; exit}' "$qfile")"
+      [[ -n "$sf" ]] || sf="$base"
+    fi
+
+    if [[ "$sf" == "$EXCLUDE_NAME" ]]; then
+      log "  Removing search data for: $sf ($bed)"
+      rm -f "$bed"
+      # Also remove the split query file
+      [[ -n "$qfile" && -f "$qfile" ]] && rm -f "$qfile"
+      removed_beds=$((removed_beds + 1))
+    fi
+  done
+
+  log "Removed $removed_beds BED file(s) for $EXCLUDE_NAME"
+
+  cd "$RUN" || die "Cannot cd back to run dir"
+
+  # Get consensus extension
+  local CONS_EXT="fa"
+  local sample_split
+  sample_split="$(ls -1 genome.clean_step1/searches/*.part_*.* 2>/dev/null | head -n1 || true)"
+  if [[ -n "$sample_split" ]]; then
+    CONS_EXT="${sample_split##*.}"
+  fi
+
+  # Rebuild all BED/extracted data from remaining searches
+  rebuild_from_searches "$(pwd -P)/genome.clean_step1" "$CONS_EXT"
+
+  # Write manifest
+  {
+    printf "RUN\t%s\n" "$RUN"
+    printf "PWD\t%s\n" "$(pwd -P)"
+    printf "SCRIPT_DIR\t%s\n" "$SCRIPT_DIR"
+    printf "SOURCE_RUN\t%s\n" "$SRC_RUN"
+    printf "EXCLUDED\t%s\n" "$EXCLUDE_NAME"
+    printf "THREADS\t%s\n" "$THREADS"
+    printf "MODE\texclude\n"
+    printf "DATE\t%s\n" "$(date)"
+  } > manifest.txt
+
+  # Run step2 + step3
+  run_step2_step3 "$(pwd -P)"
+}
+
+
+###############################################################################
+# DISPATCH
+###############################################################################
+case "$MODE" in
+  full)
+    [[ -n "$GENOME_IN" && -n "$CONS_IN" ]] || usage
+    mode_full
+    ;;
+  add)
+    mode_add
+    ;;
+  exclude)
+    mode_exclude
+    ;;
+  *)
+    die "Unknown mode: $MODE"
+    ;;
+esac

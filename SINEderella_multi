@@ -1,0 +1,659 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+###############################################################################
+# SINEderella_multi
+#
+# Multi-genome orchestration wrapper for SINEderella.
+# Runs the SINEderella pipeline on multiple genomes and produces a
+# cross-species summary table suitable for Google Sheets.
+#
+# Usage:
+#   SINEderella_multi full    <genomes.tsv> <consensus.fa>  [options]
+#   SINEderella_multi add     <genomes.tsv> <new_sine.fa>   [options]
+#   SINEderella_multi exclude <genomes.tsv> <SINE_name>     [options]
+#   SINEderella_multi plots   <genomes.tsv>                 [options]
+#   SINEderella_multi summary                               --project <dir> [options]
+#
+# genomes.tsv format (tab-separated):
+#   Species_Name    /path/to/genome.fa    [/consensus.fa]    [/workdir]
+#   # Lines starting with # are comments; blank lines are ignored.
+#   # Column 3 (per-species consensus override) is optional.
+#   # Column 4 (workdir): directory containing an existing SINEderella run_*.
+#   #   Used by add/exclude when --project is not provided.
+#   #   Defaults to ./Species_Name/ in the current directory if omitted.
+#
+# Options:
+#   --project <dir>    Project directory. Required for summary mode.
+#                      For add/exclude: optional if workdirs are available via
+#                      genomes.tsv column 4 or ./Species_Name/ exists.
+#                      For full: auto-created if omitted.
+#   --parallel <N>     Run up to N genomes in parallel (default: 1)
+#   --threads <N>      CPU threads per SINEderella invocation (default: nproc)
+#   --resume           Skip species that already have completed results
+#
+# Output:
+#   multi_YYYYMMDD_HHMMSS/
+#     project_manifest.tsv         Full provenance log
+#     genomes.tsv                  Copy of genome list
+#     <Species_Name>/              Per-species working directory
+#       run_*/                     SINEderella run directory
+#     summary/
+#       cross_species_summary.tsv  Wide table for Google Sheets
+#       <Species_Name>.all_sines.bedlike.ALL.tsv      (symlinks)
+#       <Species_Name>.assignment_full.tsv            (symlinks)
+#       <Species_Name>.summary.by_subfam.tsv          (symlinks)
+#       <Species_Name>.unassigned.tsv                 (symlinks)
+###############################################################################
+
+log(){ printf '[%s] [multi] %s\n' "$(date '+%F %T')" "$*" >&2; }
+die(){ printf '[%s] [multi] ERROR: %s\n' "$(date '+%F %T')" "$*" >&2; exit 1; }
+
+# ── Locate SINEderella next to this script ──────────────────────────────────
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+SINEDERELLA="$SCRIPT_DIR/SINEderella"
+[[ -f "$SINEDERELLA" ]] || die "SINEderella not found in: $SCRIPT_DIR"
+[[ -x "$SINEDERELLA" ]] || chmod +x "$SINEDERELLA" 2>/dev/null || true
+
+usage(){
+  cat >&2 <<'EOF'
+SINEderella_multi — Multi-genome orchestration for SINEderella
+
+Usage:
+  SINEderella_multi full    <genomes.tsv> <consensus.fa>  [options]
+  SINEderella_multi add     <genomes.tsv> <new_sine.fa>   [options]
+  SINEderella_multi exclude <genomes.tsv> <SINE_name>     [options]
+  SINEderella_multi plots   <genomes.tsv>                 [options]
+  SINEderella_multi summary                               --project <dir> [options]
+
+Modes:
+  full       Run complete pipeline on every genome in the list.
+             A project directory is auto-created (multi_YYYYMMDD_HHMMSS/).
+  add        Run SINEderella --add on every genome.
+  exclude    Run SINEderella --exclude on every genome.
+  plots      Run step 4 diagnostic plots on every genome.
+  summary    (Re)generate cross-species summary only (requires --project).
+
+  For add/exclude, the script needs to find each species' existing run_*
+  directory.  You can either:
+    - use --project <dir> pointing to a previous multi project, OR
+    - add a workdir column (4th) in genomes.tsv with the path to each
+      species' working directory.  If column 4 is omitted, ./Species_Name/
+      under the current directory is tried.
+
+genomes.tsv format (tab-separated):
+  Species_Name    /path/to/genome.fa    [/consensus.fa]    [/workdir]
+  Column 4 (workdir): directory with an existing run_* for that species.
+  Used by add/exclude when --project is not given (default: ./Species_Name/).
+
+Options:
+  --project <dir>    Project directory. Required for summary mode.
+                     For add/exclude: optional (see workdir above).
+                     For full: auto-created if omitted.
+  --parallel <N>     Concurrent genome runs (default: 1)
+  --threads <N>      CPU threads per SINEderella run (default: nproc)
+  --resume           Skip species that already have completed results
+                     in the project directory. Use with --project <dir>
+                     to resume an interrupted run.
+EOF
+  exit 2
+}
+
+###############################################################################
+# PARSE ARGUMENTS
+###############################################################################
+MODE=""
+GENOME_LIST=""
+CONS_FILE=""          # shared consensus for full mode
+ADD_FILE=""           # new SINE FASTA for add mode
+EXCLUDE_NAME=""       # family name for exclude mode
+PROJECT_DIR=""
+PARALLEL=1
+THREADS_PER=""
+RESUME=0
+
+[[ $# -eq 0 ]] && usage
+
+case "$1" in
+  full|add|exclude|plots|summary) MODE="$1"; shift ;;
+  -h|--help) usage ;;
+  *) die "Unknown subcommand: $1  (use: full, add, exclude, plots, summary)" ;;
+esac
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --project)
+      shift; [[ $# -gt 0 ]] || die "--project requires a directory"
+      PROJECT_DIR="$1"; shift ;;
+    --parallel)
+      shift; [[ $# -gt 0 ]] || die "--parallel requires a number"
+      PARALLEL="$1"; shift ;;
+    --threads)
+      shift; [[ $# -gt 0 ]] || die "--threads requires a number"
+      THREADS_PER="$1"; shift ;;
+    --resume)
+      RESUME=1; shift ;;
+    -h|--help) usage ;;
+    -*)
+      die "Unknown option: $1" ;;
+    *)
+      case "$MODE" in
+        full)
+          if   [[ -z "$GENOME_LIST" ]]; then GENOME_LIST="$1"
+          elif [[ -z "$CONS_FILE" ]];   then CONS_FILE="$1"
+          else die "Unexpected argument: $1"; fi ;;
+        add)
+          if   [[ -z "$GENOME_LIST" ]]; then GENOME_LIST="$1"
+          elif [[ -z "$ADD_FILE" ]];    then ADD_FILE="$1"
+          else die "Unexpected argument: $1"; fi ;;
+        exclude)
+          if   [[ -z "$GENOME_LIST" ]]; then GENOME_LIST="$1"
+          elif [[ -z "$EXCLUDE_NAME" ]]; then EXCLUDE_NAME="$1"
+          else die "Unexpected argument: $1"; fi ;;
+        summary)
+          die "summary mode takes no positional arguments (use --project)" ;;
+        plots)
+          if   [[ -z "$GENOME_LIST" ]]; then GENOME_LIST="$1"
+          else die "Unexpected argument: $1"; fi ;;
+      esac
+      shift ;;
+  esac
+done
+
+# ── Validate required arguments ─────────────────────────────────────────────
+case "$MODE" in
+  full)
+    [[ -n "$GENOME_LIST" && -f "$GENOME_LIST" ]] || die "Genome list file required and must exist"
+    [[ -n "$CONS_FILE"   && -f "$CONS_FILE"   ]] || die "Consensus FASTA required and must exist"
+    CONS_FILE="$(readlink -f "$CONS_FILE")" ;;
+  add)
+    [[ -n "$GENOME_LIST" && -f "$GENOME_LIST" ]] || die "Genome list file required and must exist"
+    [[ -n "$ADD_FILE"    && -f "$ADD_FILE"    ]] || die "New SINE FASTA required and must exist"
+    ADD_FILE="$(readlink -f "$ADD_FILE")" ;;
+  exclude)
+    [[ -n "$GENOME_LIST" && -f "$GENOME_LIST" ]] || die "Genome list file required and must exist"
+    [[ -n "$EXCLUDE_NAME" ]]                     || die "SINE family name required" ;;
+  plots)
+    [[ -n "$GENOME_LIST" && -f "$GENOME_LIST" ]] || die "Genome list file required and must exist" ;;
+  summary)
+    [[ -n "$PROJECT_DIR" ]] || die "--project required for summary mode" ;;
+esac
+
+[[ -n "$GENOME_LIST" ]] && GENOME_LIST="$(readlink -f "$GENOME_LIST")"
+[[ "$PARALLEL" =~ ^[0-9]+$ && "$PARALLEL" -ge 1 ]] || die "--parallel must be ≥1"
+
+###############################################################################
+# READ GENOME LIST
+###############################################################################
+declare -a SPECIES_NAMES=()
+declare -A GENOME_PATHS=()
+declare -A SPECIES_CONS=()    # optional per-species consensus override
+declare -A SPECIES_WORKDIR=() # optional per-species working directory
+
+if [[ "$MODE" != "summary" ]]; then
+  while IFS=$'\t' read -r sp gp cp_override workdir rest; do
+    # Skip comments and blank lines
+    [[ "$sp" =~ ^[[:space:]]*#  ]] && continue
+    [[ "$sp" =~ ^[[:space:]]*$  ]] && continue
+    # Trim whitespace
+    sp="$(echo "$sp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    gp="$(echo "$gp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    cp_override="$(echo "${cp_override:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+    [[ -n "$sp" && -n "$gp" ]] || continue
+
+    # Validate genome existence (strict for full, warn for others)
+    if [[ "$MODE" == "full" ]]; then
+      [[ -f "$gp" ]] || die "Genome not found for $sp: $gp"
+    else
+      [[ -f "$gp" ]] || log "WARNING: Genome not found for $sp: $gp (not required for $MODE mode)"
+    fi
+
+    # Check duplicate species names
+    for existing in "${SPECIES_NAMES[@]+"${SPECIES_NAMES[@]}"}"; do
+      [[ "$existing" == "$sp" ]] && die "Duplicate species name in genome list: $sp"
+    done
+
+    SPECIES_NAMES+=("$sp")
+    GENOME_PATHS["$sp"]="$(readlink -f "$gp" 2>/dev/null || echo "$gp")"
+
+    if [[ -n "$cp_override" && -f "$cp_override" ]]; then
+      SPECIES_CONS["$sp"]="$(readlink -f "$cp_override")"
+      log "  $sp: using per-species consensus: $cp_override"
+    fi
+
+    workdir="$(echo "${workdir:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    if [[ -n "$workdir" ]]; then
+      SPECIES_WORKDIR["$sp"]="$(readlink -f "$workdir" 2>/dev/null || echo "$workdir")"
+      log "  $sp: workdir: ${SPECIES_WORKDIR[$sp]}"
+    fi
+  done < "$GENOME_LIST"
+
+  (( ${#SPECIES_NAMES[@]} > 0 )) || die "No valid genomes found in: $GENOME_LIST"
+  log "Loaded ${#SPECIES_NAMES[@]} genome(s) from list"
+fi
+
+###############################################################################
+# PROJECT DIRECTORY
+###############################################################################
+if [[ "$MODE" == "full" && -z "$PROJECT_DIR" ]]; then
+  PROJECT_DIR="$(pwd -P)/multi_$(date '+%Y%m%d_%H%M%S')"
+  mkdir -p "$PROJECT_DIR"
+  log "Created project directory: $PROJECT_DIR"
+  # Copy genome list into project for provenance
+  cp -f "$GENOME_LIST" "$PROJECT_DIR/genomes.tsv"
+elif [[ -n "$PROJECT_DIR" ]]; then
+  if [[ "$MODE" == "full" ]]; then
+    # full mode with explicit --project: use existing dir
+    mkdir -p "$PROJECT_DIR"
+    cp -f "$GENOME_LIST" "$PROJECT_DIR/genomes.tsv"
+  fi
+  [[ -d "$PROJECT_DIR" ]] || die "Project directory not found: $PROJECT_DIR"
+  PROJECT_DIR="$(readlink -f "$PROJECT_DIR")"
+  log "Using project directory: $PROJECT_DIR"
+else
+  # add/exclude without --project: auto-create project, symlink species workdirs
+  PROJECT_DIR="$(pwd -P)/multi_$(date '+%Y%m%d_%H%M%S')"
+  mkdir -p "$PROJECT_DIR"
+  log "Auto-created project directory: $PROJECT_DIR"
+  [[ -n "${GENOME_LIST:-}" ]] && cp -f "$GENOME_LIST" "$PROJECT_DIR/genomes.tsv"
+
+  for _sp in "${SPECIES_NAMES[@]}"; do
+    _wdir="${SPECIES_WORKDIR[$_sp]:-$(pwd -P)/$_sp}"
+    if [[ ! -d "$_wdir" ]]; then
+      die "Working directory not found for $_sp: $_wdir (set column 4 in genomes.tsv, or use --project)"
+    fi
+    ln -sfn "$_wdir" "$PROJECT_DIR/$_sp"
+    log "  $_sp -> $_wdir"
+  done
+fi
+
+# Append to project manifest (serves as audit trail)
+{
+  printf "=== %s ===\n" "$(date '+%F %T')"
+  printf "MODE\t%s\n" "$MODE"
+  printf "PROJECT\t%s\n" "$PROJECT_DIR"
+  [[ -n "${GENOME_LIST:-}" ]]  && printf "GENOME_LIST\t%s\n" "$GENOME_LIST"
+  [[ -n "${CONS_FILE:-}" ]]    && printf "CONSENSUS\t%s\n" "$CONS_FILE"
+  [[ -n "${ADD_FILE:-}" ]]     && printf "ADD_FILE\t%s\n" "$ADD_FILE"
+  [[ -n "${EXCLUDE_NAME:-}" ]] && printf "EXCLUDE_NAME\t%s\n" "$EXCLUDE_NAME"
+  printf "PARALLEL\t%s\n" "$PARALLEL"
+  printf "THREADS_PER\t%s\n" "${THREADS_PER:-auto}"
+  printf "RESUME\t%s\n" "$RESUME"
+  [[ "$MODE" != "summary" ]]   && printf "N_GENOMES\t%d\n" "${#SPECIES_NAMES[@]}"
+  printf "\n"
+} >> "$PROJECT_DIR/project_manifest.tsv"
+
+###############################################################################
+# RUN SINEDERELLA PER GENOME
+###############################################################################
+run_one_genome(){
+  local species="$1"
+  local genome_path="$2"
+  local species_dir="$PROJECT_DIR/$species"
+  mkdir -p "$species_dir"
+
+  local ts; ts="$(date '+%Y%m%d_%H%M%S')"
+  local logfile="$species_dir/${MODE}_${ts}.log"
+  local rc=0
+
+  log "[$species] START ($MODE)"
+
+  (
+    cd "$species_dir" || exit 1
+
+    # Add SINEderella tools to PATH (for sear, step scripts, etc.)
+    export PATH="$SCRIPT_DIR:$PATH"
+
+    # Set per-run threads
+    [[ -n "${THREADS_PER:-}" ]] && export THREADS="$THREADS_PER"
+
+    case "$MODE" in
+      full)
+        local cons="${SPECIES_CONS[$species]:-$CONS_FILE}"
+        "$SINEDERELLA" "$genome_path" "$cons"
+        ;;
+      add)
+        "$SINEDERELLA" --add "$ADD_FILE"
+        ;;
+      exclude)
+        "$SINEDERELLA" --exclude "$EXCLUDE_NAME"
+        ;;
+    esac
+  ) > "$logfile" 2> >(while IFS= read -r line; do
+      # Write to log file AND prefix with species name to stderr
+      echo "$line" >> "$logfile"
+      printf '[%s] [multi] [%s] %s\n' "$(date '+%F %T')" "$species" "$line" >&2
+    done) || rc=$?
+
+  if (( rc == 0 )); then
+    log "[$species] OK"
+  else
+    log "[$species] FAILED (exit $rc) — see $logfile"
+  fi
+  return $rc
+}
+
+declare -a OK_SPECIES=()
+declare -a FAILED_SPECIES=()
+declare -a SKIPPED_SPECIES=()
+
+# ── Helper: check if species already has completed results ───────────────
+species_is_done(){
+  local sp_dir="$PROJECT_DIR/$1"
+  [[ -d "$sp_dir" ]] || return 1
+  local latest; latest="$(ls -dt "$sp_dir"/run_* 2>/dev/null | head -n1 || true)"
+  [[ -n "$latest" && -d "$latest" ]] || return 1
+  local s2out; s2out="$(ls -dt "$latest"/step2/step2_output* 2>/dev/null | head -n1 || true)"
+  [[ -n "$s2out" && -f "$s2out/summary.by_subfam.tsv" ]]
+}
+
+if [[ "$MODE" == "plots" ]]; then
+  ###########################################################################
+  # PLOTS MODE — run step4_plots.sh in each species' latest run dir
+  ###########################################################################
+  PLOT_SCRIPT="$SCRIPT_DIR/step4_plots.sh"
+  PLOT_PY="$SCRIPT_DIR/plot_subfamily.py"
+  [[ -f "$PLOT_SCRIPT" ]] || die "step4_plots.sh not found in $SCRIPT_DIR"
+  [[ -f "$PLOT_PY" ]]     || die "plot_subfamily.py not found in $SCRIPT_DIR"
+  chmod +x "$PLOT_SCRIPT" "$PLOT_PY" 2>/dev/null || true
+
+  for sp in "${SPECIES_NAMES[@]}"; do
+    sp_dir="$PROJECT_DIR/$sp"
+    [[ -d "$sp_dir" ]] || { log "[$sp] SKIP — directory not found: $sp_dir"; FAILED_SPECIES+=("$sp"); continue; }
+
+    # Find latest run_* directory
+    latest="$(ls -dt "$sp_dir"/run_* 2>/dev/null | head -n1 || true)"
+    [[ -n "$latest" && -d "$latest" ]] || { log "[$sp] SKIP — no run_* directory found"; FAILED_SPECIES+=("$sp"); continue; }
+
+    log "[$sp] Running plots in $latest"
+    # Copy scripts into run dir if missing
+    cp -f "$PLOT_SCRIPT" "$latest/step4_plots.sh"
+    cp -f "$PLOT_PY"     "$latest/plot_subfamily.py"
+    chmod +x "$latest/step4_plots.sh" "$latest/plot_subfamily.py" 2>/dev/null || true
+
+    local_threads="${THREADS_PER:-$(nproc 2>/dev/null || echo 4)}"
+    set +e
+    (
+      cd "$latest" || exit 1
+      ./step4_plots.sh "$(pwd -P)" "$local_threads"
+    ) 2> >(while IFS= read -r line; do
+        printf '[%s] [multi] [%s] %s\n' "$(date '+%F %T')" "$sp" "$line" >&2
+      done)
+    plot_rc=$?
+    set -e
+
+    if (( plot_rc == 0 )); then
+      # Ensure plots/ symlink exists in results/
+      s2out="$(ls -dt "$latest"/step2/step2_output* 2>/dev/null | head -n1 || true)"
+      if [[ -n "$s2out" && -d "$s2out/plots" && -d "$latest/results" ]]; then
+        ln -sfn "../${s2out#$latest/}/plots" "$latest/results/plots" 2>/dev/null || true
+      fi
+      log "[$sp] OK"
+      OK_SPECIES+=("$sp")
+    else
+      log "[$sp] FAILED (exit $plot_rc)"
+      FAILED_SPECIES+=("$sp")
+    fi
+  done
+
+  log "============================================================"
+  log "Plots completed: ${#OK_SPECIES[@]}/${#SPECIES_NAMES[@]} genomes"
+  if (( ${#FAILED_SPECIES[@]} > 0 )); then
+    log "FAILED:    ${FAILED_SPECIES[*]}"
+  fi
+  log "============================================================"
+
+elif [[ "$MODE" != "summary" ]]; then
+
+  if (( PARALLEL <= 1 )); then
+    # ── Sequential execution ──────────────────────────────────────────────
+    for sp in "${SPECIES_NAMES[@]}"; do
+      if (( RESUME )) && species_is_done "$sp"; then
+        log "[$sp] SKIP — already completed (--resume)"
+        SKIPPED_SPECIES+=("$sp")
+        OK_SPECIES+=("$sp")
+        continue
+      fi
+      if run_one_genome "$sp" "${GENOME_PATHS[$sp]}"; then
+        OK_SPECIES+=("$sp")
+      else
+        FAILED_SPECIES+=("$sp")
+      fi
+    done
+  else
+    # ── Parallel execution with job pool ──────────────────────────────────
+    declare -A RUNNING=()   # species -> PID
+
+    reap_finished(){
+      for rsp in "${!RUNNING[@]}"; do
+        if ! kill -0 "${RUNNING[$rsp]}" 2>/dev/null; then
+          if wait "${RUNNING[$rsp]}" 2>/dev/null; then
+            OK_SPECIES+=("$rsp")
+          else
+            FAILED_SPECIES+=("$rsp")
+          fi
+          unset 'RUNNING[$rsp]'
+        fi
+      done
+    }
+
+    for sp in "${SPECIES_NAMES[@]}"; do
+      if (( RESUME )) && species_is_done "$sp"; then
+        log "[$sp] SKIP — already completed (--resume)"
+        SKIPPED_SPECIES+=("$sp")
+        OK_SPECIES+=("$sp")
+        continue
+      fi
+      # Block until a slot is free
+      while (( ${#RUNNING[@]} >= PARALLEL )); do
+        sleep 1
+        reap_finished
+      done
+
+      run_one_genome "$sp" "${GENOME_PATHS[$sp]}" &
+      RUNNING["$sp"]=$!
+    done
+
+    # Drain remaining jobs
+    while (( ${#RUNNING[@]} > 0 )); do
+      sleep 1
+      reap_finished
+    done
+  fi
+
+  log "============================================================"
+  log "Completed: ${#OK_SPECIES[@]}/${#SPECIES_NAMES[@]} genomes"
+  if (( ${#SKIPPED_SPECIES[@]} > 0 )); then
+    log "SKIPPED:   ${SKIPPED_SPECIES[*]} (already done)"
+  fi
+  if (( ${#FAILED_SPECIES[@]} > 0 )); then
+    log "FAILED:    ${FAILED_SPECIES[*]}"
+  fi
+  log "============================================================"
+fi
+
+###############################################################################
+# GENERATE CROSS-SPECIES SUMMARY
+###############################################################################
+generate_summary(){
+  local projdir="$1"
+  local sumdir="$projdir/summary"
+  rm -rf "$sumdir"
+  mkdir -p "$sumdir"
+  log "Generating cross-species summary ..."
+
+  # ── Discover species with valid results ───────────────────────────────
+  local -a found_species=()
+  local -a found_outdirs=()
+  local -a found_rundirs=()
+
+  for sp_dir in "$projdir"/*/; do
+    [[ -d "$sp_dir" ]] || continue
+    local sp; sp="$(basename "$sp_dir")"
+    [[ "$sp" == "summary" ]] && continue
+
+    # Find latest run_* directory
+    local latest; latest="$(ls -dt "$sp_dir"/run_* 2>/dev/null | head -n1 || true)"
+    [[ -n "$latest" && -d "$latest" ]] || continue
+
+    # Find latest step2 output
+    local s2out; s2out="$(ls -dt "$latest"/step2/step2_output* 2>/dev/null | head -n1 || true)"
+    [[ -n "$s2out" && -d "$s2out" ]] || continue
+
+    found_species+=("$sp")
+    found_outdirs+=("$s2out")
+    found_rundirs+=("$latest")
+
+    # Symlink per-species key output files into summary/
+    for f in all_sines.bedlike.ALL.tsv assignment_full.tsv \
+             summary.by_subfam.tsv unassigned.tsv \
+             assignment_stats.tsv all_votes.tsv self_bits.tsv; do
+      [[ -f "$s2out/$f" ]] && ln -sf "$s2out/$f" "$sumdir/${sp}.${f}"
+    done
+  done
+
+  if (( ${#found_species[@]} == 0 )); then
+    log "WARNING: No species with results found in project"
+    return
+  fi
+  log "Found ${#found_species[@]} species with results"
+
+  # ── Collect all unique subfamily names across species ─────────────────
+  local tmpfile; tmpfile="$(mktemp)"
+  for i in "${!found_species[@]}"; do
+    local sf_file="${found_outdirs[$i]}/summary.by_subfam.tsv"
+    if [[ -f "$sf_file" ]]; then
+      awk -F'\t' 'NR>1 && $1!="" { print $1 }' "$sf_file"
+    fi
+  done | sort -u > "$tmpfile"
+
+  local -a ALL_SF
+  mapfile -t ALL_SF < "$tmpfile"
+  rm -f "$tmpfile"
+
+  if (( ${#ALL_SF[@]} == 0 )); then
+    log "WARNING: No SINE subfamilies found across any species"
+    return
+  fi
+  log "  ${#ALL_SF[@]} unique SINE families/subfamilies"
+
+  # ── Build cross-species summary table ─────────────────────────────────
+  # Format: wide table with Species | Total_Loci | Fam_firm | Fam_total | ... | Unassigned
+  # Firm = strict (10/10 unanimous + above threshold)
+  # Total = firm + soft (includes search-hit recovery for unassigned)
+
+  local outfile="$sumdir/cross_species_summary.tsv"
+
+  # Header row
+  {
+    printf "Species\tTotal_Loci"
+    for sf in "${ALL_SF[@]}"; do
+      printf "\t%s_firm\t%s_total" "$sf" "$sf"
+    done
+    printf "\tUnassigned_n\tUnassigned_pct\n"
+  } > "$outfile"
+
+  # Data rows: one per species
+  for i in "${!found_species[@]}"; do
+    local sp="${found_species[$i]}"
+    local odir="${found_outdirs[$i]}"
+
+    # Total extracted loci (assignment_full.tsv has 1 header line)
+    local total_loci=0
+    if [[ -f "$odir/assignment_full.tsv" ]]; then
+      total_loci=$(( $(wc -l < "$odir/assignment_full.tsv") - 1 ))
+      (( total_loci < 0 )) && total_loci=0
+    fi
+
+    printf "%s\t%d" "$sp" "$total_loci"
+
+    # Per-subfamily firm and total counts
+    local sf_file="$odir/summary.by_subfam.tsv"
+    for sf in "${ALL_SF[@]}"; do
+      local firm=0 total=0
+      if [[ -f "$sf_file" ]]; then
+        # Detect format: new format has firm_assigned in col2, total_assigned in col4
+        # Old format has assigned_total in col2 (use as both firm & total)
+        local header_col2
+        header_col2="$(awk -F'\t' 'NR==1{print $2; exit}' "$sf_file")"
+
+        if [[ "$header_col2" == "firm_assigned" ]]; then
+          # New format: col2=firm_assigned, col4=total_assigned
+          read -r firm total < <(
+            awk -F'\t' -v sf="$sf" 'NR>1 && $1==sf { printf "%s %s", $2, $4; exit }' "$sf_file"
+          ) || true
+        else
+          # Old format: col2=assigned_total (treat as firm; total=same)
+          read -r firm total < <(
+            awk -F'\t' -v sf="$sf" 'NR>1 && $1==sf { printf "%s %s", $2, $2; exit }' "$sf_file"
+          ) || true
+        fi
+        [[ "$firm"  =~ ^[0-9]+$ ]] || firm=0
+        [[ "$total" =~ ^[0-9]+$ ]] || total=0
+      fi
+      printf "\t%d\t%d" "$firm" "$total"
+    done
+
+    # Unassigned (unassigned.tsv has 1 header line)
+    local unasgn=0
+    if [[ -f "$odir/unassigned.tsv" ]]; then
+      unasgn=$(( $(wc -l < "$odir/unassigned.tsv") - 1 ))
+      (( unasgn < 0 )) && unasgn=0
+    fi
+    local upct="0.00"
+    if (( total_loci > 0 )); then
+      upct="$(awk -v n="$unasgn" -v t="$total_loci" 'BEGIN{ printf "%.2f", 100*n/t }')"
+    fi
+
+    printf "\t%d\t%s\n" "$unasgn" "$upct"
+
+  done >> "$outfile"
+
+  log "Summary table written: $outfile"
+  log "Per-species files symlinked in: $sumdir/"
+
+  # ── Generate SINE-KB import report (JSON) ─────────────────────────────
+  local report_gen="$SCRIPT_DIR/generate_sinekb_report.py"
+  if [[ -f "$report_gen" ]]; then
+    if command -v python3 >/dev/null 2>&1; then
+      log "Generating SINE-KB report ..."
+      python3 "$report_gen" "$projdir" 2>&1 | while IFS= read -r line; do log "$line"; done || \
+        log "WARNING: SINE-KB report generation failed (non-fatal)"
+    else
+      log "WARNING: python3 not available — skipping SINE-KB report"
+    fi
+  fi
+
+  # ── Print the table to stderr for quick review ────────────────────────
+  log ""
+  log "=== Cross-species summary ==="
+  # Use column for nice alignment if available, else just cat
+  if command -v column >/dev/null 2>&1; then
+    column -t -s $'\t' "$outfile" >&2
+  else
+    cat "$outfile" >&2
+  fi
+  log ""
+}
+
+generate_summary "$PROJECT_DIR"
+
+# ── Final report ────────────────────────────────────────────────────────────
+{
+  echo ""
+  echo "============================================================"
+  echo "  Project : $PROJECT_DIR"
+  echo "  Summary : $PROJECT_DIR/summary/"
+  echo "  Table   : $PROJECT_DIR/summary/cross_species_summary.tsv"
+  [[ -f "$PROJECT_DIR/summary/sinekb_report.json" ]] && \
+  echo "  KB Report: $PROJECT_DIR/summary/sinekb_report.json"
+  if (( ${#SKIPPED_SPECIES[@]} > 0 )); then
+    echo "  SKIPPED : ${SKIPPED_SPECIES[*]} (already done)"
+  fi
+  if (( ${#FAILED_SPECIES[@]} > 0 )); then
+    echo "  FAILED  : ${FAILED_SPECIES[*]}"
+  fi
+  echo "============================================================"
+  echo ""
+} >&2
