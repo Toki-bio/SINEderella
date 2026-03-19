@@ -35,6 +35,9 @@ Modes:
 
 Options:
   --run <dir>   Specify existing run directory (default: auto-detect latest)
+  --resume/-r   Resume an interrupted run from the last completed step.
+                Searches for the latest run_* in the working directory.
+                Use with --run <dir> to specify a run explicitly.
 
 Environment:
   THREADS     Number of CPU threads (default: nproc)
@@ -110,6 +113,10 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--exclude requires a SINE family name argument"
       EXCLUDE_NAME="$1"
+      shift
+      ;;
+    -r|--resume)
+      MODE="resume"
       shift
       ;;
     --run)
@@ -826,6 +833,142 @@ mode_exclude(){
 }
 
 
+
+###############################################################################
+# MODE: RESUME — continue an interrupted run from the last completed step
+###############################################################################
+mode_resume(){
+  # ── Locate run directory ──────────────────────────────────────────────────
+  local RUN
+  if [[ -n "${EXISTING_RUN:-}" ]]; then
+    RUN="$(readlink -f "$EXISTING_RUN")"
+  else
+    RUN="$(ls -dt ./run_* 2>/dev/null | head -n1 || true)"
+    [[ -n "$RUN" && -d "$RUN" ]] || \
+      die "No run_* directory found in $(pwd -P). Use --run <dir> to specify."
+    RUN="$(readlink -f "$RUN")"
+  fi
+  [[ -d "$RUN" ]] || die "Run directory not found: $RUN"
+  log "Resuming run: $RUN"
+  cd "$RUN" || die "Cannot cd into run dir: $RUN"
+
+  # ── Refresh scripts from current installation ─────────────────────────────
+  log "Refreshing scripts from $SCRIPT_DIR"
+  cp -f "$STEP1_SRC"  ./step1_search_extract.sh
+  cp -f "$ASSIGN_SRC" ./step2_asSINEment.sh
+  cp -f "$POST_SRC"   ./step3_postprocess.sh
+  [[ -z "${PLOT_SRC:-}"    ]] || cp -f "$PLOT_SRC"     ./step4_plots.sh
+  [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC"  ./plot_subfamily.py
+  chmod +x ./step1_search_extract.sh ./step2_asSINEment.sh \
+           ./step3_postprocess.sh 2>/dev/null || true
+  [[ ! -f ./step4_plots.sh ]] || \
+    chmod +x ./step4_plots.sh ./plot_subfamily.py 2>/dev/null || true
+
+  # ── Prerequisites ─────────────────────────────────────────────────────────
+  [[ -s genome.clean.fa      ]] || die "Missing genome.clean.fa — cannot resume"
+  [[ -s consensuses.clean.fa ]] || die "Missing consensuses.clean.fa — cannot resume"
+
+  # ── Step 1 ────────────────────────────────────────────────────────────────
+  if [[ -s genome.clean_step1/extracted.fasta ]]; then
+    log "Step1 — already complete, skipping"
+  else
+    log "Step1 — running..."
+    set +e
+    bash ./step1_search_extract.sh ./consensuses.clean.fa ./genome.clean.fa \
+      "$CHUNK_BP" "$FLANK" \
+      > >(tee step1.stdout.log) \
+      2> >(tee step1.stderr.log >&2)
+    step1_rc=$?
+    set -e
+    if (( step1_rc != 0 )); then
+      log "Step1 exit code: $step1_rc"
+      tail -n 120 step1.stderr.log >&2 || true
+      die "Step1 failed; see step1.stderr.log"
+    fi
+    # Resolve step1 output dir name (same logic as mode_full)
+    if [[ ! -d genome.clean_step1 ]]; then
+      mapfile -t _DIRS < <(find . -maxdepth 1 -mindepth 1 -type d \
+        -name '*_step1' -printf '%f\n' | sort)
+      if (( ${#_DIRS[@]} == 1 )); then
+        mv -- "${_DIRS[0]}" genome.clean_step1
+        log "Renamed Step1 dir ${_DIRS[0]} -> genome.clean_step1"
+      else
+        die "Cannot resolve Step1 output directory"
+      fi
+    fi
+    [[ -s genome.clean_step1/extracted.fasta ]] || \
+      die "Missing Step1 output: genome.clean_step1/extracted.fasta"
+  fi
+
+  # ── Steps 2 + 3 ───────────────────────────────────────────────────────────
+  local existing_s2out
+  existing_s2out="$(ls -dt step2/step2_output* 2>/dev/null | head -n1 || true)"
+
+  if [[ -n "$existing_s2out" && -s "$existing_s2out/summary.by_subfam.tsv" ]]; then
+    log "Step2+3 — already complete ($existing_s2out), skipping"
+
+    # ── Step 4 ──────────────────────────────────────────────────────────────
+    local plots_done=0
+    if [[ -d "$existing_s2out/plots" ]] && \
+       ls "$existing_s2out/plots"/*.png >/dev/null 2>&1; then
+      plots_done=1
+    fi
+    if (( plots_done )); then
+      log "Step4 — already complete, skipping"
+    elif [[ -n "${PLOT_SRC:-}" && -f ./step4_plots.sh && -f ./plot_subfamily.py ]]; then
+      log "Step4 — running..."
+      set +e
+      ./step4_plots.sh "$(pwd -P)" "$THREADS" \
+        > >(tee step4.stdout.log) \
+        2> >(tee step4.stderr.log >&2)
+      step4_rc=$?
+      set -e
+      if (( step4_rc != 0 )); then
+        log "WARNING: Step4 plots failed (exit $step4_rc) — continuing without plots"
+      fi
+    else
+      log "Step4 skipped (step4_plots.sh or plot_subfamily.py not found)"
+    fi
+
+    # ── Rebuild results/ symlinks ────────────────────────────────────────────
+    log "Rebuilding results/ symlinks"
+    local OUT_STEP2="$existing_s2out"
+    rm -rf results
+    mkdir -p results
+    for f in summary.by_subfam.tsv all_sines.bedlike.ALL.tsv unassigned.tsv \
+             assignment_stats.tsv assignment_full.tsv all_votes.tsv self_bits.tsv \
+             self_bits_real.tsv sim_scores.tsv; do
+      [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
+    done
+    for f in assigned.fasta unassigned.fasta; do
+      [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
+    done
+    [[ -d "$OUT_STEP2/subfamilies" ]] && \
+      ln -sf "../$OUT_STEP2/subfamilies" "results/subfamilies"
+    [[ -d "$OUT_STEP2/plots" ]] && \
+      ln -sf "../$OUT_STEP2/plots" "results/plots"
+    [[ -f genome.clean_step1/extracted.fasta ]] && \
+      ln -sf ../genome.clean_step1/extracted.fasta results/extracted.fasta
+    [[ -f genome.clean_step1/searches/all_hits.labeled.bed ]] && \
+      ln -sf ../genome.clean_step1/searches/all_hits.labeled.bed \
+             results/all_hits.labeled.bed
+    [[ -f genome.clean_step1/searches/regions.by_subfam.bed ]] && \
+      ln -sf ../genome.clean_step1/searches/regions.by_subfam.bed \
+             results/regions.by_subfam.bed
+    [[ -f consensuses.clean.fa ]] && \
+      ln -sf ../consensuses.clean.fa results/consensuses.fa
+    [[ -f genome.clean_assembly_qc.tsv ]] && \
+      ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
+
+  else
+    log "Step2+3 — running..."
+    run_step2_step3 "$(pwd -P)"
+  fi
+
+  log "DONE: $(pwd -P)"
+}
+
+
 ###############################################################################
 # DISPATCH
 ###############################################################################
@@ -839,6 +982,9 @@ case "$MODE" in
     ;;
   exclude)
     mode_exclude
+    ;;
+  resume)
+    mode_resume
     ;;
   *)
     die "Unknown mode: $MODE"
