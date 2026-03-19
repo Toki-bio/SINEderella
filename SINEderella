@@ -191,6 +191,7 @@ sanitize_fasta(){
          {
            hdr=$1
            gsub(/\r/,"",hdr)
+           gsub(/_/,"@U@",hdr)
            seq=""
            for(i=2;i<=NF;i++){ line=$i; gsub(/[ \t\r]/,"",line); seq=seq line }
            if(hdr!="" && seq!=""){
