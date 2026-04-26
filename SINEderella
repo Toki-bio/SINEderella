@@ -76,6 +76,19 @@ fi
 chmod +x "$MASTER_SELF" "$STEP1_SRC" "$ASSIGN_SRC" "$POST_SRC" 2>/dev/null || true
 [[ -z "$PLOT_SRC" ]] || chmod +x "$PLOT_SRC" "$PLOT_PY_SRC" 2>/dev/null || true
 
+# step6 report (optional)
+REPORT_SRC="$SCRIPT_DIR/step6_report.sh"
+REPORT_PY_SRC="$SCRIPT_DIR/step6_report.py"
+if [[ ! -f "$REPORT_SRC" || ! -s "$REPORT_SRC" ]]; then
+  log "WARNING: step6_report.sh not found in $SCRIPT_DIR — HTML report will be skipped"
+  REPORT_SRC=""
+fi
+if [[ -n "$REPORT_SRC" ]] && [[ ! -f "$REPORT_PY_SRC" || ! -s "$REPORT_PY_SRC" ]]; then
+  log "WARNING: step6_report.py not found in $SCRIPT_DIR — HTML report will be skipped"
+  REPORT_SRC=""
+fi
+[[ -z "$REPORT_SRC" ]] || chmod +x "$REPORT_SRC" "$REPORT_PY_SRC" 2>/dev/null || true
+
 # Minimal tools
 need awk; need sort; need find; need ls; need date; need tee
 
@@ -285,7 +298,21 @@ run_step2_step3(){
     log "Step4 plots skipped (step4_plots.sh or plot_subfamily.py not found in run dir)"
   fi
 
-  # Create results/ directory with symlinks to key output files
+  # --- Step 6: HTML report (optional) ---
+  if [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
+    log "Running Step6 HTML report (step6_report.sh)"
+    set +e
+    ./step6_report.sh "$(pwd -P)" \
+      > >(tee step6.stdout.log) \
+      2> >(tee step6.stderr.log >&2)
+    step6_rc=$?
+    set -e
+    if (( step6_rc != 0 )); then
+      log "WARNING: Step6 report failed (exit $step6_rc) — continuing without HTML report"
+    fi
+  else
+    log "Step6 HTML report skipped (step6_report.sh or step6_report.py not found in run dir)"
+  fi
   log "Creating results/ directory"
   rm -rf results
   mkdir -p results
@@ -457,8 +484,9 @@ mode_full(){
   [[ -f "$QC_SRC" ]] && cp -f "$QC_SRC" "$RUN/assembly_qc.sh"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
   [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
-
-  # sanitize genome
+  [[ -z "${REPORT_SRC:-}" ]]    || cp -f "$REPORT_SRC"    "$RUN/step6_report.sh"
+  [[ -z "${REPORT_PY_SRC:-}" ]] || cp -f "$REPORT_PY_SRC" "$RUN/step6_report.py"
+  [[ ! -f "$RUN/step6_report.sh" ]] || chmod +x "$RUN/step6_report.sh" "$RUN/step6_report.py" 2>/dev/null || true
   log "Sanitizing genome -> genome.clean.fa"
   sanitize_fasta "$GENOME_IN" "$RUN/genome.clean.fa" genome
   [[ -s "$RUN/genome.clean.fa" ]] || die "genome.clean.fa is empty (sanitize failed)"
@@ -592,6 +620,9 @@ mode_add(){
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
   [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
+  [[ -z "${REPORT_SRC:-}" ]]    || cp -f "$REPORT_SRC"    "$RUN/step6_report.sh"
+  [[ -z "${REPORT_PY_SRC:-}" ]] || cp -f "$REPORT_PY_SRC" "$RUN/step6_report.py"
+  [[ ! -f "$RUN/step6_report.sh" ]] || chmod +x "$RUN/step6_report.sh" "$RUN/step6_report.py" 2>/dev/null || true
 
   # Copy genome
   ln -sf "$SRC_RUN/genome.clean.fa" "$RUN/genome.clean.fa"
@@ -744,6 +775,9 @@ mode_exclude(){
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
   [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
+  [[ -z "${REPORT_SRC:-}" ]]    || cp -f "$REPORT_SRC"    "$RUN/step6_report.sh"
+  [[ -z "${REPORT_PY_SRC:-}" ]] || cp -f "$REPORT_PY_SRC" "$RUN/step6_report.py"
+  [[ ! -f "$RUN/step6_report.sh" ]] || chmod +x "$RUN/step6_report.sh" "$RUN/step6_report.py" 2>/dev/null || true
 
   # Copy genome (symlink)
   ln -sf "$SRC_RUN/genome.clean.fa" "$RUN/genome.clean.fa"
@@ -863,6 +897,9 @@ mode_resume(){
            ./step3_postprocess.sh 2>/dev/null || true
   [[ ! -f ./step4_plots.sh ]] || \
     chmod +x ./step4_plots.sh ./plot_subfamily.py 2>/dev/null || true
+  [[ -z "${REPORT_SRC:-}" ]]    || cp -f "$REPORT_SRC"    ./step6_report.sh
+  [[ -z "${REPORT_PY_SRC:-}" ]] || cp -f "$REPORT_PY_SRC" ./step6_report.py
+  [[ ! -f ./step6_report.sh ]] || chmod +x ./step6_report.sh ./step6_report.py 2>/dev/null || true
 
   # ── Prerequisites ─────────────────────────────────────────────────────────
   [[ -s genome.clean.fa      ]] || die "Missing genome.clean.fa — cannot resume"
