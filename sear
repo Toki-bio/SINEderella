@@ -272,7 +272,11 @@ if [[ $len -ge 1000 && $FORCE_SSEARCH -eq 0 ]]; then
 fi
 
 if [[ $MINIMAP_MODE -eq 1 ]]; then
+  # Minimap2-specific thresholds (more lenient than ssearch36 flen)
+  mm2_minlen=$(( len / 10 ))    # 1/10 of query length
+  mm2_merge_d=$(( len / 4 ))    # merge fragments within 1/4 of query length
   echo "Query >= 1000 bp — minimap2 mode (cascade: asm5 → asm10 → asm20)"
+  echo "Minimum hit length: $mm2_minlen bp, merge distance: $mm2_merge_d bp"
 
   # Auto-adjust -b N when not explicitly set
   if [[ $BEST -eq 1 && $BEST_N_EXPLICIT -eq 0 ]]; then
@@ -332,8 +336,8 @@ if [[ $MINIMAP_MODE -eq 1 ]]; then
   else
     # Merge ALL raw alignments first to chain fragments, THEN filter on merged results
     bedtools sort -i "$WORKING_BANK".minimap_raw.txt 2>/dev/null \
-    | bedtools merge -s -i - -c 4,5,6,7 -o max,max,distinct,max 2>/dev/null \
-    | awk -v hom="$Homology" -v minlen="$flen" \
+    | bedtools merge -s -d "$mm2_merge_d" -i - -c 4,5,6,7 -o max,max,distinct,max 2>/dev/null \
+    | awk -v hom="$Homology" -v minlen="$mm2_minlen" \
       'BEGIN{OFS="\t"} $4 >= hom && ($3 - $2) >= minlen' \
     > "$taxname-$qname.bed"
 
