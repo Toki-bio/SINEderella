@@ -257,6 +257,82 @@ step1_search_extract.sh <consensus.fa> <genome.fa> [sample_size] [bin_size]
 | `searches/regions.by_subfam.bed` | Merged regions with comma-separated subfamily lists |
 | `subfam_input/` | SubFam clustering output + MAFFT alignment |
 
+### 6.1 Manual Subfamily Discovery from SubFam Output (undocumented workflow, now documented)
+
+**This step was previously undocumented anywhere in this manual or the repository** — it exists
+only as a set of consensus-building scripts (§6.1.3 below) plus tribal knowledge of how to use
+`subfam_input/input.clw`. It is required whenever you don't yet have a reliable subfamily
+consensus set to feed Step 2 — either because none exists for this taxon at all (de novo
+discovery — see the separate `SINE-de-novo-genome-scan` tool for that earlier stage), or because
+an existing consensus set (e.g. 1-2 literature-published consensuses) is too coarse and needs to
+be split into finer, better-supported subfamilies before a real classification run.
+
+#### 6.1.1 What `input.clw` actually is — and its real limitation
+
+`SubFam` (§6, step 9) does not align your raw extracted sequences directly. It:
+1. Splits the (up to `sample_size`) sampled sequences into N chunks.
+2. Runs `mafft` on **each chunk independently** to build one majority-consensus sequence per chunk.
+3. Combines all N chunk-consensus sequences into a single file (`input.clw`) via a **fast final
+   alignment pass** across all of them together.
+
+**In practice this final pass is not a reliable, properly-converged multiple sequence alignment —
+it is a collection of independently-derived batch consensuses that ended up discordant with each
+other** (confirmed hands-on: chunk consensuses that are clearly related by eye do not consistently
+line up column-for-column in `input.clw` as delivered). Despite the `.clw` extension and the
+presence of gap characters, **do not treat `input.clw` as a trustworthy alignment on its own.**
+Before doing any visual clustering (§6.1.2), degap the sequences back to raw and rebuild a proper
+alignment:
+
+```bash
+# Degap to raw sequences, then realign properly (not the SubFam final pass)
+seqkit seq -w 0 subfam_input/input.clw | seqkit seq -g > input.degapped.fasta   # -g strips gaps
+mafft --auto --quiet input.degapped.fasta > input.realigned.fasta
+```
+
+(`--auto` picks an appropriate algorithm for the sequence count/divergence; for smaller sets,
+`--localpair --maxiterate 1000` — the same setting used elsewhere in this pipeline, e.g. §6 step 10
+— gives a more accurate alignment at higher compute cost.)
+
+#### 6.1.2 Visual clustering workflow
+
+1. Open `input.realigned.fasta` in an alignment viewer (e.g.
+   [MSA-viewer](https://toki-bio.github.io/MSA-viewer/) — no install required).
+2. Visually identify groups of chunk-consensus sequences that are mutually similar (share the same
+   diagnostic columns/motifs, consistent indel pattern) — these are your candidate subfamilies.
+   There is currently **no automated tool in this repository for this grouping decision** — it is
+   done by eye. (Exploring whether automated clustering — e.g. `vsearch --cluster_fast`, or
+   MSA-viewer's own position-pattern-based clustering feature — can reliably reproduce a human's
+   grouping is an open methodology question, not yet established as a reliable replacement for
+   visual inspection.)
+3. For each candidate group, extract the member chunk-consensus sequences into their own FASTA file.
+
+#### 6.1.3 Building a consensus per candidate subfamily
+
+Feed each group's extracted FASTA into one of the (previously undocumented) consensus-building
+scripts:
+
+```bash
+# Standard bootstrapped consensus
+sine_consensus.sh group_1.fasta group_1_out
+
+# Same, with variance-based early-stopping + LOW_CONFIDENCE quality flagging
+# (useful for detecting a group that doesn't actually converge cleanly — a sign it
+# may not be a real, coherent subfamily)
+sine_consensus_smart.sh group_1.fasta group_1_out
+```
+
+See `QUALITY_FLAGGING_README.md` for interpreting `sine_consensus_smart.sh`'s convergence
+diagnostics, and `analyze_convergence.sh` for batch-summarizing convergence across many groups at
+once.
+
+#### 6.1.4 Re-running SINEderella with the new consensus set
+
+Combine all newly-built per-group consensus sequences into a single FASTA (alongside any existing
+known consensuses you started from) and use it as the `<CONSENSUS_FASTA>` input to a fresh
+`SINEderella` run (§5) — or, if you already have a completed run whose `extracted.fasta` you want
+to reuse without redoing the search, run `step2_asSINEment.sh` (§7) directly against it with the
+new consensus set.
+
 ---
 
 ## 7. Step 2 — Assignment (asSINEment) (`step2_asSINEment.sh`)
