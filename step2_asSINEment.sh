@@ -188,19 +188,27 @@ run_assignment(){
         >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" || true
     done
 
-    # Extract best hit per sequence for this cycle
+    # Extract best hit per sequence for this cycle, plus the best-scoring distinct
+    # runner-up consensus (second place), for downstream LEAK/ambiguity detection.
     awk '{
-      seq=$2
-      cons=$1
-      bs=$12+0
-      if(!(seq in best_bs) || bs > best_bs[seq]){
-        best_bs[seq] = bs
-        best_cons[seq] = cons
-      }
+      seq=$2; cons=$1; bs=$12+0
+      key=seq SUBSEP cons
+      if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
     }
     END{
+      for(key in pair_bs){
+        split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
+        if(!(seq in best_bs) || bs > best_bs[seq]){
+          if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
+          best_bs[seq]=bs; best_cons[seq]=cons
+        } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
+          runner_bs[seq]=bs; runner_cons[seq]=cons
+        }
+      }
       for(seq in best_cons){
-        printf "%s\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5)
+        rb = (seq in runner_bs ? runner_bs[seq] : 0)
+        rc = (seq in runner_cons ? runner_cons[seq] : "NA")
+        printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
       }
     }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
   done
@@ -212,11 +220,17 @@ run_assignment(){
     key = $1 FS $2
     vote_count[key]++
     bitscore_sum[key] += $3
+    runner_bs_sum[key] += $5
+    if(!(key in best_runner_bs) || $5+0 > best_runner_bs[key]){
+      best_runner_bs[key] = $5+0
+      runner_cons[key] = $4
+    }
   }
   END{
     for(key in vote_count){
       split(key, a, FS)
-      print a[1], a[2], vote_count[key], bitscore_sum[key]
+      rc = (key in runner_cons ? runner_cons[key] : "NA")
+      print a[1], a[2], vote_count[key], bitscore_sum[key], runner_bs_sum[key], rc
     }
   }' "$TMPDIR/votes.tsv" | sort -k1,1 -k3,3nr -k2,2 > "$TMPDIR/vote_summary.tsv"
 
@@ -247,17 +261,23 @@ run_assignment(){
     cons = $2
     votes = $3 + 0
     bs_sum = $4 + 0
+    rbs_sum = $5 + 0
+    rcons = $6
 
     if(votes == 10){
       if(!(seq in best_bs) || bs_sum > best_bs[seq]){
         best_bs[seq] = bs_sum
         best_cons[seq] = cons
+        best_rbs[seq] = rbs_sum
+        best_rcons[seq] = rcons
       }
     }
   }
   END{
     for(seq in best_cons){
-      printf "%s\t%s\t%d\t10\n", seq, best_cons[seq], int(best_bs[seq]+0.5)
+      rc = (seq in best_rcons ? best_rcons[seq] : "NA")
+      rb = (seq in best_rbs ? best_rbs[seq] : 0)
+      printf "%s\t%s\t%d\t10\t%d\t%s\n", seq, best_cons[seq], int(best_bs[seq]+0.5), int(rb+0.5), rc
     }
   }' "$TMPDIR/vote_summary.tsv" | sort -k2,2 -k3,3nr > "$TMPDIR/unanimous.tsv"
 
@@ -309,6 +329,8 @@ run_assignment(){
     cons = $2
     bs = $3 + 0
     votes = $4
+    rbs = $5 + 0
+    rcons = $6
 
     if(bs >= threshold[cons]){
       status = "assigned"
@@ -316,7 +338,10 @@ run_assignment(){
       status = "rejected_low_bitscore"
     }
 
-    printf "%s\t%s\t%d\t%d\t%s\t%d\n", seq, cons, bs, votes, status, threshold[cons]
+    rratio = (bs > 0 ? rbs/bs : 0)
+    tag = sprintf("runner=%s;runner_bs=%d;runner_ratio=%.4f", (rcons==""?"NA":rcons), rbs, rratio)
+
+    printf "%s\t%s\t%d\t%d\t%s\t%d\t%s\n", seq, cons, bs, votes, status, threshold[cons], tag
   }' "$TMPDIR/thresholds.tsv" "$TMPDIR/unanimous.tsv" > "$TMPDIR/assignment_details.tsv"
 
   # Extract assigned sequence IDs
@@ -440,14 +465,15 @@ run_assignment(){
 
   # Full assignment details: includes unanimous (assigned/rejected) + non-unanimous
   {
-    echo -e "Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold"
+    echo -e "Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold\tRunnerInfo"
     # 1) unanimous sequences (assigned or rejected_low_bitscore)
     cat "$TMPDIR/assignment_details.tsv"
     # 2) non-unanimous sequences: best vote from all_votes.tsv minus unanimous
+    # (no per-cycle runner-up data survives past all_votes.tsv, so tag is NA here)
     awk 'BEGIN{FS=OFS="\t"}
     NR==FNR{ seen[$1]=1; next }
     !($1 in seen){
-      printf "%s\t%s\t%d\t%d\t%s\t%s\n", $1, $2, $4, $3, "no_unanimous", "NA"
+      printf "%s\t%s\t%d\t%d\t%s\t%s\t%s\n", $1, $2, $4, $3, "no_unanimous", "NA", "NA"
     }' "$TMPDIR/unanimous.tsv" "$OUTDIR/all_votes.tsv"
   } > "$OUTDIR/assignment_full.tsv"
 

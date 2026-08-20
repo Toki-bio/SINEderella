@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # original idea by me, impproved by Nikita, added xargs parallel alignment of chunks
 
 T0=$(date +%s); T1=$(date +%s)

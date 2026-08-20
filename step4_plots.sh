@@ -38,8 +38,22 @@ PLOTS_DIR="$OUT/plots"
 command -v ssearch36 >/dev/null 2>&1 || die "ssearch36 not in PATH"
 command -v mafft     >/dev/null 2>&1 || die "mafft not in PATH"
 command -v seqkit    >/dev/null 2>&1 || die "seqkit not in PATH"
-command -v python3   >/dev/null 2>&1 || die "python3 not in PATH"
-python3 -c "import matplotlib" 2>/dev/null || die "python3 matplotlib not installed"
+# Prefer a newer python3.X with matplotlib already importable over a bare
+# "python3" that may resolve to a system-ancient interpreter (e.g. 3.5) with
+# no usable matplotlib wheel available for it. Falls back to plain python3
+# unchanged if no better candidate is found, so this is a no-op on systems
+# where python3 already has matplotlib.
+PYTHON3="python3"
+if ! python3 -c "import matplotlib" 2>/dev/null; then
+  for cand in python3.13 python3.12 python3.11 python3.10 python3.9; do
+    if command -v "$cand" >/dev/null 2>&1 && "$cand" -c "import matplotlib" 2>/dev/null; then
+      PYTHON3="$cand"
+      break
+    fi
+  done
+fi
+command -v "$PYTHON3" >/dev/null 2>&1 || die "$PYTHON3 not in PATH"
+"$PYTHON3" -c "import matplotlib" 2>/dev/null || die "$PYTHON3 matplotlib not installed"
 
 # Log tool versions for diagnostics
 SSEARCH_VER=$(ssearch36 -h 2>&1 | grep -i 'version\|ssearch' | head -1 || echo "unknown")
@@ -169,7 +183,7 @@ for sf_fasta in "${subfam_files[@]}"; do
   # Generate both plots via Python
   # ===================================================================
   log "  Generating plots..."
-  python3 "$PLOT_PY" \
+  "$PYTHON3" "$PLOT_PY" \
     --subfamily "$sf_name" \
     --pctid "$tmpdir/pctid_${sf_name}.tsv" \
     --msa "$tmpdir/msa_${sf_name}.fa" \
