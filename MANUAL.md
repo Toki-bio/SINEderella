@@ -299,12 +299,20 @@ mafft --auto --quiet input.degapped.fasta > input.realigned.fasta
    [MSA-viewer](https://toki-bio.github.io/MSA-viewer/) — no install required).
 2. Visually identify groups of chunk-consensus sequences that are mutually similar (share the same
    diagnostic columns/motifs, consistent indel pattern) — these are your candidate subfamilies.
-   There is currently **no automated tool in this repository for this grouping decision** — it is
-   done by eye. (Exploring whether automated clustering — e.g. `vsearch --cluster_fast`, or
-   MSA-viewer's own position-pattern-based clustering feature — can reliably reproduce a human's
-   grouping is an open methodology question, not yet established as a reliable replacement for
-   visual inspection.)
 3. For each candidate group, extract the member chunk-consensus sequences into their own FASTA file.
+
+**Optional first-pass assist:** `step1b_cluster_subfamilies_assist.sh input.clw output_dir
+[--recurse]` runs an automated clustering pass (vendored from
+[MSA-viewer](https://toki-bio.github.io/MSA-viewer/)'s position-pattern-based `SINEClusterer`, in
+`subfam_cluster_lib.js`/`cluster_assist.js`) and writes a `clusters/summary.tsv` plus a
+FASTA+consensus per cluster. Validated against `vsearch --cluster_fast` and against a real
+9-subfamily ground-truth dataset (2026-08-21): it reliably resolves only the *coarsest* structure —
+it correctly recovered a true 2-subfamily split, but on the 9-subfamily case it collapsed everything
+into 2 giant blobs plus one small cluster, and `--recurse` (re-clustering oversized groups) did not
+recover further structure either. **Treat it strictly as a fast first pass, not a replacement for
+step 2 above** — always compare `summary.tsv` cluster sizes against your own expectation of how many
+subfamilies are likely present, and fall back to full visual inspection whenever the split looks too
+coarse.
 
 #### 6.1.3 Building a consensus per candidate subfamily
 
