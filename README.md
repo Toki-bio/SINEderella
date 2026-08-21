@@ -55,6 +55,7 @@ A reproducible Bash pipeline for genome-wide identification, classification, and
 - [QUALITY_FLAGGING_README.md](QUALITY_FLAGGING_README.md) — Consensus convergence QC system
 - [PLAN_alignment_viewer.md](PLAN_alignment_viewer.md) — Alignment tier design rationale
 - [ALIGNMENT_DEPLOYMENT.md](ALIGNMENT_DEPLOYMENT.md) — Deployment checklist for alignments
+- [RESEARCH_DIRECTIONS.md](RESEARCH_DIRECTIONS.md) — Gradual (SNP/indel) vs. modular ("repeat pangenome"/panconsensus) models of repeat divergence — an open research pathway, not yet implemented
 
 ## Related Repositories
 
