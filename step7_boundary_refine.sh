@@ -147,6 +147,39 @@ confirmed_count=0
 undetermined_count=0
 insufficient_count=0
 
+cat > "$TMP_DIR/rc_minus.py" <<'EOF'
+import sys
+
+strand_map = {}
+with open(sys.argv[2]) as f:
+    for line in f:
+        parts = line.strip().split("\t")
+        if len(parts) == 2:
+            strand_map[parts[0]] = parts[1]
+
+comp = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
+
+header = None
+seq = []
+with open(sys.argv[1]) as f:
+    for line in f:
+        if line.startswith(">"):
+            if header is not None:
+                s = "".join(seq)
+                if strand_map.get(header, "+").startswith("-"):
+                    s = s.translate(comp)[::-1]
+                sys.stdout.write(">" + header + "\n" + s + "\n")
+            header = line[1:].strip()
+            seq = []
+        else:
+            seq.append(line.strip())
+    if header is not None:
+        s = "".join(seq)
+        if strand_map.get(header, "+").startswith("-"):
+            s = s.translate(comp)[::-1]
+        sys.stdout.write(">" + header + "\n" + s + "\n")
+EOF
+
 while IFS= read -r subfam; do
   total_subfams=$((total_subfams + 1))
   awk -v sub="$subfam" '$1 == sub' "$TMP_DIR/assigned_parsed.tsv" > "$TMP_DIR/members.tsv"
@@ -208,10 +241,12 @@ with open('$TMP_DIR/members.tsv', 'w') as f:
         if (w_start < 0) w_start = 0
         if (w_end > len) w_end = len
         if (w_start < w_end) {
-          print ctg ":" (w_start+1) "-" w_end
+          print ctg ":" (w_start+1) "-" w_end "\t" strand
         }
       }
-      ' "$TMP_DIR/members.tsv" > "$TMP_DIR/regions.txt"
+      ' "$TMP_DIR/members.tsv" > "$TMP_DIR/regions_strand.tsv"
+
+      cut -f1 "$TMP_DIR/regions_strand.tsv" > "$TMP_DIR/regions.txt"
 
       if [[ ! -s "$TMP_DIR/regions.txt" ]]; then
         last_identity="0"
@@ -220,7 +255,8 @@ with open('$TMP_DIR/members.tsv', 'w') as f:
         break
       fi
 
-      samtools faidx "$GENOME" -r "$TMP_DIR/regions.txt" > "$TMP_DIR/seqs.fasta"
+      samtools faidx "$GENOME" -r "$TMP_DIR/regions.txt" > "$TMP_DIR/seqs_raw.fasta"
+      python3 "$TMP_DIR/rc_minus.py" "$TMP_DIR/seqs_raw.fasta" "$TMP_DIR/regions_strand.tsv" > "$TMP_DIR/seqs.fasta"
       identity=$(python3 "$TMP_DIR/calc_identity.py" "$TMP_DIR/seqs.fasta" 150)
       last_identity="$identity"
       if (( $(python3 -c "print(1 if $identity <= $IDENTITY_THRESHOLD else 0)") )); then
