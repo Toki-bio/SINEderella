@@ -267,11 +267,13 @@ while IFS=$'\t' read -r subfam count; do
             getfasta_rc=$?
             set -e
 
+            subfam_ran=0
             if (( getfasta_rc != 0 )) || [[ ! -s "$TMPDIR/subfam_elems_${idx}.fa" ]]; then
                 echo "WARNING: bedtools getfasta failed for subfam variant of $subfam (rc=$getfasta_rc) -- skipping subfam variant" >&2
                 tail -n 20 "$TMPDIR/subfam_getfasta_${idx}.err" >&2 || true
                 subfam_rc=1
             else
+            subfam_ran=1
 
             # Run SubFam in scratch directory
             scratch="$TMPDIR/subfam_scratch_${idx}"
@@ -307,7 +309,7 @@ while IFS=$'\t' read -r subfam count; do
                     echo "WARNING: subfam mafft failed for $subfam (rc=$mafft_rc)" >&2
                     tail -n 20 "$TMPDIR/subfam_mafft_${idx}.err" >&2 || true
                 fi
-            else
+            elif (( subfam_ran == 1 )); then
                 echo "WARNING: SubFam failed for $subfam (rc=$subfam_rc) -- skipping subfam variant" >&2
             fi
         fi
