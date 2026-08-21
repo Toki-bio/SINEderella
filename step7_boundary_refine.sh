@@ -149,13 +149,14 @@ awk '
   split(coords, c, "-")
   start=c[1]
   end=c[2]
-  print subfam "\t" ctg "\t" start "\t" end "\t" strand
+  bits=a[3]+0
+  print subfam "\t" ctg "\t" start "\t" end "\t" strand "\t" bits
 }
 ' "$ASSIGNED" > "$TMP_DIR/assigned_parsed.tsv"
 
 cut -f1 "$TMP_DIR/assigned_parsed.tsv" | sort -u > "$TMP_DIR/subfams.txt"
 
-printf "subfamily\tside\tboundary_bp\tstatus\tfinal_identity_pct\tfinal_elevated_frac_pct\tbackground_identity_pct\tbackground_elevated_frac_pct\n" > "$OUT_TSV"
+printf "subfamily\tpopulation\tside\tboundary_bp\tstatus\tfinal_identity_pct\tfinal_elevated_frac_pct\tbackground_identity_pct\tbackground_elevated_frac_pct\n" > "$OUT_TSV"
 
 total_subfams=0
 confirmed_count=0
@@ -195,16 +196,107 @@ with open(sys.argv[1]) as f:
         sys.stdout.write(">" + header + "\n" + s + "\n")
 EOF
 
+# Test one (population, side) combination against $TMP_DIR/members.tsv
+# (must already be prepared by the caller). Appends one row to $OUT_TSV.
+test_population_side(){
+  local subfam="$1" population="$2" side="$3"
+  local ext=$FLANK_BASE
+  local last_identity="NA" last_elevated_frac="NA" status="undetermined"
+  local boundary_bp=$MAX_EXT_BP
+  while (( ext <= MAX_EXT_BP )); do
+    awk -v fai="$FAI" -v side="$side" -v ext="$ext" -v STEP_BP="$STEP_BP" '
+    BEGIN {
+      while ((getline line < fai) > 0) {
+        split(line, f, "\t")
+        contig_len[f[1]] = f[2]
+      }
+      FS="\t"
+    }
+    {
+      ctg=$2; start=$3; end=$4; strand=$5
+      len = contig_len[ctg]
+      if (len == "") len = end
+      if (side == "upstream") {
+        if (strand ~ /^-/) {
+          w_start = end + ext
+          w_end = w_start + STEP_BP
+        } else {
+          w_start = start - ext - STEP_BP
+          w_end = start - ext
+        }
+      } else {
+        if (strand ~ /^-/) {
+          w_start = start - ext - STEP_BP
+          w_end = start - ext
+        } else {
+          w_start = end + ext
+          w_end = w_start + STEP_BP
+        }
+      }
+      if (w_start < 0) w_start = 0
+      if (w_end > len) w_end = len
+      if (w_start < w_end) {
+        print ctg ":" (w_start+1) "-" w_end "\t" strand
+      }
+    }
+    ' "$TMP_DIR/members.tsv" > "$TMP_DIR/regions_strand.tsv"
+
+    cut -f1 "$TMP_DIR/regions_strand.tsv" > "$TMP_DIR/regions.txt"
+
+    if [[ ! -s "$TMP_DIR/regions.txt" ]]; then
+      last_identity="0"
+      last_elevated_frac="0"
+      status="confirmed"
+      boundary_bp=$ext
+      break
+    fi
+
+    samtools faidx "$GENOME" -r "$TMP_DIR/regions.txt" > "$TMP_DIR/seqs_raw.fasta"
+    python3 "$TMP_DIR/rc_minus.py" "$TMP_DIR/seqs_raw.fasta" "$TMP_DIR/regions_strand.tsv" > "$TMP_DIR/seqs.fasta"
+    result=$(python3 "$TMP_DIR/calc_identity.py" "$TMP_DIR/seqs.fasta" 150 "$ELEVATED_CUTOFF")
+    last_identity=$(echo "$result" | cut -d' ' -f1)
+    last_elevated_frac=$(echo "$result" | cut -d' ' -f2)
+    if (( $(python3 -c "print(1 if $last_elevated_frac <= $FRAC_THRESHOLD else 0)") )); then
+      status="confirmed"
+      boundary_bp=$ext
+      break
+    fi
+    ext=$((ext + STEP_BP))
+  done
+
+  printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$subfam" "$population" "$side" "$boundary_bp" "$status" "$last_identity" "$last_elevated_frac" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
+  if [[ "$status" == "confirmed" ]]; then
+    confirmed_count=$((confirmed_count + 1))
+  else
+    undetermined_count=$((undetermined_count + 1))
+  fi
+}
+
+# IMPORTANT: a single boundary computed from a random/general population
+# sample is NOT valid for the top100 (bitscore-ranked) variant. Found live
+# against scorpion g01: a random-100 sample correctly confirmed background
+# at ext=400 (matching the general test), but the actual top100.aln.fa
+# (bitscore-ranked top 100) stayed ~90% identical in that exact same
+# window -- top100 members are systematically the least-diverged copies,
+# not a random draw, and can remain non-independent far past where the
+# general population reaches background. So: test "general" (random/all,
+# used for rand100 and subfam) and "top100" (bitscore-ranked, used only
+# for the top100 variant) as two separate populations per subfamily/side.
 while IFS= read -r subfam; do
   total_subfams=$((total_subfams + 1))
-  awk -v sf="$subfam" '$1 == sf' "$TMP_DIR/assigned_parsed.tsv" > "$TMP_DIR/members.tsv"
-  count=$(wc -l < "$TMP_DIR/members.tsv")
+  awk -v sf="$subfam" '$1 == sf' "$TMP_DIR/assigned_parsed.tsv" > "$TMP_DIR/all_members.tsv"
+  count=$(wc -l < "$TMP_DIR/all_members.tsv")
   if (( count < 20 )); then
-    printf "%s\tupstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
-    printf "%s\tdownstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
-    insufficient_count=$((insufficient_count + 2))
+    for population in general top100; do
+      printf "%s\t%s\tupstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$population" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
+      printf "%s\t%s\tdownstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$population" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
+      insufficient_count=$((insufficient_count + 2))
+    done
     continue
   fi
+
+  # -- general population: random sample, capped at 2000 (existing behavior) --
+  cp "$TMP_DIR/all_members.tsv" "$TMP_DIR/members.tsv"
   if (( count > 2000 )); then
     python3 -c "
 import random
@@ -217,80 +309,16 @@ with open('$TMP_DIR/members.tsv', 'w') as f:
     f.writelines(lines)
 "
   fi
-
   for side in upstream downstream; do
-    ext=$FLANK_BASE
-    last_identity="NA"
-    last_elevated_frac="NA"
-    status="undetermined"
-    boundary_bp=$MAX_EXT_BP
-    while (( ext <= MAX_EXT_BP )); do
-      awk -v fai="$FAI" -v side="$side" -v ext="$ext" -v STEP_BP="$STEP_BP" '
-      BEGIN {
-        while ((getline line < fai) > 0) {
-          split(line, f, "\t")
-          contig_len[f[1]] = f[2]
-        }
-        FS="\t"
-      }
-      {
-        ctg=$2; start=$3; end=$4; strand=$5
-        len = contig_len[ctg]
-        if (len == "") len = end
-        if (side == "upstream") {
-          if (strand ~ /^-/) {
-            w_start = end + ext
-            w_end = w_start + STEP_BP
-          } else {
-            w_start = start - ext - STEP_BP
-            w_end = start - ext
-          }
-        } else {
-          if (strand ~ /^-/) {
-            w_start = start - ext - STEP_BP
-            w_end = start - ext
-          } else {
-            w_start = end + ext
-            w_end = w_start + STEP_BP
-          }
-        }
-        if (w_start < 0) w_start = 0
-        if (w_end > len) w_end = len
-        if (w_start < w_end) {
-          print ctg ":" (w_start+1) "-" w_end "\t" strand
-        }
-      }
-      ' "$TMP_DIR/members.tsv" > "$TMP_DIR/regions_strand.tsv"
+    test_population_side "$subfam" "general" "$side"
+  done
 
-      cut -f1 "$TMP_DIR/regions_strand.tsv" > "$TMP_DIR/regions.txt"
-
-      if [[ ! -s "$TMP_DIR/regions.txt" ]]; then
-        last_identity="0"
-        last_elevated_frac="0"
-        status="confirmed"
-        boundary_bp=$ext
-        break
-      fi
-
-      samtools faidx "$GENOME" -r "$TMP_DIR/regions.txt" > "$TMP_DIR/seqs_raw.fasta"
-      python3 "$TMP_DIR/rc_minus.py" "$TMP_DIR/seqs_raw.fasta" "$TMP_DIR/regions_strand.tsv" > "$TMP_DIR/seqs.fasta"
-      result=$(python3 "$TMP_DIR/calc_identity.py" "$TMP_DIR/seqs.fasta" 150 "$ELEVATED_CUTOFF")
-      last_identity=$(echo "$result" | cut -d' ' -f1)
-      last_elevated_frac=$(echo "$result" | cut -d' ' -f2)
-      if (( $(python3 -c "print(1 if $last_elevated_frac <= $FRAC_THRESHOLD else 0)") )); then
-        status="confirmed"
-        boundary_bp=$ext
-        break
-      fi
-      ext=$((ext + STEP_BP))
-    done
-
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$subfam" "$side" "$boundary_bp" "$status" "$last_identity" "$last_elevated_frac" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
-    if [[ "$status" == "confirmed" ]]; then
-      confirmed_count=$((confirmed_count + 1))
-    else
-      undetermined_count=$((undetermined_count + 1))
-    fi
+  # -- top100 population: bitscore-ranked top 100 (matches step8a's actual
+  #    top100 variant sample exactly, not an approximation of it) --
+  sort -t$'\t' -k6,6nr "$TMP_DIR/all_members.tsv" > "$TMP_DIR/sorted_by_bitscore.tsv"
+  head -n 100 "$TMP_DIR/sorted_by_bitscore.tsv" > "$TMP_DIR/members.tsv"
+  for side in upstream downstream; do
+    test_population_side "$subfam" "top100" "$side"
   done
 done < "$TMP_DIR/subfams.txt"
 

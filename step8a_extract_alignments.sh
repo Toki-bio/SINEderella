@@ -100,25 +100,39 @@ reorder_consensus_first() {
 
 ###############################################################################
 # Parse boundary_refinement.tsv (optional)
-# Output: subfamily \t upstream_ext \t downstream_ext
+# Columns: subfamily, population, side, boundary_bp, status, ...
+#
+# A boundary measured on a random/general sample is NOT valid for the
+# top100 variant: top100's bitscore-ranked members are the least-diverged
+# copies, not a random draw, and can stay non-independent far past where
+# the general population reaches background (found live against scorpion
+# g01 -- see step7_boundary_refine.sh's comment on this same issue). So
+# top100 uses the "top100"-population rows; rand100 and subfam use the
+# "general"-population rows.
+# Output per population file: subfamily \t upstream_ext \t downstream_ext
 ###############################################################################
-if [[ -s "$BOUNDARY_TSV" ]]; then
-    awk -F'\t' 'NR>1 {
-        if ($2 == "upstream") up[$1] = $3 + 0
-        else if ($2 == "downstream") down[$1] = $3 + 0
-    }
-    END {
-        for (sf in up) {
-            d = (sf in down) ? down[sf] : 0
-            print sf "\t" up[sf] "\t" d
+build_boundaries_file(){
+    local population="$1" outfile="$2"
+    if [[ -s "$BOUNDARY_TSV" ]]; then
+        awk -F'\t' -v pop="$population" 'NR>1 && $2==pop {
+            if ($3 == "upstream") up[$1] = $4 + 0
+            else if ($3 == "downstream") down[$1] = $4 + 0
         }
-        for (sf in down) {
-            if (!(sf in up)) print sf "\t" 0 "\t" down[sf]
-        }
-    }' "$BOUNDARY_TSV" > "$TMPDIR/boundaries.tsv"
-else
-    : > "$TMPDIR/boundaries.tsv"
-fi
+        END {
+            for (sf in up) {
+                d = (sf in down) ? down[sf] : 0
+                print sf "\t" up[sf] "\t" d
+            }
+            for (sf in down) {
+                if (!(sf in up)) print sf "\t" 0 "\t" down[sf]
+            }
+        }' "$BOUNDARY_TSV" > "$outfile"
+    else
+        : > "$outfile"
+    fi
+}
+build_boundaries_file "general" "$TMPDIR/boundaries_general.tsv"
+build_boundaries_file "top100" "$TMPDIR/boundaries_top100.tsv"
 
 ###############################################################################
 # Parse assigned.fasta -> loci.tsv
@@ -227,16 +241,27 @@ while IFS=$'\t' read -r subfam count; do
     # Extract this subfamily's loci
     awk -F'\t' -v sf="$subfam" '$1==sf' "$TMPDIR/loci.tsv" > "$TMPDIR/loci_${idx}.tsv"
 
-    # Determine flank sizes from boundary_refinement.tsv
-    up_ext=0
-    down_ext=0
-    boundary_line="$(awk -F'\t' -v sf="$subfam" '$1==sf{print $2"\t"$3; exit}' "$TMPDIR/boundaries.tsv" || true)"
+    # Determine flank sizes from boundary_refinement.tsv -- top100 and
+    # rand100/subfam use DIFFERENT boundary populations (see the comment
+    # above build_boundaries_file: a general/random-sample boundary is not
+    # valid for the bitscore-ranked top100 set).
+    general_up_ext=0; general_down_ext=0
+    boundary_line="$(awk -F'\t' -v sf="$subfam" '$1==sf{print $2"\t"$3; exit}' "$TMPDIR/boundaries_general.tsv" || true)"
     if [[ -n "$boundary_line" ]]; then
-        up_ext="$(printf '%s' "$boundary_line" | cut -f1)"
-        down_ext="$(printf '%s' "$boundary_line" | cut -f2)"
+        general_up_ext="$(printf '%s' "$boundary_line" | cut -f1)"
+        general_down_ext="$(printf '%s' "$boundary_line" | cut -f2)"
     fi
-    up_flank=$((BASE_UP + up_ext))
-    down_flank=$((BASE_DOWN + down_ext))
+    general_up_flank=$((BASE_UP + general_up_ext))
+    general_down_flank=$((BASE_DOWN + general_down_ext))
+
+    top100_up_ext=0; top100_down_ext=0
+    boundary_line="$(awk -F'\t' -v sf="$subfam" '$1==sf{print $2"\t"$3; exit}' "$TMPDIR/boundaries_top100.tsv" || true)"
+    if [[ -n "$boundary_line" ]]; then
+        top100_up_ext="$(printf '%s' "$boundary_line" | cut -f1)"
+        top100_down_ext="$(printf '%s' "$boundary_line" | cut -f2)"
+    fi
+    top100_up_flank=$((BASE_UP + top100_up_ext))
+    top100_down_flank=$((BASE_DOWN + top100_down_ext))
 
     # Extract consensus for this subfamily
     extract_consensus "$subfam" "$TMPDIR/cons_${idx}.fa"
@@ -258,7 +283,7 @@ while IFS=$'\t' read -r subfam count; do
     if [[ -s "$TMPDIR/top100_${idx}.tsv" ]]; then
         set +e
         extract_flank_align "$TMPDIR/top100_${idx}.tsv" "$TMPDIR/cons_${idx}.fa" \
-            "$up_flank" "$down_flank" \
+            "$top100_up_flank" "$top100_down_flank" \
             "$OUTDIR/${SPECIES_CODE}_${subfam}_top100.aln.fa"
         rc=$?
         set -e
@@ -277,7 +302,7 @@ while IFS=$'\t' read -r subfam count; do
     if [[ -s "$TMPDIR/rand100_${idx}.tsv" ]]; then
         set +e
         extract_flank_align "$TMPDIR/rand100_${idx}.tsv" "$TMPDIR/cons_${idx}.fa" \
-            "$up_flank" "$down_flank" \
+            "$general_up_flank" "$general_down_flank" \
             "$OUTDIR/${SPECIES_CODE}_${subfam}_rand100.aln.fa"
         rc=$?
         set -e
