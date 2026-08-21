@@ -255,8 +255,23 @@ while IFS=$'\t' read -r subfam count; do
             # Extract element sequences (no flanks)
             awk -F'\t' 'BEGIN{OFS="\t"} {print $3, $4-1, $5, NR, $2, $6}' \
                 "$TMPDIR/subfam_sample_${idx}.tsv" > "$TMPDIR/subfam_${idx}.bed"
+
+            # NOT wrapping this in set +e/-e caused a real bug (found live
+            # against scorpion g02, 30284 members): bedtools getfasta failing
+            # here killed the whole script silently under set -e, with the
+            # real error swallowed by 2>/dev/null -- reproduced deterministically
+            # with bash -x tracing, which is the only reason this was caught.
+            set +e
             bedtools getfasta -fi "$GENOME" -bed "$TMPDIR/subfam_${idx}.bed" -s \
-                > "$TMPDIR/subfam_elems_${idx}.fa" 2>/dev/null
+                > "$TMPDIR/subfam_elems_${idx}.fa" 2>"$TMPDIR/subfam_getfasta_${idx}.err"
+            getfasta_rc=$?
+            set -e
+
+            if (( getfasta_rc != 0 )) || [[ ! -s "$TMPDIR/subfam_elems_${idx}.fa" ]]; then
+                echo "WARNING: bedtools getfasta failed for subfam variant of $subfam (rc=$getfasta_rc) -- skipping subfam variant" >&2
+                tail -n 20 "$TMPDIR/subfam_getfasta_${idx}.err" >&2 || true
+                subfam_rc=1
+            else
 
             # Run SubFam in scratch directory
             scratch="$TMPDIR/subfam_scratch_${idx}"
@@ -267,6 +282,7 @@ while IFS=$'\t' read -r subfam count; do
             (cd "$scratch" && SubFam input.fasta 50)
             subfam_rc=$?
             set -e
+            fi
 
             if (( subfam_rc == 0 )) && [[ -s "$scratch/input.clw" ]]; then
                 # Degap the .clw file (FASTA-like, gapped per-chunk consensuses)
