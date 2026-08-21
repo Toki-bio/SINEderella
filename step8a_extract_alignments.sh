@@ -114,7 +114,16 @@ reorder_consensus_first() {
 build_boundaries_file(){
     local population="$1" outfile="$2"
     if [[ -s "$BOUNDARY_TSV" ]]; then
-        awk -F'\t' -v pop="$population" 'NR>1 && $2==pop {
+        # Only use boundary_bp when status=="confirmed". "undetermined" means
+        # the test hit MAX_EXT_BP without ever confirming the flank reached
+        # background -- it is NOT a validated extension, just wherever the
+        # loop ran out of room. Applying it anyway (found live: g17
+        # downstream got a 1070bp flank -- base 70 + the full 1000bp cap --
+        # for a side that was explicitly never confirmed unique, and made
+        # mafft --localpair --maxiterate 1000 extremely slow on ~100
+        # sequences that long) asserts confidence the test never earned.
+        # Fall back to ext=0 (base flank only) on anything not confirmed.
+        awk -F'\t' -v pop="$population" 'NR>1 && $2==pop && $5=="confirmed" {
             if ($3 == "upstream") up[$1] = $4 + 0
             else if ($3 == "downstream") down[$1] = $4 + 0
         }
