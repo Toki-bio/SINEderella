@@ -70,6 +70,16 @@ EOF
 python3 "$TMP_DIR/bg_regions.py" "$TMP_DIR/contigs.tsv" "$TMP_DIR/bg_regions.txt"
 samtools faidx "$GENOME" -r "$TMP_DIR/bg_regions.txt" > "$TMP_DIR/bg_seqs.fasta"
 
+# NOTE: this test reports the FRACTION of sampled pairs exceeding an
+# "elevated" identity cutoff, not a single mean pairwise identity. A mean
+# is blind to bimodal populations: a window that is half genuinely-
+# conserved and half genuinely-background can average below a mean
+# threshold even though a real conserved subgroup is still present and
+# would be visible on direct inspection. Found and fixed live against real
+# eri e2-3 data (see eri/LOG.md in the Tal repo, 2026-08-21 entries) -- a
+# mean-based version of this exact test called a boundary "confirmed" at
+# 50bp extension when the true boundary (found by the fraction test below,
+# confirmed by eye) was 100-150bp.
 cat > "$TMP_DIR/calc_identity.py" <<'EOF'
 import random, sys
 random.seed(42)
@@ -86,28 +96,33 @@ with open(sys.argv[1]) as f:
     if seq:
         seqs.append(seq)
 if len(seqs) < 2:
-    print(0.0)
+    print("0.0 0.0")
     sys.exit(0)
 n_pairs = int(sys.argv[2]) if len(sys.argv) > 2 else 150
+cutoff = float(sys.argv[3]) if len(sys.argv) > 3 else 45.0
 n_pairs = min(n_pairs, len(seqs) * (len(seqs)-1) // 2)
-diffs = []
+identities = []
 for _ in range(n_pairs):
     a, b = random.sample(seqs, 2)
     min_len = min(len(a), len(b))
     if min_len == 0:
         continue
-    diff = sum(1 for i in range(min_len) if a[i] != b[i]) / min_len
-    diffs.append(diff)
-if not diffs:
-    print(0.0)
+    ident = (1 - sum(1 for i in range(min_len) if a[i] != b[i]) / min_len) * 100
+    identities.append(ident)
+if not identities:
+    print("0.0 0.0")
 else:
-    identity = (1 - sum(diffs)/len(diffs)) * 100
-    print(identity)
+    mean_id = sum(identities) / len(identities)
+    elevated_frac = sum(1 for x in identities if x > cutoff) / len(identities) * 100
+    print("%.3f %.3f" % (mean_id, elevated_frac))
 EOF
 
-BG_IDENTITY=$(python3 "$TMP_DIR/calc_identity.py" "$TMP_DIR/bg_seqs.fasta" 2000)
-IDENTITY_THRESHOLD=$(python3 -c "print($BG_IDENTITY + 10)")
-log "Background identity: $BG_IDENTITY%, threshold: $IDENTITY_THRESHOLD%"
+ELEVATED_CUTOFF=45.0
+BG_RESULT=$(python3 "$TMP_DIR/calc_identity.py" "$TMP_DIR/bg_seqs.fasta" 2000 "$ELEVATED_CUTOFF")
+BG_IDENTITY=$(echo "$BG_RESULT" | cut -d' ' -f1)
+BG_FRAC=$(echo "$BG_RESULT" | cut -d' ' -f2)
+FRAC_THRESHOLD=$(python3 -c "print($BG_FRAC + 5.0)")
+log "Background identity: $BG_IDENTITY%, background elevated_frac(>${ELEVATED_CUTOFF}%): $BG_FRAC%, pass threshold: $FRAC_THRESHOLD%"
 
 ###############################################################################
 # Step B: Per-subfamily boundary refinement
@@ -140,7 +155,7 @@ awk '
 
 cut -f1 "$TMP_DIR/assigned_parsed.tsv" | sort -u > "$TMP_DIR/subfams.txt"
 
-printf "subfamily\tside\tboundary_bp\tstatus\tfinal_identity_pct\tbackground_identity_pct\n" > "$OUT_TSV"
+printf "subfamily\tside\tboundary_bp\tstatus\tfinal_identity_pct\tfinal_elevated_frac_pct\tbackground_identity_pct\tbackground_elevated_frac_pct\n" > "$OUT_TSV"
 
 total_subfams=0
 confirmed_count=0
@@ -185,8 +200,8 @@ while IFS= read -r subfam; do
   awk -v sub="$subfam" '$1 == sub' "$TMP_DIR/assigned_parsed.tsv" > "$TMP_DIR/members.tsv"
   count=$(wc -l < "$TMP_DIR/members.tsv")
   if (( count < 20 )); then
-    printf "%s\tupstream\t0\tinsufficient_data\tNA\t%s\n" "$subfam" "$BG_IDENTITY" >> "$OUT_TSV"
-    printf "%s\tdownstream\t0\tinsufficient_data\tNA\t%s\n" "$subfam" "$BG_IDENTITY" >> "$OUT_TSV"
+    printf "%s\tupstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
+    printf "%s\tdownstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
     insufficient_count=$((insufficient_count + 2))
     continue
   fi
@@ -206,6 +221,7 @@ with open('$TMP_DIR/members.tsv', 'w') as f:
   for side in upstream downstream; do
     ext=$FLANK_BASE
     last_identity="NA"
+    last_elevated_frac="NA"
     status="undetermined"
     boundary_bp=$MAX_EXT_BP
     while (( ext <= MAX_EXT_BP )); do
@@ -250,6 +266,7 @@ with open('$TMP_DIR/members.tsv', 'w') as f:
 
       if [[ ! -s "$TMP_DIR/regions.txt" ]]; then
         last_identity="0"
+        last_elevated_frac="0"
         status="confirmed"
         boundary_bp=$ext
         break
@@ -257,9 +274,10 @@ with open('$TMP_DIR/members.tsv', 'w') as f:
 
       samtools faidx "$GENOME" -r "$TMP_DIR/regions.txt" > "$TMP_DIR/seqs_raw.fasta"
       python3 "$TMP_DIR/rc_minus.py" "$TMP_DIR/seqs_raw.fasta" "$TMP_DIR/regions_strand.tsv" > "$TMP_DIR/seqs.fasta"
-      identity=$(python3 "$TMP_DIR/calc_identity.py" "$TMP_DIR/seqs.fasta" 150)
-      last_identity="$identity"
-      if (( $(python3 -c "print(1 if $identity <= $IDENTITY_THRESHOLD else 0)") )); then
+      result=$(python3 "$TMP_DIR/calc_identity.py" "$TMP_DIR/seqs.fasta" 150 "$ELEVATED_CUTOFF")
+      last_identity=$(echo "$result" | cut -d' ' -f1)
+      last_elevated_frac=$(echo "$result" | cut -d' ' -f2)
+      if (( $(python3 -c "print(1 if $last_elevated_frac <= $FRAC_THRESHOLD else 0)") )); then
         status="confirmed"
         boundary_bp=$ext
         break
@@ -267,7 +285,7 @@ with open('$TMP_DIR/members.tsv', 'w') as f:
       ext=$((ext + STEP_BP))
     done
 
-    printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$subfam" "$side" "$boundary_bp" "$status" "$last_identity" "$BG_IDENTITY" >> "$OUT_TSV"
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$subfam" "$side" "$boundary_bp" "$status" "$last_identity" "$last_elevated_frac" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
     if [[ "$status" == "confirmed" ]]; then
       confirmed_count=$((confirmed_count + 1))
     else
