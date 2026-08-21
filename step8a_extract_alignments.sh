@@ -55,6 +55,50 @@ BASE_UP=50
 BASE_DOWN=70
 
 ###############################################################################
+# --reorder above reorders MAFFT's OUTPUT by guide tree similarity, so putting
+# the consensus first in the INPUT does not guarantee it stays first in the
+# OUTPUT. Reorder the aligned output afterward so the consensus record is
+# always first, regardless of where mafft placed it.
+###############################################################################
+cat > "$TMPDIR/reorder_consensus_first.py" <<'PYEOF'
+import sys
+cons_header = None
+with open(sys.argv[2]) as f:
+    for line in f:
+        if line.startswith('>'):
+            cons_header = line[1:].strip()
+            break
+recs = []
+name = None
+seq = []
+with open(sys.argv[1]) as f:
+    for line in f:
+        if line.startswith('>'):
+            if name is not None:
+                recs.append((name, ''.join(seq)))
+            name = line[1:].strip()
+            seq = []
+        else:
+            seq.append(line.rstrip('\n'))
+    if name is not None:
+        recs.append((name, ''.join(seq)))
+cons_idx = None
+for i, (n, s) in enumerate(recs):
+    if n == cons_header:
+        cons_idx = i
+        break
+if cons_idx is not None and cons_idx != 0:
+    recs.insert(0, recs.pop(cons_idx))
+for n, s in recs:
+    sys.stdout.write('>' + n + '\n' + s + '\n')
+PYEOF
+
+reorder_consensus_first() {
+    # args: aligned_fasta cons_fasta -> writes reordered fasta to stdout
+    python3 "$TMPDIR/reorder_consensus_first.py" "$1" "$2"
+}
+
+###############################################################################
 # Parse boundary_refinement.tsv (optional)
 # Output: subfamily \t upstream_ext \t downstream_ext
 ###############################################################################
@@ -154,14 +198,17 @@ extract_flank_align() {
         > "$TMPDIR/cur_extracted.fa" 2>/dev/null || return 1
 
     # Append consensus
-    cat "$TMPDIR/cur_extracted.fa" "$cons_fa" > "$TMPDIR/cur_combined.fa" || return 1
+    cat "$cons_fa" "$TMPDIR/cur_extracted.fa" > "$TMPDIR/cur_combined.fa" || return 1
 
     # Align
     mafft "${MAFFT_ARGS[@]}" "$TMPDIR/cur_combined.fa" \
         > "$TMPDIR/cur_aligned.fa" 2>"$TMPDIR/cur_mafft.err" || return 1
 
+    # --reorder can move the consensus away from the top; force it back first
+    reorder_consensus_first "$TMPDIR/cur_aligned.fa" "$cons_fa" > "$TMPDIR/cur_reordered.fa" || return 1
+
     # Restore @U@ -> _ in headers and write output
-    sed '/^>/s/@U@/_/g' "$TMPDIR/cur_aligned.fa" > "$outfile" || return 1
+    sed '/^>/s/@U@/_/g' "$TMPDIR/cur_reordered.fa" > "$outfile" || return 1
 }
 
 ###############################################################################
@@ -292,7 +339,8 @@ while IFS=$'\t' read -r subfam count; do
                     > "$TMPDIR/subfam_degapped_${idx}.fa"
 
                 # Align degapped subfam consensuses with the subfamily's own consensus
-                cat "$TMPDIR/subfam_degapped_${idx}.fa" "$TMPDIR/cons_${idx}.fa" \
+                # (consensus first, so it ends up on top of the alignment)
+                cat "$TMPDIR/cons_${idx}.fa" "$TMPDIR/subfam_degapped_${idx}.fa" \
                     > "$TMPDIR/subfam_combined_${idx}.fa"
 
                 set +e
@@ -302,7 +350,9 @@ while IFS=$'\t' read -r subfam count; do
                 set -e
 
                 if (( mafft_rc == 0 )); then
-                    sed '/^>/s/@U@/_/g' "$TMPDIR/subfam_aligned_${idx}.fa" \
+                    reorder_consensus_first "$TMPDIR/subfam_aligned_${idx}.fa" "$TMPDIR/cons_${idx}.fa" \
+                        > "$TMPDIR/subfam_reordered_${idx}.fa"
+                    sed '/^>/s/@U@/_/g' "$TMPDIR/subfam_reordered_${idx}.fa" \
                         > "$OUTDIR/${SPECIES_CODE}_${subfam}_subfam.aln.fa"
                     has_sub=1
                 else
