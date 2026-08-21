@@ -197,7 +197,7 @@ EOF
 
 while IFS= read -r subfam; do
   total_subfams=$((total_subfams + 1))
-  awk -v sub="$subfam" '$1 == sub' "$TMP_DIR/assigned_parsed.tsv" > "$TMP_DIR/members.tsv"
+  awk -v sf="$subfam" '$1 == sf' "$TMP_DIR/assigned_parsed.tsv" > "$TMP_DIR/members.tsv"
   count=$(wc -l < "$TMP_DIR/members.tsv")
   if (( count < 20 )); then
     printf "%s\tupstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
