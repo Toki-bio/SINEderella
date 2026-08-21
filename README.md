@@ -11,6 +11,15 @@ A reproducible Bash pipeline for genome-wide identification, classification, and
 | 3 | `step3_postprocess.sh` | Postprocess assignments: compute per-subfamily statistics, generate summary tables |
 | 4 | `step4_plots.sh` | Generate divergence plots and conservation statistics per subfamily |
 | 5 | `step5_align_subfamilies.sh` | Cross-species subfamily alignment against consensus bank |
+| 7 | `step7_boundary_refine.sh` | Standalone/modular: per-subfamily boundary refinement — stepwise flank extension until a fraction-of-pairs-above-threshold test confirms background-level identity (or hits a 1000bp cap), writes `boundary_refinement.tsv` |
+| 8a | `step8a_extract_alignments.sh` | Standalone/modular: builds real top100/rand100/subfam alignments per subfamily, using `boundary_refinement.tsv` (if present) to size each subfamily's flanks |
+| 8b | `step8b_publish_report.sh` | Standalone/modular: wires step8a's alignments into an existing `report.html` as MSA-viewer links |
+
+Steps 7/8a/8b are runnable independently against any completed run
+(`RUN_ROOT`) — not yet wired into the `SINEderella`/`SINEderella_multi`
+main-orchestrator auto-run sequence. See
+[RESEARCH_DIRECTIONS.md](RESEARCH_DIRECTIONS.md) for the modular-step
+design philosophy behind this.
 
 ## Main Wrappers
 
