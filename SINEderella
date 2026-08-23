@@ -298,21 +298,6 @@ run_step2_step3(){
     log "Step4 plots skipped (step4_plots.sh or plot_subfamily.py not found in run dir)"
   fi
 
-  # --- Step 6: HTML report (optional) ---
-  if [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
-    log "Running Step6 HTML report (step6_report.sh)"
-    set +e
-    ./step6_report.sh "$(pwd -P)" \
-      > >(tee step6.stdout.log) \
-      2> >(tee step6.stderr.log >&2)
-    step6_rc=$?
-    set -e
-    if (( step6_rc != 0 )); then
-      log "WARNING: Step6 report failed (exit $step6_rc) — continuing without HTML report"
-    fi
-  else
-    log "Step6 HTML report skipped (step6_report.sh or step6_report.py not found in run dir)"
-  fi
   log "Creating results/ directory"
   rm -rf results
   mkdir -p results
@@ -348,6 +333,28 @@ run_step2_step3(){
 
   # Assembly QC
   [[ -f genome.clean_assembly_qc.tsv ]] && ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
+
+  # --- Step 6: HTML report (optional) ---
+  # Must run AFTER the results/ symlink farm above, not before: step6_report.py
+  # writes results/report.html directly, and this block's own `rm -rf results`
+  # would otherwise silently destroy that freshly-written file every time
+  # (confirmed reproducible 2026-08-21 through 2026-08-23 across three
+  # independent runs before this fix -- see Tal repo tim/LOG.md and
+  # eri/sco LOG.md for the standalone-rerun workaround this replaces).
+  if [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
+    log "Running Step6 HTML report (step6_report.sh)"
+    set +e
+    ./step6_report.sh "$(pwd -P)" \
+      > >(tee step6.stdout.log) \
+      2> >(tee step6.stderr.log >&2)
+    step6_rc=$?
+    set -e
+    if (( step6_rc != 0 )); then
+      log "WARNING: Step6 report failed (exit $step6_rc) — continuing without HTML report"
+    fi
+  else
+    log "Step6 HTML report skipped (step6_report.sh or step6_report.py not found in run dir)"
+  fi
 
   log "DONE: $(pwd -P)"
 }

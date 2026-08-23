@@ -1,3 +1,12 @@
+Dragen Version           Size (MB)  Install Date         Path
+4.5.4                    996.74     2026-05-20 01:45:15  /opt/dragen/4.5.4
+4.4.4                    846.30     2025-07-22 00:16:45  /opt/dragen/4.4.4
+
+Bitstream Version        Size (MB)  Install Date         Path
+07.031.818 (0x18101306)  690.49     2026-05-20 01:45:07  /opt/bitstream/07.031.818
+07.031.779 (0x18101306)  601.18     2025-07-22 00:16:36  /opt/bitstream/07.031.779
+
+To remove a dragen version, call `yum remove` on its Path.
 # SINEderella — User Manual
 
 **Version:** 2026-02
@@ -340,6 +349,102 @@ known consensuses you started from) and use it as the `<CONSENSUS_FASTA>` input 
 `SINEderella` run (§5) — or, if you already have a completed run whose `extracted.fasta` you want
 to reuse without redoing the search, run `step2_asSINEment.sh` (§7) directly against it with the
 new consensus set.
+
+#### 6.1.5 Design rationale: why redundancy is kept, and why consensus building stays human-supervised
+
+Two choices in this workflow look like omissions to an outside reader (they came up directly when
+benchmarking SINEderella's design against RepeatModeler2, EarlGrey, and AnnoSINE_v2 in 2026-08) and
+are worth recording explicitly so they aren't "fixed" by a future contributor who hasn't hit the
+reasoning yet:
+
+**Redundant/near-duplicate copies are not pre-filtered before `SubFam` — this is load-bearing, not
+an oversight.** `SubFam` reorders the sampled sequences by MAFFT's own guide tree (`--reorder`)
+before chunking them into banks of `BnkSz` (default 50). Guide-tree order clusters similar
+sequences adjacent to each other in the stream, so a real, abundant SINE subfamily's many
+near-identical genomic copies land in the *same* chunk purely because MAFFT's tree says they're
+close — and `cons -plurality 18` then needs that volume of redundant support to produce a
+reliable, well-evidenced consensus for the chunk. Running an upstream deduplication pass (e.g.
+CD-HIT-EST at ~80% identity, the kind of preprocessing RepeatModeler2/EarlGrey/AnnoSINE_v2 all use
+on their own *candidate family* sets before consensus-building) would starve `SubFam` of exactly
+the statistical mass its consensus step depends on. If two truly distinct subfamilies happen to be
+>80% identical to each other, that's also precisely the case step 2's 10-cycle unanimous voting
+exists to resolve *after* extraction — collapsing them beforehand would remove the distinction the
+pipeline is built to detect, not clean up noise.
+
+**Do not bolt on an automated iterative consensus-refinement loop (RepeatModeler2 `Refiner`-style
+`refineUntil`, or EarlGrey TEstrainer's BEAT loop) as a way to reduce the human step in §6.1.**
+Tool-assisted consensus building of this kind is unreliable on its own — it still requires human
+judgment/experience to catch cases where an automatically "converged" consensus is confidently
+wrong (e.g. it stabilized on a chimeric or boundary-contaminated alignment). The project's own more
+principled iterative consensus tools — `sine_consensus.sh` (gaps excluded from the frequency
+denominator, for denser/longer consensuses) and `sine_consensus_smart.sh` (adds Hamming-distance
+convergence checking, default threshold 0.01, with a max-iteration fallback to a 100-copy /
+plurality≥35% call) — are already more principled than a plain majority vote or an exact-string-match
+convergence check, and are still meant to be used *with* the visual-clustering/human-review step in
+§6.1.2, not as a drop-in replacement for it.
+
+---
+
+#### 6.1.6 Family vs. subfamily hierarchy: a planned two-stage assignment architecture (design discussion, 2026-08-23 — not yet implemented)
+
+`SINEderella` currently has no concept of a family/subfamily hierarchy. `asSINEment`
+treats every consensus handed to it as a flat, mutually-competing peer: whether you
+feed it 6 broad consensuses or 15 finely-split ones, every genomic locus is scored
+against all of them, every one of the 10 voting cycles. This section records a design
+discussion about replacing that with an explicit two-level architecture, so a future
+implementer isn't starting from nothing. Nothing below is built yet.
+
+**The definitions.** A *family* is a set of SINE copies that share the same sequence
+"parts" — the same structural composition, still meaningfully alignable/collinear
+across their full mutual length. A *subfamily* is a lineage within a family, defined
+by a **specific, shared, diagnostic pattern** of small indels/SNPs common to that
+lineage's copies (a synapomorphy, in effect) — not by the generic accumulation of
+private per-copy mutations from ordinary post-insertion decay, which is noise on top
+of the subfamily signal rather than the signal itself. (Distinguishing genuine
+diagnostic patterns from recurrent/convergent mutation hotspots — a homoplasy
+problem — is a separate, harder question, explicitly parked as future work, not
+solved here.)
+
+**The four cases this needs to cover**, in increasing order of what's already known:
+
+1. **Nothing known (de novo)** — no family or subfamily consensus exists. This is
+   pure discovery: candidate search + `SubFam` clustering to produce first-pass
+   consensus candidates, organized into a first family/subfamily hypothesis by
+   inspection. Upstream of assignment entirely; unchanged by this section.
+2. **Family known, subfamilies unknown** — run `asSINEment` against just the family
+   consensus to pull that family's full genomic copy pool, then run `SubFam`-style
+   *discovery* on that pool (not assignment) to find candidate subfamily consensuses.
+   This is where `SubFam` belongs in a hierarchical world: discovering subfamily
+   structure from an already-family-assigned pool, not building the family consensus
+   itself.
+3. **Family and subfamilies both known, assigned flat (current behavior)** — every
+   known subfamily consensus is fed into one `asSINEment` call as flat peers. This is
+   what every SINEderella run to date has actually done (e.g. the Timema v3 run,
+   `tim/LOG.md` 2026-08-23, ran all 15 subfamily consensuses as one flat set). Costly
+   (per-cycle voting cost scales with the full consensus count, not the family count)
+   and structurally under-using the fact that a family consensus is already general
+   enough to recruit all of its own subfamilies' copies.
+4. **Family and subfamilies both known, assigned hierarchically (the proposed
+   replacement)** — Stage 1: `asSINEment` against only the small family-level
+   consensus set, assigning every locus to its family. Stage 2: within each family's
+   now much-smaller assigned pool, run `asSINEment` again — same mechanism, second
+   invocation, smaller search space — against only that family's own subfamily
+   consensuses.
+
+**Boundary-crossing at the family/subfamily interface** (a locus assigned to family X
+in Stage 1 that turns out to fit poorly against all of X's known subfamilies in Stage
+2) is handled the same way `asSINEment` already handles any uncertain call: the
+existing `leak` parameter/mechanism, not a new mechanism. Stage 2 does not reconsider
+or reject Stage 1's family-level call — a locus stays in its Stage-1 family regardless
+of how Stage 2's subfamily vote goes; ambiguity within that family surfaces as a leak,
+same as it does today.
+
+**Open question not resolved in this discussion**: when subfamilies are already known
+but a family consensus is not (i.e. only the finer-split consensuses exist, as with
+Timema's `t1_1`/`t1-2`/`t1-3`/`t1-4` etc.), where does the family-level reference for
+Stage 1 come from — re-derive one from the subfamily consensuses, or fall back to a
+pre-split consensus if one still exists from before the finer split was made? Not
+decided; flag for whoever implements this.
 
 ---
 
@@ -1179,6 +1284,47 @@ Each firmly assigned copy receives a **normalized similarity score** computed in
 **Why normalize?** Raw bitscores are not comparable across subfamilies of different lengths. Dividing by the self-alignment bitscore normalizes for consensus length and composition, making `sim_ratio` directly comparable across all subfamilies.
 
 The summary table includes `sim_mean` and `sim_median` per subfamily. These provide a quick proxy for the "age" or conservation level of each subfamily within the genome.
+
+### 16.9 Structural filters deliberately not adopted from other TE tools
+
+Two more findings from the same 2026-08 benchmarking pass (see §6.1.5 for the SubFam-redundancy and
+consensus-refinement findings). Both concern structural pre-filters that de novo/ab-initio tools
+(AnnoSINE_v2, EarlGrey, RepeatMasker) apply, that SINEderella deliberately does not:
+
+**Tandem-repeat pre-filtering (TRF / SA-SSR / mreps / Shannon-entropy complexity cutoffs) is not
+applied before step 1 or step 2.** Two reasons, not one:
+1. `sear`'s search criterion (SFL ≥ 0.8 of consensus length, ≥ 65% identity against an already-real,
+   aperiodic ~300bp SINE consensus) is structurally immune to the tandem-repeat false-positive mode
+   these filters exist to catch — a periodic short-unit tandem repeat cannot produce an 80%-length,
+   65%-identity match against an aperiodic SINE consensus in the first place. This is a vulnerability
+   of k-mer/short-fragment-scale discovery tools (BWR-finder, AnnoSINE's structural scanner), not of
+   whole-consensus homology search.
+2. Running a tandem-repeat scan on every candidate has a real efficiency cost of its own (TRF-class
+   scans are not free), which cuts against SINEderella's efficiency-conscious design elsewhere (e.g.
+   the `--add` mode's whole reason for existing — see §16.4). Paying that cost to guard against a
+   failure mode the search method doesn't have is a net loss.
+3. Biologically, some real SINEs are tightly satellite-adjacent or satellite-derived. A tandem-repeat
+   filter would not just remove noise — it would discard a genuinely interesting subset of true
+   positives.
+
+**TSD (target site duplication) detection is not used as an assignment or confidence criterion.**
+TSD verification (seed-and-extend scoring, as in AnnoSINE_v2's SINEFinder or RepeatModeler2's
+`TSD.pl`) is a discovery-stage signal for confirming a candidate is a real TE insertion when there is
+no prior evidence. By the time a SINEderella candidate reaches step 3, that question is already
+settled by construction (step 1's homology search + step 2's 10-cycle unanimous vote). Beyond being
+redundant, requiring or scoring on TSD presence would actively mislead in three ways:
+1. TSDs erode with age — the oldest, most diverged copies (exactly the ones step 4's divergence
+   histograms care most about) are the least likely to retain a clean, scoreable TSD, so a
+   TSD-based flag would make the high-divergence tail of every subfamily look artificially
+   lower-confidence.
+2. Some SINE families inherently lack TSDs by biological mechanism, not just by erosion — for these
+   families, "TSD-consistent" would be permanently unreachable regardless of assignment quality.
+3. TSDs are not SINE-specific — other TE classes produce them too, so TSD presence/consistency isn't
+   even a good discriminator for "is this a SINE" in the first place.
+
+If added at all, TSD annotation belongs as an optional, clearly-labeled bonus field in step 3's
+output (for downstream researchers who want it) — never as a criterion feeding LEAK/CONFLICT or any
+assignment decision.
 
 ---
 
