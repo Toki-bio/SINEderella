@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SINEderella Workflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f5f2ea;
+  --paper:#ffffff;
+  --ink:#1d241f;
+  --muted:#5c665e;
+  --line:#dcd5c2;
+  --accent:#0d6b58;      /* built / current — teal */
+  --accent-bg:#e4efe9;
+  --accent2:#b0521a;     /* proposed / discussion — rust */
+  --accent2-bg:#f6e9dd;
+  --accent3:#5b4a94;     /* terminology — plum */
+  --accent3-bg:#ece8f5;
+  --warn-bg:#fbe9e4;
+  --warn:#9c3b1e;
+  --code-bg:#f0ece0;
+  --shadow: 0 1px 2px rgba(29,36,31,0.06), 0 4px 14px rgba(29,36,31,0.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141815;
+    --paper:#1c2119;
+    --ink:#e9e5d8;
+    --muted:#9a9b8f;
+    --line:#39412f;
+    --accent:#4fc3a1;
+    --accent-bg:#1e3128;
+    --accent2:#e2925a;
+    --accent2-bg:#3a2718;
+    --accent3:#b3a4e8;
+    --accent3-bg:#2a2440;
+    --warn-bg:#3a2118;
+    --warn:#e08063;
+    --code-bg:#242b20;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 18px rgba(0,0,0,0.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141815;
+  --paper:#1c2119;
+  --ink:#e9e5d8;
+  --muted:#9a9b8f;
+  --line:#39412f;
+  --accent:#4fc3a1;
+  --accent-bg:#1e3128;
+  --accent2:#e2925a;
+  --accent2-bg:#3a2718;
+  --accent3:#b3a4e8;
+  --accent3-bg:#2a2440;
+  --warn-bg:#3a2118;
+  --warn:#e08063;
+  --code-bg:#242b20;
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 18px rgba(0,0,0,0.35);
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  line-height:1.5;
+  padding:2.5rem 1.25rem 5rem;
+}
+.wrap{max-width:920px;margin:0 auto;}
+
+code, .mono{font-family:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;}
+
+header.page{margin-bottom:2.5rem;}
+header.page .kicker{
+  font-family:"IBM Plex Mono",monospace;
+  text-transform:uppercase;
+  letter-spacing:.12em;
+  font-size:.72rem;
+  color:var(--muted);
+  margin:0 0 .6rem;
+}
+h1{
+  font-size:clamp(1.9rem,4vw,2.5rem);
+  margin:0 0 .5rem;
+  text-wrap:balance;
+  letter-spacing:-.01em;
+}
+header.page p.lede{
+  max-width:62ch;
+  color:var(--muted);
+  font-size:1.02rem;
+  margin:0;
+}
+.status-row{
+  display:flex; flex-wrap:wrap; gap:.6rem;
+  margin-top:1.1rem;
+}
+.chip{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:.72rem;
+  letter-spacing:.03em;
+  padding:.32rem .6rem;
+  border-radius:999px;
+  border:1px solid var(--line);
+  color:var(--muted);
+  display:inline-flex; align-items:center; gap:.4rem;
+}
+.chip .dot{width:.5rem;height:.5rem;border-radius:50%;display:inline-block;}
+.chip.built .dot{background:var(--accent);}
+.chip.proposed .dot{background:var(--accent2);}
+
+section{margin-bottom:3rem;}
+h2{
+  font-size:1.3rem;
+  margin:0 0 .3rem;
+  letter-spacing:-.005em;
+}
+.section-note{color:var(--muted); font-size:.92rem; margin:0 0 1.3rem; max-width:66ch;}
+
+/* ---------- terminology ---------- */
+.glossary{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:.85rem;
+}
+.term{
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-left:4px solid var(--accent3);
+  border-radius:8px;
+  padding:.9rem 1rem;
+  box-shadow:var(--shadow);
+}
+.term dt{
+  font-family:"IBM Plex Mono",monospace;
+  font-weight:600;
+  font-size:.86rem;
+  color:var(--accent3);
+  margin-bottom:.3rem;
+}
+.term dd{margin:0; font-size:.88rem; color:var(--ink);}
+.term dd.sub{color:var(--muted); font-size:.82rem; margin-top:.35rem;}
+
+/* ---------- pipeline timeline ---------- */
+.pipeline{position:relative; padding-left:2.4rem;}
+.pipeline::before{
+  content:"";
+  position:absolute; left:.95rem; top:.4rem; bottom:.4rem;
+  width:2px;
+  background:linear-gradient(var(--line),var(--line));
+}
+.step{
+  position:relative;
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:1rem 1.15rem;
+  margin-bottom:1rem;
+  box-shadow:var(--shadow);
+}
+.step::before{
+  content:attr(data-n);
+  position:absolute;
+  left:-2.4rem; top:1rem;
+  width:1.9rem; height:1.9rem;
+  border-radius:50%;
+  background:var(--accent);
+  color:var(--paper);
+  font-family:"IBM Plex Mono",monospace;
+  font-weight:600;
+  font-size:.82rem;
+  display:flex; align-items:center; justify-content:center;
+}
+.step .head{display:flex; align-items:baseline; gap:.6rem; flex-wrap:wrap; margin-bottom:.35rem;}
+.step h3{margin:0; font-size:1.02rem;}
+.step .script{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:.78rem;
+  color:var(--accent);
+  background:var(--accent-bg);
+  padding:.12rem .5rem;
+  border-radius:5px;
+}
+.step p{margin:.25rem 0; font-size:.9rem; color:var(--ink);}
+.step .out{
+  font-size:.8rem; color:var(--muted); margin-top:.5rem;
+  display:flex; gap:.4rem; align-items:baseline;
+}
+.step .out b{color:var(--muted); font-weight:600; font-family:"IBM Plex Mono",monospace; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em;}
+
+.step .hint{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:.68rem;
+  color:var(--muted);
+  opacity:.6;
+  text-align:right;
+  margin-top:.5rem;
+  letter-spacing:.03em;
+}
+.step[data-detail]{cursor:help;}
+.step[data-detail]:hover{border-color:var(--accent);}
+.step[data-detail]:hover .hint{opacity:1; color:var(--accent);}
+.step[data-detail]::after{
+  content:attr(data-detail);
+  position:absolute;
+  left:0; right:0;
+  top:calc(100% + .5rem);
+  background:var(--ink);
+  color:var(--bg);
+  padding:1.1rem 1.3rem;
+  border-radius:10px;
+  font-size:.86rem;
+  line-height:1.65;
+  box-shadow:0 8px 28px rgba(0,0,0,0.28);
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  transform:translateY(-8px);
+  transition:opacity .16s ease, transform .16s ease, visibility .16s;
+  z-index:40;
+}
+.step[data-detail]:hover::after{
+  opacity:1;
+  visibility:visible;
+  transform:translateY(0);
+}
+
+.fork-marker{
+  position:absolute; left:-2.55rem; top:1rem;
+  width:2.1rem; height:2.1rem;
+  border-radius:50%;
+  background:var(--accent2);
+  color:var(--paper);
+  display:flex; align-items:center; justify-content:center;
+  font-size:.95rem;
+}
+
+/* ---------- fork diagram ---------- */
+.fork-wrap{
+  overflow-x:auto;
+  padding-bottom:.5rem;
+}
+.fork{
+  min-width:640px;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:0 1.1rem;
+}
+.fork .lead{
+  grid-column:1 / -1;
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:.9rem 1.1rem;
+  margin-bottom:.9rem;
+  box-shadow:var(--shadow);
+  font-size:.9rem;
+}
+.fork .lead .tag{
+  font-family:"IBM Plex Mono",monospace; font-size:.72rem;
+  color:var(--muted); text-transform:uppercase; letter-spacing:.06em;
+}
+.branch-label{
+  display:flex; align-items:center; gap:.5rem;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:.76rem; text-transform:uppercase; letter-spacing:.05em;
+  padding:.35rem .2rem .6rem;
+}
+.branch-label.built{color:var(--accent);}
+.branch-label.proposed{color:var(--accent2);}
+.branch-label .stub{flex:1; height:1px; background:currentColor; opacity:.35;}
+
+.card{
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:.85rem 1rem;
+  margin-bottom:.7rem;
+  box-shadow:var(--shadow);
+  font-size:.86rem;
+}
+.card.built{border-top:3px solid var(--accent);}
+.card.proposed{border-top:3px solid var(--accent2);}
+.card h4{margin:0 0 .3rem; font-size:.92rem;}
+.card p{margin:.2rem 0; color:var(--ink);}
+.card .cost{
+  margin-top:.5rem;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:.74rem;
+  color:var(--muted);
+}
+.arrow-down{
+  grid-column:1 / -1;
+  text-align:center;
+  color:var(--muted);
+  font-size:1.1rem;
+  margin:.1rem 0 .4rem;
+}
+.merge-note{
+  grid-column:1 / -1;
+  background:var(--warn-bg);
+  color:var(--warn);
+  border-radius:8px;
+  padding:.7rem 1rem;
+  font-size:.84rem;
+  margin-top:.3rem;
+}
+.merge-note b{font-family:"IBM Plex Mono",monospace; text-transform:uppercase; letter-spacing:.04em; font-size:.72rem; display:block; margin-bottom:.25rem;}
+
+/* ---------- mermaid graph ---------- */
+.mermaid-wrap{
+  background:var(--paper);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:1.2rem;
+  overflow-x:auto;
+  box-shadow:var(--shadow);
+  margin-bottom:1rem;
+}
+.mermaid-wrap pre.mermaid{margin:0; min-width:560px;}
+.legend{
+  display:flex; flex-wrap:wrap; gap:.6rem 1rem;
+  margin-bottom:1.4rem;
+}
+.lg{
+  font-size:.78rem;
+  font-family:"IBM Plex Mono",monospace;
+  color:var(--muted);
+  display:inline-flex; align-items:center; gap:.4rem;
+}
+.lg::before{content:""; width:.75rem; height:.75rem; border-radius:3px; display:inline-block;}
+.lg.built::before{background:var(--accent-bg); border:1.5px solid var(--accent);}
+.lg.proposed::before{background:var(--accent2-bg); border:1.5px dashed var(--accent2);}
+.lg.discovery::before{background:var(--accent3-bg); border:1.5px solid var(--accent3);}
+.lg.decision::before{background:var(--warn-bg); border:1.5px solid var(--warn);}
+
+.notecards{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:.8rem;}
+.notecard{
+  background:var(--warn-bg);
+  color:var(--warn);
+  border-radius:8px;
+  padding:.75rem 1rem;
+  font-size:.84rem;
+}
+.notecard b{
+  font-family:"IBM Plex Mono",monospace; text-transform:uppercase;
+  letter-spacing:.04em; font-size:.72rem; display:block; margin-bottom:.3rem;
+}
+
+.precases{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+  gap:.8rem;
+  margin-bottom:1.3rem;
+}
+.precase{
+  background:var(--paper);
+  border:1px dashed var(--line);
+  border-radius:10px;
+  padding:.8rem .95rem;
+  font-size:.85rem;
+}
+.precase .num{
+  font-family:"IBM Plex Mono",monospace;
+  color:var(--muted);
+  font-size:.72rem;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  margin-bottom:.3rem;
+}
+.precase p{margin:0; color:var(--ink);}
+
+footer{
+  border-top:1px solid var(--line);
+  margin-top:2.5rem;
+  padding-top:1.2rem;
+  color:var(--muted);
+  font-size:.8rem;
+}
+footer code{background:var(--code-bg); padding:.1rem .35rem; border-radius:4px;}
+
+@media (max-width:640px){
+  .step{padding-left:1rem;}
+  .pipeline{padding-left:2rem;}
+  .step::before, .fork-marker{left:-1.9rem; width:1.6rem; height:1.6rem; font-size:.72rem;}
+  .pipeline::before{left:.75rem;}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header class="page">
+  <p class="kicker">SINEderella &middot; internal design note &middot; draft 2026-08-23</p>
+  <h1>Pipeline map: assignment, and the family/subfamily fork</h1>
+  <p class="lede">What each step of the current pipeline does, plus the two-stage family&rarr;subfamily
+  assignment architecture discussed but not yet built. Teal = built and in use today. Rust = discussed,
+  not implemented.</p>
+  <div class="status-row">
+    <span class="chip built"><span class="dot"></span>steps 1&ndash;8 &mdash; built</span>
+    <span class="chip proposed"><span class="dot"></span>hierarchical assignment &mdash; design only</span>
+  </div>
+</header>
+
+<section id="terms">
+  <h2>Terminology</h2>
+  <p class="section-note">Definitions as used in this pipeline, fixed 2026-08-23 after a working
+  session that corrected two earlier misreadings of "subfamily."</p>
+  <dl class="glossary">
+    <div class="term">
+      <dt>Family</dt>
+      <dd>A set of SINE copies sharing the same sequence "parts" &mdash; the same structural
+      composition, still meaningfully alignable/collinear across their full mutual length.</dd>
+    </div>
+    <div class="term">
+      <dt>Subfamily</dt>
+      <dd>A lineage within a family, defined by a <em>specific, shared, diagnostic</em> pattern of
+      small indels/SNPs common to that lineage's copies &mdash; not generic per-copy decay.</dd>
+      <dd class="sub">Diagnostic pattern &ne; random decay. Ordinary post-insertion mutation is noise
+      layered on top of the subfamily signal, not the signal itself.</dd>
+    </div>
+    <div class="term">
+      <dt>Consensus</dt>
+      <dd>The reference sequence built for a family or subfamily (via <code>SubFam</code> /
+      <code>cons&nbsp;-plurality</code>) and handed to <code>asSINEment</code> as a search target.</dd>
+    </div>
+    <div class="term">
+      <dt>Leak</dt>
+      <dd>The mechanism that already exists for handling an ambiguous call &mdash; a locus that
+      doesn't cleanly vote for one consensus over another. Used, not new, to absorb
+      boundary-crossing between stages.</dd>
+    </div>
+    <div class="term">
+      <dt>Firm / soft assigned</dt>
+      <dd>Firm = unanimous vote across all 10 <code>ssearch36</code> cycles. Soft = majority but not
+      unanimous. Both count toward <code>total_assigned</code>.</dd>
+    </div>
+    <div class="term">
+      <dt>sim_mean</dt>
+      <dd>Mean per-copy bitscore over the consensus's own self-bitscore &mdash; how tightly a
+      subfamily's assigned copies cluster around its consensus.</dd>
+    </div>
+  </dl>
+</section>
+
+<section id="pipeline">
+  <h2>The workflow, with the fork as an actual split</h2>
+  <p class="section-note">Discovery through publish. At Step 2 the graph splits: the top branch
+  is what's built and runs today; the bottom branch is the proposed hierarchical replacement,
+  discussed but not implemented. Both branches rejoin before Step 3, since everything downstream
+  of assignment is agnostic to how the assignment was produced.</p>
+
+  <div class="mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  A["Step 0 &mdash; De novo discovery<br/>cross-species/structural search + SubFam clustering<br/><i>case 1: nothing known yet</i>"]:::discovery
+  A --> B["Step 1 &mdash; Search &amp; extract<br/>step1_search_extract.sh"]:::built
+  B --> C{"Step 2 &mdash; Assignment<br/>what's already known?"}:::decision
+
+  C -->|"family known,<br/>subfamily unknown"| D["Assign to family consensus,<br/>pull its full copy pool"]:::discovery
+  D --> E["SubFam discovery on that pool<br/><i>case 2: find subfamily candidates</i>"]:::discovery
+  E -.new subfamily consensuses.-> C
+
+  C -->|"family + subfamily<br/>both known"| F2{"how to assign?"}:::decision
+
+  F2 -->|"CURRENT &mdash; case 3"| G["Flat asSINEment<br/>every consensus, family or subfamily,<br/>competes as an equal peer"]:::built
+  F2 -->|"PROPOSED &mdash; case 4"| H["Stage 1: assign to<br/>family consensuses only"]:::proposed
+  H --> I["Per-family copy pools<br/>(much smaller than whole genome)"]:::proposed
+  I --> J["Stage 2: within each family,<br/>assign to that family's own subfamilies"]:::proposed
+
+  G --> K["Subfamily-level assignment<br/>(assigned.fasta, summary.by_subfam.tsv)"]:::merge
+  J --> K
+
+  K --> L["Step 3 &mdash; Postprocess"]:::built
+  L --> M["Step 4 &mdash; Diagnostics<br/>PCA / weights / volcano / SINEplot"]:::built
+  M --> N["Step 5 &mdash; Align subfamilies"]:::built
+  N --> O["Step 6 &mdash; HTML report"]:::built
+  O --> P["Step 7 &mdash; Boundary refine<br/>(standalone, background-identity test)"]:::built
+  P --> Q["Step 8 &mdash; Alignments &amp; publish<br/>top100 / rand100 / subfam"]:::built
+
+  classDef built fill:#e4efe9,stroke:#0d6b58,stroke-width:1.5px,color:#1d241f;
+  classDef proposed fill:#f6e9dd,stroke:#b0521a,stroke-width:1.5px,stroke-dasharray:4 3,color:#1d241f;
+  classDef discovery fill:#ece8f5,stroke:#5b4a94,stroke-width:1.5px,color:#1d241f;
+  classDef decision fill:#fbe9e4,stroke:#9c3b1e,stroke-width:1.5px,color:#1d241f;
+  classDef merge fill:#f0ece0,stroke:#5c665e,stroke-width:1.5px,color:#1d241f;
+</pre>
+  </div>
+
+  <div class="legend">
+    <span class="lg built">built &amp; running today</span>
+    <span class="lg proposed">proposed, not implemented</span>
+    <span class="lg discovery">discovery (no assignment yet)</span>
+    <span class="lg decision">decision point</span>
+  </div>
+
+  <div class="notecards">
+    <div class="notecard">
+      <b>Boundary crossing between the two proposed stages</b>
+      Handled by the existing <code>leak</code> mechanism, not a new one. Stage 2 never
+      reconsiders a Stage-1 family call &mdash; a locus stays in its Stage-1 family regardless of
+      how ambiguous Stage 2's subfamily vote is; ambiguity surfaces as a leak, same as today.
+    </div>
+    <div class="notecard">
+      <b>Open question, not resolved</b>
+      When only subfamily consensuses exist (no separate family-level reference), where does
+      Stage 1's family consensus come from &mdash; re-derived from the subfamilies, or a
+      pre-split consensus if one still exists? Flagged for whoever implements this.
+    </div>
+  </div>
+</section>
+
+<section id="pipeline-detail">
+  <h2>Step reference</h2>
+  <p class="section-note">Script names and outputs for each built step, for lookup alongside the graph above.</p>
+
+  <div class="pipeline">
+    <div class="step" data-n="0" data-detail="De novo discovery, upstream of SINEderella itself. A cross-species/structural search (sine_scan.sh against a SINEBase-derived query bank, or AnnoSINE_v2's structural TSD/poly-A/RNA-pol-III-promoter module) finds raw candidate loci from a genome with no prior SINE library. SubFam then reorders those candidates by MAFFT guide tree and builds plurality consensuses per chunk. A human then manually clusters those chunk-consensuses into a first family/subfamily hypothesis -- this is where the curated t1..t8-style consensus sets originate before they ever reach Step 1.">
+      <div class="head"><h3>De novo discovery</h3><span class="script">sine_scan.sh / AnnoSINE_v2 + SubFam</span></div>
+      <p>Cross-species/structural search finds raw candidates from a genome with no prior library;
+      manual clustering of <code>SubFam</code> chunk-consensuses produces the first family/subfamily
+      hypothesis. Upstream of the pipeline proper.</p>
+      <div class="out"><b>out</b> first-pass consensus candidates</div>
+      <div class="hint">hover for detail</div>
+    </div>
+
+    <div class="step" data-n="1" data-detail="Runs sear (SINEderella's own aligner, not blastn/ssearch36) with the given consensus bank against the genome in 2kb chunks, in parallel per chunk. Candidate hit regions are extracted with base flanks (50bp upstream, 70bp downstream by default) added around each hit before anything downstream ever sees the sequence -- this is also where the flank size that later caused the t6-2/3/4 truncation issue first gets baked in.">
+      <div class="head"><h3>Search &amp; extract</h3><span class="script">step1_search_extract.sh</span></div>
+      <p>Cross-species / consensus homology search (<code>sear</code>) against the genome; candidate
+      SINE loci extracted with flanks.</p>
+      <div class="out"><b>out</b> genome.clean_step1/extracted.fasta</div>
+      <div class="hint">hover for detail</div>
+    </div>
+
+    <div class="step" data-n="2" data-detail="ssearch36 scores every extracted locus against every consensus in the bank, 10 independent cycles. A locus is 'firm' assigned if all 10 cycles unanimously agree on the same best consensus, 'soft' if only a majority agrees, and 'leak' if no consensus wins clearly. Currently every consensus handed in -- whether it represents a whole family or one fine subfamily -- is scored as an equal, flat competitor in the same vote. This is the exact step the family/subfamily hierarchy discussion (see the graph above) proposes splitting into two narrower, cheaper stages.">
+      <div class="head"><h3>Assignment</h3><span class="script">step2_asSINEment.sh</span></div>
+      <p>10-cycle <code>ssearch36</code> unanimous-voting assignment of every extracted locus to the
+      best-matching consensus. Currently run <b>flat</b>: every known consensus, family or
+      subfamily, competes as an equal peer &mdash; see the graph above.</p>
+      <div class="out"><b>out</b> assigned.fasta, summary.by_subfam.tsv</div>
+      <div class="hint">hover for detail</div>
+    </div>
+
+    <div class="step" data-n="3" data-detail="Collates the raw per-cycle voting output into the summary.by_subfam.tsv table used everywhere else in this pipeline (firm/soft/leak counts, self-bitscore-normalized sim_mean/sim_median). Also computes conf_alt_pct -- how often a locus's second-best consensus was a close, confident alternative to its winning call, a finer-grained ambiguity signal than leak alone.">
+      <div class="head"><h3>Postprocess</h3><span class="script">step3_postprocess.sh</span></div>
+      <p>Collates per-subfamily assignment stats, self-bitscore normalization, leak/conf_alt
+      tallies.</p>
+      <div class="out"><b>out</b> assignment_stats.tsv</div>
+      <div class="hint">hover for detail</div>
+    </div>
+
+    <div class="step" data-n="4" data-detail="Generates the visual QC layer: a PCA over per-locus similarity scores (checks whether subfamilies separate cleanly in similarity-space, not just by vote count), per-subfamily weight/volcano plots (flag subfamilies whose assignment looks statistically shaky), and SINEplot (age/divergence landscape per subfamily). This is where a human would first visually notice something like the t6-2/3/4 truncation pattern, if they were looking at these plots rather than the alignments directly.">
+      <div class="head"><h3>Diagnostics</h3><span class="script">step4_diagnostic.sh / step4_plots.sh</span></div>
+      <p>PCA, weight plots, volcano plots, SINEplot &mdash; visual QC on the assignment.</p>
+      <div class="out"><b>out</b> plots/</div>
+      <div class="hint">hover for detail</div>
+    </div>
+
+    <div class="step" data-n="5" data-detail="A lighter-weight internal-review alignment pass over each subfamily's assigned copies, separate from the publish-quality alignments Step 8 produces later. Useful for a quick sanity check on a subfamily before committing to the heavier boundary-refinement and publish steps.">
+      <div class="head"><h3>Align subfamilies</h3><span class="script">step5_align_subfamilies.sh / step5_direct.sh</span></div>
+      <p>MAFFT alignment of each subfamily's assigned copies for internal review.</p>
+      <div class="hint">hover for detail</div>
+    </div>
+
+    <div class="step" data-n="6" data-detail="step6_report.py builds the single self-contained results/report.html file with every step's stats and plots embedded. Ordering matters here: the main SINEderella orchestrator's results/ symlink-farm rebuild (rm -rf results; mkdir -p results) must run BEFORE this step, not after -- when it ran after, it silently deleted the freshly-written report.html every time. Reproduced across 4+ independent runs (eri, sco, and two Timema runs) before the orchestrator's block order was fixed 2026-08-23; previously worked around per-run with a standalone rerun of this script.">
+      <div class="head"><h3>HTML report</h3><span class="script">step6_report.py / step6_report.sh</span></div>
+      <p>Builds <code>results/report.html</code>. Must run after the results/ symlink farm rebuild,
+      not before &mdash; fixed 2026-08-23 (was silently destroyed by a directory-rebuild race,
+      reproduced across 4+ runs).</p>
+      <div class="out"><b>out</b> results/report.html</div>
+      <div class="hint">hover for detail</div>
+    </div>
+
+    <div class="step" data-n="7" data-detail="Standalone add-on, run manually after the main pipeline. Samples background-identity regions genome-wide, then tests whether identity stays elevated above that background as the flank around each locus's CURRENT extraction boundary is extended outward in steps. Reports a confirmed/undetermined status and a boundary_bp per subfamily, per side, per population (top100 vs random). Blind spot found 2026-08-23: this test only looks beyond the already-extracted boundary -- it cannot see real conserved structure sitting INSIDE a flank that was already pulled in but never folded into the consensus. That's exactly what happened on t6-2/3/4, where the test reported 'confirmed, no extension needed' while the alignment itself showed a clearly shared, non-decaying motif well past the old consensus edge.">
+      <div class="head"><h3>Boundary refinement</h3><span class="script">step7_boundary_refine.sh</span></div>
+      <p>Standalone. Tests flanks beyond each locus's <em>current extraction boundary</em> against
+      background identity, extends where confirmed. Does not see structure hidden inside an
+      already-extracted flank &mdash; a separate manual check found real signal inside the existing
+      flank on t6-2/3/4 that this test missed.</p>
+      <div class="out"><b>out</b> boundary_refinement.tsv</div>
+      <div class="hint">hover for detail</div>
+    </div>
+
+    <div class="step" data-n="8" data-detail="step8a re-extracts three alignment variants per subfamily with real genomic flanks (MAFFT --localpair --maxiterate 1000): top100 (bitscore-ranked, most-confident copies), rand100 (unbiased random sample), and subfam (SubFam re-clustering on unflanked sequence, skipped below ~400 assigned copies). The consensus sequence is placed first in every alignment output. step8b then edits report.html in place to wire clickable links to each alignment into the MSA-viewer (toki-bio.github.io/MSA-viewer), pointed at the published raw GitHub URLs -- this is the last step before a run's results are actually visible/inspectable on the Tal site.">
+      <div class="head"><h3>Alignments &amp; publish</h3><span class="script">step8a_extract_alignments.sh / step8b_publish_report.sh</span></div>
+      <p>Re-extracts top100 / rand100 / subfam alignment variants per subfamily with real genomic
+      flanks, wires links into report.html.</p>
+      <div class="out"><b>out</b> results/alignments/*.aln.fa, manifest.tsv</div>
+      <div class="hint">hover for detail</div>
+    </div>
+  </div>
+</section>
+
+
+<footer>
+  Recorded in <code>MANUAL.md &sect;6.1.6</code>,
+  <code>github.com/Toki-bio/SINEderella</code>, commit <code>fae5a9e</code>.
+  Design discussion only &mdash; nothing in the "proposed" column is implemented.
+</footer>
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true, theme:"neutral"});</script>
+</body>
+</html>
