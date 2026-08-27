@@ -209,7 +209,7 @@ extract_flank_align() {
     local loci_tsv="$1" cons_fa="$2" up_flank="$3" down_flank="$4" outfile="$5"
 
     # Create BED: chrom, start-1, end, name, score, strand
-    awk -F'\t' 'BEGIN{OFS="\t"} {print $3, $4-1, $5, NR, $2, $6}' \
+    awk -F'\t' 'BEGIN{OFS="\t"} {s=$4-1; if (s<0) s=0; print $3, s, $5, NR, $2, $6}' \
         "$loci_tsv" > "$TMPDIR/cur.bed" || return 1
 
     # Strand-aware slop
@@ -334,7 +334,7 @@ while IFS=$'\t' read -r subfam count; do
 
         if [[ -s "$TMPDIR/subfam_sample_${idx}.tsv" ]]; then
             # Extract element sequences (no flanks)
-            awk -F'\t' 'BEGIN{OFS="\t"} {print $3, $4-1, $5, NR, $2, $6}' \
+            awk -F'\t' 'BEGIN{OFS="\t"} {s=$4-1; if (s<0) s=0; print $3, s, $5, NR, $2, $6}' \
                 "$TMPDIR/subfam_sample_${idx}.tsv" > "$TMPDIR/subfam_${idx}.bed"
 
             # NOT wrapping this in set +e/-e caused a real bug (found live
