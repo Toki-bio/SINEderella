@@ -69,12 +69,13 @@ SINEderella --publish genome.fa consensi.fa
 
 | `SKIP_REBUILD_CONS` | optional | Skip copy-majority rebuild before step4 |
 | `SKIP_CANONICALIZE` | optional | Skip RC merge on consensus bank |
-| `CANON_MIN_ID` | optional (90) | RC/direct merge threshold (%) |
+| `CANON_MIN_ID` | optional (80) | RC/direct merge threshold (%) |
 
 ## Consensus bank (RC merge + copy rebuild)
 
 AnnoSINE can emit ± duplicates as separate seed names. Before step1,
-`canonicalize_consensus_bank.py` merges clusters (≥90% direct or RC identity)
+`canonicalize_consensus_bank.py` merges clusters (≥80% direct or RC identity;
+oma ± pairs are ~83–84% RC)
 and orients to AT-rich 3′. Before step4, `rebuild_consensus_bank.py` writes
 `consensuses.rebuilt.fa` from assigned copies (no N ties). step4 pctid uses
 `-3` (both strands), matching step2.

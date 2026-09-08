@@ -242,8 +242,8 @@ canonicalize_consensus_bank(){
   [[ -f "$py" ]] || { log "WARNING: $py missing — skip RC merge"; return 0; }
   local tmp="${fa}.canon.tmp"
   local aliases="${fa%.fa}.aliases.tsv"
-  log "Canonicalizing consensus bank (RC merge, min-id=${CANON_MIN_ID:-90})"
-  if python3 "$py" "$fa" -o "$tmp" --aliases "$aliases" --min-id "${CANON_MIN_ID:-90}"; then
+  log "Canonicalizing consensus bank (RC merge, min-id=${CANON_MIN_ID:-80})"
+  if python3 "$py" "$fa" -o "$tmp" --aliases "$aliases" --min-id "${CANON_MIN_ID:-80}"; then
     mv -f "$tmp" "$fa"
     [[ -s "$aliases" ]] && log "Wrote alias map: $aliases"
   else

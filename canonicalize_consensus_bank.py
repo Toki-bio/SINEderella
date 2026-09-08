@@ -45,7 +45,7 @@ def main() -> int:
     ap.add_argument("input_fa", type=Path)
     ap.add_argument("-o", "--output", type=Path, required=True)
     ap.add_argument("--aliases", type=Path, default=None)
-    ap.add_argument("--min-id", type=float, default=90.0)
+    ap.add_argument("--min-id", type=float, default=80.0)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 

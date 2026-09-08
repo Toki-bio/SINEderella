@@ -33,9 +33,11 @@ divergence medians diverge between pair members.
      "$RUN/consensuses.clean.fa" \
      -o /tmp/oma_cons.canon.fa \
      --aliases /tmp/oma_cons.aliases.tsv \
-     --min-id 90 --dry-run
+     --min-id 80 --dry-run
    ```
-3. **Full re-run from step1** with canonical seeds (required — step1 search is per-consensus):
+   Expect merges: `oma_group34`→`oma_SINE27`, `oma_big76`→`oma_SINE10` (~83–84% RC).
+   **`oma_sub515` is not RC of `oma_grp080`** (25% both ways) — truncated/N-rich seed;
+   drop or rebuild; do not expect RC merge.
    ```bash
    cp /tmp/oma_cons.canon.fa /path/to/oma_seeds_canonical.fa
    # New run OR replace consensuses.clean.fa and re-run step1–4 with SKIP where safe
