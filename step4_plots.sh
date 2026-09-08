@@ -30,6 +30,10 @@ OUT="$(ls -dt "$RUN_ROOT"/step2/step2_output* 2>/dev/null | head -n1 || true)"
 [[ -n "$OUT" && -d "$OUT" ]] || die "cannot find $RUN_ROOT/step2/step2_output*"
 
 CONS="$RUN_ROOT/consensuses.clean.fa"
+if [[ -s "$RUN_ROOT/consensuses.rebuilt.fa" ]]; then
+  CONS="$RUN_ROOT/consensuses.rebuilt.fa"
+  log "Using copy-rebuilt consensus bank: $CONS"
+fi
 SUBFAM_DIR="$OUT/subfamilies"
 PLOTS_DIR="$OUT/plots"
 
@@ -131,8 +135,8 @@ for sf_fasta in "${subfam_files[@]}"; do
   # ===================================================================
   # Plot 1: Divergence histogram from ssearch36 %identity
   # ===================================================================
-  log "  Running ssearch36 for %identity..."
-  ssearch36 -Q -n -z 11 -E 100 -T "$THREADS" -m 8 \
+  log "  Running ssearch36 for %identity (both strands, matches step2)..."
+  ssearch36 -g -3 -Q -n -z 11 -E 100 -T "$THREADS" -m 8 \
     "$tmpdir/cons_${sf_name}.fa" "$tmpdir/copies_clean_${sf_name}.fa" \
     > "$tmpdir/sim_${sf_name}.m8" 2>"$tmpdir/ssearch_err_${sf_name}.txt" || true
 

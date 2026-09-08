@@ -67,6 +67,20 @@ SINEderella --publish genome.fa consensi.fa
 | `SKIP_STEP4` | optional | Skip step4 regen |
 | `PEEL_FLAGS`, `PEEL_ALN_DIR` | optional | Border-loop hints from peel step4 |
 
+| `SKIP_REBUILD_CONS` | optional | Skip copy-majority rebuild before step4 |
+| `SKIP_CANONICALIZE` | optional | Skip RC merge on consensus bank |
+| `CANON_MIN_ID` | optional (90) | RC/direct merge threshold (%) |
+
+## Consensus bank (RC merge + copy rebuild)
+
+AnnoSINE can emit ± duplicates as separate seed names. Before step1,
+`canonicalize_consensus_bank.py` merges clusters (≥90% direct or RC identity)
+and orients to AT-rich 3′. Before step4, `rebuild_consensus_bank.py` writes
+`consensuses.rebuilt.fa` from assigned copies (no N ties). step4 pctid uses
+`-3` (both strands), matching step2.
+
+Oma repair procedure: [docs/OMA_CONSENSUS_REPAIR.md](docs/OMA_CONSENSUS_REPAIR.md).
+
 ## Divergence chart
 
 When step4 `*_pctid.tsv` files exist, `step6_report.py` uses **variant 3**:

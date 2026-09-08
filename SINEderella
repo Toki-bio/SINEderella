@@ -233,6 +233,38 @@ sanitize_fasta(){
 }
 
 ###############################################################################
+# HELPER: merge RC-duplicate consensus seeds (before step1)
+###############################################################################
+canonicalize_consensus_bank(){
+  local fa="$1"
+  [[ "${SKIP_CANONICALIZE:-0}" == "1" ]] && { log "SKIP_CANONICALIZE=1 — keeping all seed names"; return 0; }
+  local py="$SCRIPT_DIR/canonicalize_consensus_bank.py"
+  [[ -f "$py" ]] || { log "WARNING: $py missing — skip RC merge"; return 0; }
+  local tmp="${fa}.canon.tmp"
+  local aliases="${fa%.fa}.aliases.tsv"
+  log "Canonicalizing consensus bank (RC merge, min-id=${CANON_MIN_ID:-90})"
+  if python3 "$py" "$fa" -o "$tmp" --aliases "$aliases" --min-id "${CANON_MIN_ID:-90}"; then
+    mv -f "$tmp" "$fa"
+    [[ -s "$aliases" ]] && log "Wrote alias map: $aliases"
+  else
+    log "WARNING: canonicalize_consensus_bank.py failed — using unmerged seeds"
+    rm -f "$tmp"
+  fi
+}
+
+###############################################################################
+# HELPER: rebuild consensus from assigned copies (before step4 plots)
+###############################################################################
+rebuild_consensus_bank(){
+  local rundir="$1"
+  [[ "${SKIP_REBUILD_CONS:-0}" == "1" ]] && { log "SKIP_REBUILD_CONS=1"; return 0; }
+  local py="$SCRIPT_DIR/rebuild_consensus_bank.py"
+  [[ -f "$py" ]] || { log "WARNING: $py missing — step4 will use seed consensuses"; return 0; }
+  log "Rebuilding consensus bank from step2 copy assignments"
+  python3 "$py" "$rundir" || log "WARNING: rebuild_consensus_bank.py failed"
+}
+
+###############################################################################
 # HELPER: run step2 + step3 (shared by all modes)
 ###############################################################################
 run_step2_step3(){
@@ -291,6 +323,8 @@ run_step2_step3(){
       log "WARNING: missing/empty $f"
     fi
   done
+
+  rebuild_consensus_bank "$(pwd -P)"
 
   # --- Step 4: Diagnostic plots (optional) ---
   if [[ -n "${PLOT_SRC:-}" && -f "./step4_plots.sh" && -f "./plot_subfamily.py" ]]; then
@@ -512,6 +546,11 @@ mode_full(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
+    [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
+  done
+  [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
+    cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
   local QC_SRC="$SCRIPT_DIR/assembly_qc.sh"
   [[ -f "$QC_SRC" ]] && cp -f "$QC_SRC" "$RUN/assembly_qc.sh"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
@@ -527,6 +566,7 @@ mode_full(){
   log "Normalizing consensuses -> consensuses.clean.fa"
   sanitize_fasta "$CONS_IN" "$RUN/consensuses.clean.fa" consensus
   [[ -s "$RUN/consensuses.clean.fa" ]] || die "consensuses.clean.fa is empty (normalize failed)"
+  canonicalize_consensus_bank "$RUN/consensuses.clean.fa"
 
   cd "$RUN" || die "Cannot cd into run dir: $RUN"
 
@@ -650,6 +690,11 @@ mode_add(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
+    [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
+  done
+  [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
+    cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
   [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
   [[ -z "${REPORT_SRC:-}" ]]    || cp -f "$REPORT_SRC"    "$RUN/step6_report.sh"
@@ -670,6 +715,7 @@ mode_add(){
     keep{ print }
   ' "$new_clean" >> "$RUN/consensuses.clean.fa"
   rm -f "$new_clean"
+  canonicalize_consensus_bank "$RUN/consensuses.clean.fa"
 
   # Copy step1 output from old run, preserving searches/
   log "Copying step1 output from source run..."
@@ -805,6 +851,11 @@ mode_exclude(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
+    [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
+  done
+  [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
+    cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
   [[ ! -f "$RUN/step4_plots.sh" ]] || chmod +x "$RUN/step4_plots.sh" "$RUN/plot_subfamily.py" 2>/dev/null || true
   [[ -z "${REPORT_SRC:-}" ]]    || cp -f "$REPORT_SRC"    "$RUN/step6_report.sh"
@@ -821,6 +872,7 @@ mode_exclude(){
     /^>/{ hdr=$0; sub(/^>/,"",hdr); sub(/[ \t].*/,"",hdr); skip=(hdr==excl) }
     !skip{ print }
   ' "$SRC_RUN/consensuses.clean.fa" > "$RUN/consensuses.clean.fa"
+  canonicalize_consensus_bank "$RUN/consensuses.clean.fa"
 
   local remaining
   remaining="$(grep -c "^>" "$RUN/consensuses.clean.fa" || echo 0)"
@@ -925,6 +977,11 @@ mode_resume(){
   cp -f "$POST_SRC"   ./step3_postprocess.sh
   [[ -z "${PLOT_SRC:-}"    ]] || cp -f "$PLOT_SRC"     ./step4_plots.sh
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC"  ./plot_subfamily.py
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
+    [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" ./
+  done
+  [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
+    cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ./
   chmod +x ./step1_search_extract.sh ./step2_asSINEment.sh \
            ./step3_postprocess.sh 2>/dev/null || true
   [[ ! -f ./step4_plots.sh ]] || \
@@ -986,6 +1043,7 @@ mode_resume(){
       log "Step4 — already complete, skipping"
     elif [[ -n "${PLOT_SRC:-}" && -f ./step4_plots.sh && -f ./plot_subfamily.py ]]; then
       log "Step4 — running..."
+      rebuild_consensus_bank "$(pwd -P)"
       set +e
       ./step4_plots.sh "$(pwd -P)" "$THREADS" \
         > >(tee step4.stdout.log) \
