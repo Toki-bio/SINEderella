@@ -98,7 +98,7 @@ if [[ -f "$SINEDERELLA/step6_report.py" ]]; then
   mkdir -p results
   log "step6 report..."
   python3 step6_report.py "$(pwd -P)" --out results/report.html \
-    --embed-images --no-sineplot --species-code oma \
+    --no-sineplot --species-code oma \
     || log "WARNING: step6 failed"
 fi
 

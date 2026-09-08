@@ -148,6 +148,8 @@ for sf_fasta in "${subfam_files[@]}"; do
     for(s in pid) printf "%s\t%.2f\n", s, pid[s]
   }' "$tmpdir/sim_${sf_name}.m8" > "$tmpdir/pctid_${sf_name}.tsv"
 
+  cp -f "$tmpdir/pctid_${sf_name}.tsv" "$PLOTS_DIR/${sf_name}_pctid.tsv"
+
   npctid=$(wc -l < "$tmpdir/pctid_${sf_name}.tsv")
   if [[ $npctid -eq 0 ]]; then
     log "  WARNING: no ssearch36 hits for $sf_name"
