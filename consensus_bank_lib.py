@@ -4,9 +4,39 @@ from __future__ import annotations
 import glob
 import re
 import statistics
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 RC = str.maketrans("ACGTacgtNn", "TGCAtgcaNn")
+
+# Defaults; override via env in callers if needed
+TAIL_WINDOW = 60
+TAIL_MAX_PERIOD = 6
+TAIL_MIN_REPEATS = 3
+ORIENT_MIN_MARGIN = 0.15
+START_SLOP = 5  # allow tandem repeat to start a few bp in from 5'
+
+
+def tandem_unit_weight(unit: str) -> float:
+    """AT-rich units score as tail signal; G/C-only units are weak (body, not tail)."""
+    if not unit:
+        return 0.0
+    at = sum(1 for c in unit if c in "AT") / len(unit)
+    return 0.15 + 0.85 * at
+
+
+def tandem_bp_score(bp: int, unit: str) -> float:
+    return float(bp) * tandem_unit_weight(unit)
+
+
+@dataclass
+class OrientResult:
+    seq: str
+    action: str  # kept | flipped | undecided | empty
+    fwd_score: float = 0.0
+    rev_score: float = 0.0
+    detail: dict[str, Any] = field(default_factory=dict)
 
 
 def read_fa(path: Path) -> dict[str, str]:
@@ -54,6 +84,143 @@ def identity(a: str, b: str) -> float:
     return 100.0 * matches / L
 
 
+def longest_tandem_at_end(
+    s: str,
+    max_period: int = TAIL_MAX_PERIOD,
+    min_repeats: int = TAIL_MIN_REPEATS,
+) -> dict[str, Any]:
+    """Longest exact simple tandem repeat anchored at the 3' end of s."""
+    s = ungap(s)
+    best: dict[str, Any] = {"score": 0.0, "period": 0, "repeats": 0, "unit": "", "bp": 0}
+    if len(s) < max_period * min_repeats:
+        return best
+    for period in range(1, max_period + 1):
+        unit = s[-period:]
+        count = 0
+        pos = len(s)
+        while pos >= period:
+            if s[pos - period : pos] == unit:
+                count += 1
+                pos -= period
+            else:
+                break
+        if count >= min_repeats:
+            bp = count * period
+            score = tandem_bp_score(bp, unit)
+            if score > best["score"]:
+                best = {"score": score, "period": period, "repeats": count, "unit": unit, "bp": bp}
+    return best
+
+
+def longest_tandem_near_start(
+    s: str,
+    max_period: int = TAIL_MAX_PERIOD,
+    min_repeats: int = TAIL_MIN_REPEATS,
+    max_slop: int = START_SLOP,
+) -> dict[str, Any]:
+    """Longest AT-weighted tandem repeat starting within max_slop bp of 5'."""
+    s = ungap(s)
+    best: dict[str, Any] = {"score": 0.0, "period": 0, "repeats": 0, "unit": "", "bp": 0}
+    if len(s) < max_period * min_repeats:
+        return best
+    slop = min(max_slop + 1, len(s))
+    for offset in range(slop):
+        sub = s[offset:]
+        for period in range(1, max_period + 1):
+            if len(sub) < period * min_repeats:
+                continue
+            unit = sub[:period]
+            count = 0
+            pos = 0
+            while pos + period <= len(sub):
+                if sub[pos : pos + period] == unit:
+                    count += 1
+                    pos += period
+                else:
+                    break
+            if count >= min_repeats:
+                bp = count * period
+                score = tandem_bp_score(bp, unit)
+                if score > best["score"]:
+                    best = {
+                        "score": score,
+                        "period": period,
+                        "repeats": count,
+                        "unit": unit,
+                        "bp": bp,
+                        "offset": offset,
+                    }
+    return best
+
+
+def longest_tandem_at_start(
+    s: str,
+    max_period: int = TAIL_MAX_PERIOD,
+    min_repeats: int = TAIL_MIN_REPEATS,
+) -> dict[str, Any]:
+    """Longest exact simple tandem repeat anchored at the 5' end of s."""
+    s = ungap(s)
+    best: dict[str, Any] = {"score": 0.0, "period": 0, "repeats": 0, "unit": "", "bp": 0}
+    if len(s) < max_period * min_repeats:
+        return best
+    for period in range(1, max_period + 1):
+        unit = s[:period]
+        count = 0
+        pos = 0
+        while pos + period <= len(s):
+            if s[pos : pos + period] == unit:
+                count += 1
+                pos += period
+            else:
+                break
+        if count >= min_repeats:
+            bp = count * period
+            score = tandem_bp_score(bp, unit)
+            if score > best["score"]:
+                best = {"score": score, "period": period, "repeats": count, "unit": unit, "bp": bp}
+    return best
+
+
+def tail_strand_score(
+    s: str,
+    window: int = TAIL_WINDOW,
+    max_period: int = TAIL_MAX_PERIOD,
+    min_repeats: int = TAIL_MIN_REPEATS,
+) -> tuple[float, dict[str, Any]]:
+    """Higher when a simple tandem repeat sits at 3' rather than 5'."""
+    u = ungap(s)
+    if not u:
+        return 0.0, {}
+    tail3 = u[-window:] if len(u) > window else u
+    tail5 = u[:window] if len(u) > window else u
+    end3 = longest_tandem_at_end(tail3, max_period, min_repeats)
+    end5 = longest_tandem_near_start(tail5, max_period, min_repeats)
+    score = end3["score"] - 0.5 * end5["score"]
+    return score, {"3prime": end3, "5prime": end5}
+
+
+def orient_by_simple_repeat_tail(
+    seq: str,
+    window: int = TAIL_WINDOW,
+    max_period: int = TAIL_MAX_PERIOD,
+    min_repeats: int = TAIL_MIN_REPEATS,
+    min_margin: float = ORIENT_MIN_MARGIN,
+) -> OrientResult:
+    u = ungap(seq)
+    if not u:
+        return OrientResult(seq="", action="empty")
+    fwd, df = tail_strand_score(u, window, max_period, min_repeats)
+    ru = rc(u)
+    rev, dr = tail_strand_score(ru, window, max_period, min_repeats)
+    scale = max(abs(fwd), abs(rev), 1.0)
+    detail = {"fwd": df, "rev": dr, "fwd_score": fwd, "rev_score": rev}
+    if abs(fwd - rev) < min_margin * scale:
+        return OrientResult(seq=u, action="undecided", fwd_score=fwd, rev_score=rev, detail=detail)
+    if rev > fwd:
+        return OrientResult(seq=ru, action="flipped", fwd_score=fwd, rev_score=rev, detail=detail)
+    return OrientResult(seq=u, action="kept", fwd_score=fwd, rev_score=rev, detail=detail)
+
+
 def at_rich_3prime_score(s: str, tail: int = 30) -> float:
     u = ungap(s)
     if not u:
@@ -66,15 +233,21 @@ def pick_canonical(a: str, b: str) -> tuple[str, str, str]:
     sa, sb = ungap(a), ungap(b)
     id_direct = identity(sa, sb)
     id_rc = identity(sa, rc(sb))
+    oa = orient_by_simple_repeat_tail(sa)
+    ob = orient_by_simple_repeat_tail(sb)
+    fa, _ = tail_strand_score(oa.seq)
+    fb, _ = tail_strand_score(ob.seq)
     if id_rc > id_direct + 1:
-        score_a = at_rich_3prime_score(sa)
-        score_b = at_rich_3prime_score(sb)
-        if score_a >= score_b:
-            return sa, "+", f"RC pair; keep A (AT3'={score_a:.2f} vs {score_b:.2f})"
-        return rc(sb), "-", f"RC pair; flip B (AT3'={score_b:.2f} vs {score_a:.2f})"
-    if at_rich_3prime_score(sa) >= at_rich_3prime_score(sb):
-        return sa, "+", "direct; keep A by AT3'"
-    return sb, "+", "direct; keep B by AT3'"
+        if fa >= fb:
+            return oa.seq, "+", (
+                f"RC pair; keep A (tail score {fa:.1f} vs {fb:.1f})"
+            )
+        return ob.seq, "+", (
+            f"RC pair; keep B (tail score {fb:.1f} vs {fa:.1f})"
+        )
+    if fa >= fb:
+        return oa.seq, "+", f"direct; keep A (tail score {fa:.1f})"
+    return ob.seq, "+", f"direct; keep B (tail score {fb:.1f})"
 
 
 def find_rc_clusters(cons: dict[str, str], min_id: float) -> list[list[str]]:
@@ -127,7 +300,7 @@ def majority_consensus(seqs: list[str], tie_to_n: bool = False) -> str:
         elif tie_to_n:
             out.append("N")
         else:
-            out.append(winners[0])  # deterministic: ACGT order via max key
+            out.append(winners[0])
     return "".join(out)
 
 
@@ -175,7 +348,13 @@ def pctid_stats(run_root: Path, sf: str) -> dict | None:
 
 
 def orient_at_rich_3prime(seq: str) -> str:
-    u = ungap(seq)
-    if at_rich_3prime_score(u) < at_rich_3prime_score(rc(u)):
-        return rc(u)
-    return u
+    """Canonical orientation for consensus bank (simple tandem repeat tail at 3')."""
+    r = orient_by_simple_repeat_tail(seq)
+    if r.action == "empty":
+        return ungap(seq)
+    if r.action == "undecided":
+        u = ungap(seq)
+        if at_rich_3prime_score(u) < at_rich_3prime_score(rc(u)):
+            return rc(u)
+        return u
+    return r.seq

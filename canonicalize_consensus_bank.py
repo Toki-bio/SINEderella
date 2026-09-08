@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 
 from consensus_bank_lib import (
-    at_rich_3prime_score,
     find_rc_clusters,
     identity,
     orient_at_rich_3prime,
@@ -35,7 +34,7 @@ def merge_cluster(names: list[str], cons: dict[str, str]) -> tuple[str, str, lis
         seq = canon
         aliases.append((other, kept, reason, max(id_d, id_r)))
     seq = orient_at_rich_3prime(seq)
-    note = "AT-rich 3' canonical"
+    note = "simple-repeat tail at 3 prime"
     aliases = [(a, b, f"{r}; {note}", p) for a, b, r, p in aliases]
     return kept, seq, aliases
 

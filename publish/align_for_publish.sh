@@ -82,6 +82,15 @@ for need in step7_boundary_refine.sh step8a_extract_alignments.sh; do
     echo "ERROR: missing $SINEDERELLA_BIN/$need" >&2; exit 1; }
 done
 
+log "orient consensuses.publish.fa (simple-repeat tail at 3 prime, pre-step8a)"
+ORIENT_PY="$SINEDERELLA_BIN/tools/orient_consensus_bank.py"
+if [[ "${SKIP_ORIENT_BANK:-0}" != "1" && -f "$ORIENT_PY" ]]; then
+  python3 "$ORIENT_PY" "$RUN_ROOT/consensuses.publish.fa" \
+    --report "$RUN_ROOT/consensuses.publish.orient.tsv"
+else
+  log "SKIP orient consensuses.publish.fa (SKIP_ORIENT_BANK=1 or tool missing)"
+fi
+
 log "step8a: extract publish alignments"
 STEP8_OUT="$RUN_ROOT/results/alignments"
 mkdir -p "$STEP8_OUT"
@@ -101,10 +110,17 @@ if [[ "$OUT_DIR" != "$STEP8_OUT" ]]; then
   cp -a "$STEP8_OUT"/*.aln.fa "$OUT_DIR/" 2>/dev/null || true
 fi
 
-log "DISC: rebuild consensus row + justify + trim"
+log "DISC: rebuild consensus row"
 shopt -s nullglob
+ORIENT_ALN="$SINEDERELLA_BIN/tools/orient_publish_aln.py"
 for f in "$STEP8_OUT"/*.aln.fa; do
   python3 "$DISC/rebuild_consensus_row.py" "$f"
+done
+if [[ "${SKIP_ORIENT_MSA:-0}" != "1" && -f "$ORIENT_ALN" ]]; then
+  log "orient published MSAs (tail check on row 1, post-rebuild)"
+  python3 "$ORIENT_ALN" "$STEP8_OUT"/*.aln.fa || true
+fi
+for f in "$STEP8_OUT"/*.aln.fa; do
   python3 "$DISC/boundary_justify.py" "$f"
   python3 "$DISC/trim_display_flanks.py" "$f" \
     --mode "${TRIM_DISPLAY_MODE:-occupancy}" || true

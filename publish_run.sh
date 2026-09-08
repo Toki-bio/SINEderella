@@ -81,7 +81,7 @@ fi
 mkdir -p "$RUN_ROOT/results"
 OUT_HTML="$RUN_ROOT/results/report.html"
 
-STEP6_ARGS=( "$RUN_ROOT" "--out" "$OUT_HTML" "--embed-images" "--no-sineplot" )
+STEP6_ARGS=( "$RUN_ROOT" "--out" "$OUT_HTML" "--no-sineplot" )
 [[ -n "${RAW_ALN_BASE:-}" ]] && \
   STEP6_ARGS+=( "--aln-base" "$RAW_ALN_BASE" )
 [[ -n "$SPECIES" ]] && \

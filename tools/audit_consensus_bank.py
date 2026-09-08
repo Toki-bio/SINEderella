@@ -9,6 +9,7 @@ from pathlib import Path
 from consensus_bank_lib import (
     find_rc_clusters,
     identity,
+    orient_by_simple_repeat_tail,
     pctid_stats,
     pick_canonical,
     rc,
@@ -23,6 +24,8 @@ def main() -> int:
     ap.add_argument("run_root", type=Path)
     ap.add_argument("--min-id", type=float, default=90.0)
     ap.add_argument("--focus", nargs="*", default=[])
+    ap.add_argument("--orient-check", action="store_true",
+                    help="Report tail-orient status; exit 1 if any would flip")
     args = ap.parse_args()
     run_root = args.run_root.resolve()
     cons_path = run_root / "consensuses.clean.fa"
@@ -51,9 +54,24 @@ def main() -> int:
             continue
         u = ungap(s)
         st = pctid_stats(run_root, f)
-        print(f"  {f}: len={len(u)} N={u.count('N')}")
+        o = orient_by_simple_repeat_tail(u)
+        print(f"  {f}: len={len(u)} N={u.count('N')} orient={o.action} "
+              f"fwd={o.fwd_score:.1f} rev={o.rev_score:.1f}")
         if st:
             print(f"    divergence median={st['median']:.1f}% n={st['n']}")
+
+    if args.orient_check:
+        bad = []
+        for name, s in cons.items():
+            o = orient_by_simple_repeat_tail(s)
+            if o.action == "flipped":
+                bad.append(name)
+                print(f"ORIENT FAIL {name}: would flip (fwd={o.fwd_score:.1f} "
+                      f"rev={o.rev_score:.1f})")
+        if bad:
+            print(f"orient-check: {len(bad)} consensus(es) backwards — fix before step1 sear")
+            return 1
+        print("orient-check: OK")
 
     rebuilt = rebuild_from_subfams(run_root)
     for f in args.focus:

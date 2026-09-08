@@ -242,7 +242,7 @@ canonicalize_consensus_bank(){
   [[ -f "$py" ]] || { log "WARNING: $py missing — skip RC merge"; return 0; }
   local tmp="${fa}.canon.tmp"
   local aliases="${fa%.fa}.aliases.tsv"
-  log "Canonicalizing consensus bank (RC merge, min-id=${CANON_MIN_ID:-80})"
+  log "Canonicalizing consensus bank (RC merge + simple-repeat tail orient, min-id=${CANON_MIN_ID:-80})"
   if python3 "$py" "$fa" -o "$tmp" --aliases "$aliases" --min-id "${CANON_MIN_ID:-80}"; then
     mv -f "$tmp" "$fa"
     [[ -s "$aliases" ]] && log "Wrote alias map: $aliases"
@@ -549,6 +549,10 @@ mode_full(){
   for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
+  for _tool in orient_consensus_bank.py orient_publish_aln.py; do
+    [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
+      cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
+  done
   [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
     cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
   local QC_SRC="$SCRIPT_DIR/assembly_qc.sh"
@@ -692,6 +696,10 @@ mode_add(){
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
   for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
+  done
+  for _tool in orient_consensus_bank.py orient_publish_aln.py; do
+    [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
+      cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
   done
   [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
     cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
@@ -853,6 +861,10 @@ mode_exclude(){
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
   for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
+  done
+  for _tool in orient_consensus_bank.py orient_publish_aln.py; do
+    [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
+      cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
   done
   [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
     cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
