@@ -37,9 +37,15 @@ chmod +x step2_asSINEment.sh step3_postprocess.sh step4_plots.sh 2>/dev/null || 
 [[ -s consensuses.clean.fa ]] || die "missing consensuses.clean.fa"
 [[ -s genome.clean_step1/extracted.fasta ]] || die "missing extracted.fasta"
 
-# ── backup + canonicalize consensus bank ────────────────────────────────────
-cp -f consensuses.clean.fa "consensuses.clean.fa.pre_repair.$(date +%Y%m%d).bak"
-log "Backed up consensuses.clean.fa"
+# ── backup + restore seeds + canonicalize ───────────────────────────────────
+BAK="$(ls -t consensuses.clean.fa.pre_repair.*.bak 2>/dev/null | head -1 || true)"
+if [[ -n "$BAK" && -s "$BAK" ]]; then
+  cp -f "$BAK" consensuses.clean.fa
+  log "Restored seeds from $BAK"
+else
+  cp -f consensuses.clean.fa "consensuses.clean.fa.pre_repair.$(date +%Y%m%d).bak"
+  log "Backed up consensuses.clean.fa"
+fi
 
 python3 canonicalize_consensus_bank.py consensuses.clean.fa \
   -o consensuses.clean.fa.canon.tmp \
