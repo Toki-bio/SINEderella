@@ -41,7 +41,8 @@ def rc(s: str) -> str:
 
 
 def ungap(s: str) -> str:
-    return re.sub(r"[-.\s]", "", s)
+    """ACGT-only sequence for identity / orientation (strip gaps and IUPAC)."""
+    return re.sub(r"[^ACGT]", "", s.upper())
 
 
 def identity(a: str, b: str) -> float:
