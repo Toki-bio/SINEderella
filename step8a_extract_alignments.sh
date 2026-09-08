@@ -48,7 +48,7 @@ if [[ ! -s "$GENOME.fai" ]]; then
 fi
 
 # MAFFT parameters (shared across all variants)
-MAFFT_ARGS=(--localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --preservecase)
+MAFFT_ARGS=(--localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --preservecase --adjustdirection --quiet)
 
 # Base flank sizes
 BASE_UP=50
@@ -208,7 +208,7 @@ extract_consensus() {
 extract_flank_align() {
     local loci_tsv="$1" cons_fa="$2" up_flank="$3" down_flank="$4" outfile="$5"
 
-    # Create BED: chrom, start-1, end, name, score, strand
+    # Create BED: chrom, start-1, end, name, score, strand (clamp start >= 0)
     awk -F'\t' 'BEGIN{OFS="\t"} {s=$4-1; if (s<0) s=0; print $3, s, $5, NR, $2, $6}' \
         "$loci_tsv" > "$TMPDIR/cur.bed" || return 1
 

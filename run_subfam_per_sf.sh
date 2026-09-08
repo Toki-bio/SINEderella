@@ -1,6 +1,6 @@
 #!/bin/bash
-# run_subfam_per_sf.sh
-# Run SubFam per subfamily for SAQ and CCR.
+# run_subfam_per_sf.sh — LEGACY KIT one-off (saq/ccr paths hardcoded).
+# Not part of the standard publish pipeline; use publish/align_for_publish.sh instead.
 # Each subfamily: sample up to N_SAMPLE copies from assigned.fasta,
 # skip if total < MIN_COPIES, then run SubFam + final mafft alignment.
 # Output: {out_dir}/{sf}.al  (FASTA alignment: chunk-consensuses + sf-consensus)

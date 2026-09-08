@@ -40,9 +40,14 @@ Options:
                 Use with --run <dir> to specify a run explicitly.
 
 Environment:
-  THREADS     Number of CPU threads (default: nproc)
-  CHUNK_BP    Step1 chunk size (default: 30000)
-  FLANK       Step1 flank size (default: 50)
+  THREADS          Number of CPU threads (default: nproc)
+  CHUNK_BP         Step1 chunk size (default: 30000)
+  FLANK            Step1 flank size (default: 50)
+  SPECIES_CODE     Species prefix for --publish (e.g. mysp)
+  RAW_ALN_BASE     Published raw URL prefix for report MSAs
+  PAGES_INDEX      Optional “All species” nav URL (multi-species site)
+  DISC             SINE-discriminator root (verdict.py, boundary_justify.py)
+  PUBLISH          Set to 1 to run full publish after step4 (same as --publish)
 EOF
   exit 2
 }
@@ -109,11 +114,16 @@ EXCLUDE_NAME=""
 EXISTING_RUN=""
 GENOME_IN=""
 CONS_IN=""
+PUBLISH="${PUBLISH:-0}"
 
 if [[ $# -eq 0 ]]; then usage; fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --publish)
+      PUBLISH=1
+      shift
+      ;;
     -a|--add)
       MODE="add"
       shift
@@ -334,14 +344,29 @@ run_step2_step3(){
   # Assembly QC
   [[ -f genome.clean_assembly_qc.tsv ]] && ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
 
-  # --- Step 6: HTML report (optional) ---
+  # --- Step 6 / publish HTML report (optional) ---
   # Must run AFTER the results/ symlink farm above, not before: step6_report.py
   # writes results/report.html directly, and this block's own `rm -rf results`
   # would otherwise silently destroy that freshly-written file every time
   # (confirmed reproducible 2026-08-21 through 2026-08-23 across three
   # independent runs before this fix -- see Tal repo tim/LOG.md and
   # eri/sco LOG.md for the standalone-rerun workaround this replaces).
-  if [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
+  if [[ "${PUBLISH}" == "1" ]]; then
+    [[ -n "${SPECIES_CODE:-}" ]] || die "--publish requires SPECIES_CODE (e.g. export SPECIES_CODE=mysp)"
+    cp -f "$SCRIPT_DIR/publish_run.sh" ./ 2>/dev/null || true
+    cp -rf "$SCRIPT_DIR/publish" ./ 2>/dev/null || true
+    chmod +x ./publish_run.sh ./publish/align_for_publish.sh 2>/dev/null || true
+    log "Running publish_run.sh (alignments + step6 + discriminator overlay)"
+    set +e
+    SINEDERELLA_BIN="$SCRIPT_DIR" bash "$SCRIPT_DIR/publish_run.sh" "$(pwd -P)" "$SPECIES_CODE" \
+      > >(tee publish.stdout.log) \
+      2> >(tee publish.stderr.log >&2)
+    pub_rc=$?
+    set -e
+    if (( pub_rc != 0 )); then
+      log "WARNING: publish_run failed (exit $pub_rc)"
+    fi
+  elif [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
     log "Running Step6 HTML report (step6_report.sh)"
     set +e
     ./step6_report.sh "$(pwd -P)" \

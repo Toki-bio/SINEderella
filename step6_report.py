@@ -433,6 +433,109 @@ def fig_divergence_kde(by_sf: Dict[str, List[float]]) -> dict:
     }
 
 
+def load_pctid_by_sf(plots_dir: Path) -> Dict[str, List[float]]:
+    """step4 *_pctid.tsv: col2 = ssearch36 %identity to consensus."""
+    by_sf: Dict[str, List[float]] = {}
+    if not plots_dir.is_dir():
+        return by_sf
+    for p in sorted(plots_dir.glob("*_pctid.tsv")):
+        sf = p.name.replace("_pctid.tsv", "")
+        vals = []
+        with p.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    try:
+                        vals.append(float(parts[1]))
+                    except ValueError:
+                        pass
+        if vals:
+            by_sf[sf] = vals
+    return by_sf
+
+
+def bin_divergence(vals: List[float], bin_width: float = 1.0) -> Dict[float, int]:
+    counts: Dict[float, int] = {}
+    for v in vals:
+        d = max(0.0, 100.0 - float(v))
+        bin_start = math.floor((d + 1e-9) / bin_width) * bin_width
+        bin_start = round(bin_start, 6)
+        counts[bin_start] = counts.get(bin_start, 0) + 1
+    return counts
+
+
+def fig_pctid_spline_divergence(by_sf: Dict[str, List[float]],
+                                bin_width: float = 1.0) -> dict:
+    """1% bin midpoints, Y = copy count, smooth spline (step4 gallery metric)."""
+    sf_sorted = sorted(by_sf.keys())
+    traces = []
+    max_bin_end = 0.0
+    for i, sf in enumerate(sf_sorted):
+        counts = bin_divergence(by_sf[sf], bin_width)
+        if not counts:
+            continue
+        bins = sorted(counts)
+        max_bin_end = max(max_bin_end, max(bins) + bin_width)
+        traces.append({
+            "type": "scatter",
+            "mode": "lines",
+            "x": [round(b + bin_width / 2.0, 1) for b in bins],
+            "y": [counts[b] for b in bins],
+            "name": sf,
+            "line": {
+                "color": SF_PALETTE[i % len(SF_PALETTE)],
+                "width": 2,
+                "shape": "spline",
+            },
+            "hovertemplate": (
+                "%{fullData.name}<br>divergence ~%{x:.0f}%"
+                "<br>copies %{y:,d}<extra></extra>"),
+        })
+    x_range_max = min(100.0, max(5.0, math.ceil(max_bin_end / 5.0) * 5.0))
+    return {
+        "data": traces,
+        "layout": {
+            "title": "ssearch36 %identity divergence (step4)",
+            "xaxis": {
+                "title": "Divergence (100 \u2212 %identity to consensus)",
+                "range": [0, x_range_max],
+                "dtick": 5,
+            },
+            "yaxis": {"title": "Copies", "rangemode": "tozero"},
+            "legend": {"title": {"text": "Subfamily (click to toggle)"}},
+            "height": 460,
+            "margin": {"t": 60, "r": 20, "b": 60, "l": 70},
+        },
+    }
+
+
+REPORT_PLOTS_JS = """
+(function(){
+  function addBar(plotId){
+    var plot=document.getElementById(plotId);
+    if(!plot)return;
+    var bar=document.createElement('div');
+    bar.style.cssText='margin:4px 0 6px;font-size:.72rem;';
+    bar.innerHTML='<button type="button" style="margin-right:4px;padding:1px 6px;font-size:.72rem;cursor:pointer;" data-a="0">Hide all</button><button type="button" style="padding:1px 6px;font-size:.72rem;cursor:pointer;" data-a="1">Show all</button>';
+    plot.parentNode.insertBefore(bar,plot);
+    bar.querySelectorAll('button').forEach(function(b){
+      b.addEventListener('click',function(){
+        var gd=document.getElementById(plotId);
+        if(!gd||!gd.data)return;
+        var show=b.getAttribute('data-a')==='1';
+        Plotly.restyle(gd,{visible:gd.data.map(function(){return show?true:'legendonly';})});
+      });
+    });
+  }
+  addBar('plot_div_kde');
+  addBar('plot_pca');
+})();
+"""
+
+
 def fig_sim_violins(by_sf: Dict[str, List[float]]) -> dict:
     sf_sorted = sorted(by_sf.keys())
     traces = []
@@ -1192,48 +1295,66 @@ def build_alignment_section(
     species_code: str,
     subfams: List[str],
     msa_url: str = "https://toki-bio.github.io/MSA-viewer/",
-    raw_base: str = "https://raw.githubusercontent.com/Toki-bio/Tal/main/",
+    raw_base: Optional[str] = None,
+    aln_dir: Optional[Path] = None,
 ) -> str:
-    raw_aln    = f"{raw_base}{species_code}/alignments/"
-    raw_subfam = f"{raw_base}{species_code}/subfam/"
+    """Alignment table. With raw_base (http URL): MSA-viewer links. Else: relative paths."""
+    use_remote = bool(raw_base and raw_base.startswith("http"))
 
-    def msa_href(url: str, title: str) -> str:
-        return (f"{msa_url}?url={quote(url, safe='')}"
-                f"&title={quote(title, safe='')}")
+    def aln_link(fn: str, title: str, label: str, css: str = "") -> str:
+        if use_remote:
+            base = raw_base.rstrip("/") + "/"
+            if "alignments" not in base:
+                base = f"{raw_base.rstrip('/')}/{species_code}/alignments/"
+            url = base + fn
+            href = (f"{msa_url}?url={quote(url, safe='')}"
+                    f"&title={quote(title, safe='')}")
+        else:
+            href = f"alignments/{fn}"
+        cls = "aln-link" + (f" {css}" if css else "")
+        return (f'<a class="{cls}" href="{html.escape(href, quote=True)}" '
+                f'target="_blank">{html.escape(label)}</a>')
 
-    consi_href = msa_href(raw_aln + f"{species_code}_consensuses.fa",
-                          f"{species_code} all consensi")
-    subfam_input_href = msa_href(raw_aln + f"{species_code}_subfam_input.aln.fa",
-                                 f"{species_code} SubFam input (all families)")
+    intro_links = ""
+    if use_remote:
+        intro_links = (
+            "&nbsp;&nbsp;"
+            + aln_link(f"{species_code}_consensuses.fa",
+                       f"{species_code} all consensi", "All consensi")
+            + "&nbsp;&nbsp;"
+            + aln_link(f"{species_code}_subfam_input.aln.fa",
+                       f"{species_code} SubFam input", "SubFam input")
+        )
+    elif aln_dir:
+        intro_links = (
+            "<span class='small muted'>&nbsp;(Relative links; pass "
+            "<code>--aln-base</code> with a published raw URL for MSA viewer.)</span>"
+        )
 
     rows_html = ""
     for sf in sorted(subfams):
-        t100  = msa_href(raw_aln    + f"{species_code}_{sf}_top100.aln.fa",
-                         f"{species_code} {sf} top100")
-        r100  = msa_href(raw_aln    + f"{species_code}_{sf}_rand100.aln.fa",
-                         f"{species_code} {sf} rand100")
-        subfam_href = msa_href(raw_subfam + f"{sf}.al",
-                               f"{species_code} {sf} SubFam")
+        t100_fn = f"{species_code}_{sf}_top100.aln.fa"
+        r100_fn = f"{species_code}_{sf}_rand100.aln.fa"
+        sub_fn = f"{species_code}_{sf}_subfam.aln.fa"
+        if aln_dir and not (aln_dir / t100_fn).is_file():
+            continue
         rows_html += (
             f"<tr><td><code>{html.escape(sf)}</code></td>"
-            f"<td><a class='aln-link' href='{t100}' target='_blank'>"
-            f"top 100 by score</a></td>"
-            f"<td><a class='aln-link orange' href='{r100}' target='_blank'>"
-            f"100 random</a></td>"
-            f"<td><a class='aln-link green' href='{subfam_href}' target='_blank'>"
-            f"SubFam</a></td></tr>"
+            f"<td>{aln_link(t100_fn, f'{species_code} {sf} top100', 'top 100 by score')}</td>"
+            f"<td>{aln_link(r100_fn, f'{species_code} {sf} rand100', '100 random', 'orange')}</td>"
+            f"<td>{aln_link(sub_fn, f'{species_code} {sf} subfam', 'SubFam', 'green')}</td>"
+            "</tr>"
         )
+    if not rows_html:
+        return ""
     return (
         "<section class='card' id='alignments'>"
-        "<h2>Subfamily Alignments &mdash; open in MSA Viewer</h2>"
+        "<h2>Subfamily alignments</h2>"
         "<p class='intro'>Copies re-extracted with "
         "<strong>50&thinsp;bp upstream + 70&thinsp;bp downstream</strong> "
-        "genomic flanks (strand-aware).&nbsp;&nbsp;"
-        f"<a class='aln-link' href='{consi_href}' target='_blank'>"
-        "All consensi</a>"
-        "&nbsp;&nbsp;"
-        f"<a class='aln-link green' href='{subfam_input_href}' target='_blank'>"
-        "SubFam input alignment (all families combined)</a></p>"
+        "genomic flanks (strand-aware)."
+        + intro_links
+        + "</p>"
         "<table class='tbl'>"
         "<thead><tr><th>Subfamily</th>"
         "<th>Top 100 by bitscore</th>"
@@ -1256,7 +1377,9 @@ def build_html(run_root: Path,
                sineplot: bool,
                sineplot_max: int,
                threads: int,
-               tal_species_code: Optional[str] = None) -> None:
+               tal_species_code: Optional[str] = None,
+               aln_base: Optional[str] = None,
+               pages_index: Optional[str] = None) -> None:
     LOG.info("Building report for %s", run_root)
     s2 = find_step2_out(run_root)
     LOG.info("step2 output: %s", s2)
@@ -1288,15 +1411,19 @@ def build_html(run_root: Path,
             if nf is not None:
                 curves[sf] = conservation_curve(nf)
 
-    figs = {
-        "div_kde":     fig_divergence_kde(sim_by_sf),
-        "sim_violins": fig_sim_violins(sim_by_sf),
-    }
+    plots_dir = s2 / "plots"
+    figs = {}
+    pctid_by_sf = load_pctid_by_sf(plots_dir) if plots_dir.is_dir() else {}
+    use_pctid = bool(pctid_by_sf)
+    if use_pctid:
+        figs["div_kde"] = fig_pctid_spline_divergence(pctid_by_sf)
+    else:
+        figs["div_kde"] = fig_divergence_kde(sim_by_sf)
+        figs["sim_violins"] = fig_sim_violins(sim_by_sf)
     if curves:
         figs["conservation"] = fig_conservation(curves)
 
     # Per-subfamily PNG gallery
-    plots_dir = s2 / "plots"
     image_blocks: List[str] = []
     if embed_images and plots_dir.is_dir():
         subfams = sorted({p.name.rsplit("_divergence.", 1)[0]
@@ -1440,12 +1567,23 @@ def build_html(run_root: Path,
     else:
         conservation_html = ""
 
-    # Alignment section (optional, requires --tal-species-code)
+    # Alignment section (requires --species-code; links need --aln-base for MSA viewer)
+    species_code = tal_species_code
     alignment_section = ""
-    if tal_species_code:
+    aln_dir = run_root / "results" / "alignments"
+    if not aln_dir.is_dir():
+        aln_dir = run_root / "alignments"
+    if species_code:
         subfams_for_aln = sorted({r[0] for r in stats_rows if r})
+        if aln_dir.is_dir():
+            from_disk = sorted({
+                p.name.replace("_top100.aln.fa", "").replace(f"{species_code}_", "")
+                for p in aln_dir.glob(f"{species_code}_*_top100.aln.fa")
+            })
+            if from_disk:
+                subfams_for_aln = from_disk
         alignment_section = build_alignment_section(
-            tal_species_code, subfams_for_aln)
+            species_code, subfams_for_aln, raw_base=aln_base, aln_dir=aln_dir)
 
     # SINEplot panel HTML
     if sineplot_html:
@@ -1489,37 +1627,46 @@ def build_html(run_root: Path,
             "</div></section>"
         )
 
+    if use_pctid:
+        divergence_body = (
+            '<p class="intro"><b>Metric:</b> divergence = 100 &minus; ssearch36 '
+            '%identity to the subfamily consensus (same as Gallery histograms). '
+            'Copies binned at 1% divergence; line connects bin counts (smooth spline). '
+            'One line per subfamily; click legend to hide/show.</p>'
+            + conservation_html +
+            '<div class="plot" id="plot_div_kde"></div>'
+            '<p class="small muted">Source: step4 <code>*_pctid.tsv</code> on '
+            'assigned copies.</p>'
+        )
+    else:
+        divergence_body = (
+            '<p class="intro"><b>Metric:</b> bitscore-based divergence = '
+            '100&thinsp;&minus;&thinsp;(copy bitscore&thinsp;/&thinsp;consensus '
+            'self-bitscore &times; 100&thinsp;%). One KDE curve per subfamily '
+            '(up to 3,000 copies sampled); click legend to toggle.</p>'
+            + conservation_html +
+            '<div class="plot" id="plot_div_kde"></div>'
+            '<h3>Distributions per subfamily (violin)</h3>'
+            '<p class="intro">Same data as above shown as violin plots.</p>'
+            '<div class="plot" id="plot_sim_violins"></div>'
+            '<p class="small muted">Source: <code>sim_scores.tsv</code> joined with '
+            '<code>assignment_full.tsv</code>.</p>'
+        )
+
     title = manifest.get("RUN", str(run_root)).rstrip("/").split("/")[-1]
     genome_name = manifest.get("GENOME_IN", "?").rstrip("/").split("/")[-1]
     cons_name = manifest.get("CONS_IN", "?").rstrip("/").split("/")[-1]
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    # Cross-species nav bar (only when a species code is provided)
-    if tal_species_code:
-        _others = {
-            "saq": ("../ccr/report.html", "ccr"),
-            "ccr": ("../saq/report.html", "saq"),
-        }
-        _other_href, _other_label = _others.get(
-            tal_species_code, ("", ""))
-        other_link = (
-            f"<a href='{_other_href}' "
-            f"style='color:rgba(255,255,255,.7);text-decoration:none;"
-            f"margin-right:16px;'>{_other_label}</a>"
-            if _other_href else ""
-        )
+    cross_nav = ""
+    if pages_index:
         cross_nav = (
             "<div style='background:#1a2634;color:rgba(255,255,255,.8);"
             "padding:6px 32px;font-size:.85rem;'>"
-            "<a href='../index.html' style='color:rgba(255,255,255,.85);"
-            "text-decoration:none;margin-right:16px;'>&#8592; All species</a>"
-            + other_link
-            + "<a href='https://github.com/Toki-bio/Tal' target='_blank' "
-            "style='color:rgba(255,255,255,.6);text-decoration:none;'>"
-            "GitHub</a></div>"
+            f"<a href='{html.escape(pages_index, quote=True)}' "
+            "style='color:rgba(255,255,255,.85);text-decoration:none;'>"
+            "&#8592; All species</a></div>"
         )
-    else:
-        cross_nav = ""
 
     html_doc = f"""<!doctype html>
 <html lang="en"><head>
@@ -1576,21 +1723,7 @@ def build_html(run_root: Path,
 
   <section class="card" id="divergence">
     <h2>Divergence from consensus &mdash; per copy</h2>
-    <p class="intro"><b>Metric:</b> bitscore-based divergence =
-    100&thinsp;&minus;&thinsp;(copy bitscore&thinsp;/&thinsp;consensus self-bitscore &times; 100&thinsp;%).
-    This is a proxy for sequence divergence, not a direct nucleotide count.
-    Values are clamped to 0 (local alignment can occasionally score a copy
-    <i>above</i> the self-bitscore, which would otherwise appear as negative
-    divergence). One KDE curve per subfamily (up to 3,000 copies per
-    subfamily sampled for display); click legend entries to toggle.</p>
-    {conservation_html}
-    <div class="plot" id="plot_div_kde"></div>
-    <h3>Distributions per subfamily (violin)</h3>
-    <p class="intro">Same data as above shown as symmetric violin plots.
-    Width encodes density; inner box = IQR; dashed line = mean.</p>
-    <div class="plot" id="plot_sim_violins"></div>
-    <p class="small muted">Source: <code>sim_scores.tsv</code> joined with
-    <code>assignment_full.tsv</code>.</p>
+    {divergence_body}
   </section>
 
   <section class="card" id="pca">
@@ -1656,6 +1789,7 @@ def build_html(run_root: Path,
 </footer>
 <script>
 {fig_init}
+{REPORT_PLOTS_JS}
 (function(){{
   var lb = document.getElementById('lightbox');
   var lbimg = document.getElementById('lightbox-img');
@@ -1718,10 +1852,20 @@ def main(argv: Optional[List[str]] = None) -> int:
                                                os.cpu_count() or 1)),
                     help="Threads for ssearch36 inside SINEplot stage.")
     ap.add_argument("--tal-species-code", default=None,
-                    help="Species code (e.g. 'saq', 'ccr') for Tal GitHub "
-                         "Pages alignment links and cross-species nav bar.")
+                    help="Deprecated alias for --species-code.")
+    ap.add_argument("--species-code", default=None,
+                    help="Species prefix for alignment filenames (e.g. mysp).")
+    ap.add_argument("--aln-base", default=None,
+                    help="Published raw URL prefix for alignment MSAs (required "
+                         "for MSA-viewer links), e.g. "
+                         "https://raw.githubusercontent.com/org/repo/main/mysp/alignments/")
+    ap.add_argument("--pages-index", default=None,
+                    help="Optional URL for 'All species' nav link (multi-species site).")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
+
+    species = args.species_code or args.tal_species_code
+    pages_index = args.pages_index or os.environ.get("PAGES_INDEX") or None
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -1740,7 +1884,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                sineplot=args.sineplot,
                sineplot_max=args.sineplot_max,
                threads=args.threads,
-               tal_species_code=args.tal_species_code)
+               tal_species_code=species,
+               aln_base=args.aln_base,
+               pages_index=pages_index)
     return 0
 
 

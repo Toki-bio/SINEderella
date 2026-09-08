@@ -14,6 +14,7 @@ A reproducible Bash pipeline for genome-wide identification, classification, and
 | 7 | `step7_boundary_refine.sh` | Standalone/modular: per-subfamily boundary refinement — stepwise flank extension until a fraction-of-pairs-above-threshold test confirms background-level identity (or hits a 1000bp cap), writes `boundary_refinement.tsv` |
 | 8a | `step8a_extract_alignments.sh` | Standalone/modular: builds real top100/rand100/subfam alignments per subfamily, using `boundary_refinement.tsv` (if present) to size each subfamily's flanks |
 | 8b | `step8b_publish_report.sh` | Standalone/modular: wires step8a's alignments into an existing `report.html` as MSA-viewer links |
+| — | `publish_run.sh` | **Full publish:** step4 (if needed) → `publish/align_for_publish.sh` → step6 → SINE-discriminator inject. See [PUBLISH_WORKFLOW.md](PUBLISH_WORKFLOW.md). |
 
 Steps 7/8a/8b are runnable independently against any completed run
 (`RUN_ROOT`) — not yet wired into the `SINEderella`/`SINEderella_multi`
