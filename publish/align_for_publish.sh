@@ -110,18 +110,23 @@ if [[ "$OUT_DIR" != "$STEP8_OUT" ]]; then
   cp -a "$STEP8_OUT"/*.aln.fa "$OUT_DIR/" 2>/dev/null || true
 fi
 
-log "DISC: rebuild consensus row"
+log "DISC: boundary justify (must run before rebuild_consensus_row -- it is what"
+log "  establishes the element=upper/flank=lower case convention rebuild_consensus_row"
+log "  depends on; before this runs, row case is just the raw genome's native"
+log "  soft-masking, unrelated to element boundaries -- confirmed root cause of the"
+log "  oma_SINE10 top100 row-0 collapsing to 5bp, 2026-09-09)"
 shopt -s nullglob
 ORIENT_ALN="$SINEDERELLA_BIN/tools/orient_publish_aln.py"
 for f in "$STEP8_OUT"/*.aln.fa; do
-  python3 "$DISC/rebuild_consensus_row.py" "$f"
+  python3 "$DISC/boundary_justify.py" "$f"
 done
 if [[ "${SKIP_ORIENT_MSA:-0}" != "1" && -f "$ORIENT_ALN" ]]; then
-  log "orient published MSAs (tail check on row 1, post-rebuild)"
+  log "orient published MSAs (tail check on row 1, post-justify)"
   python3 "$ORIENT_ALN" "$STEP8_OUT"/*.aln.fa || true
 fi
+log "DISC: rebuild consensus row (now runs on correctly-cased rows)"
 for f in "$STEP8_OUT"/*.aln.fa; do
-  python3 "$DISC/boundary_justify.py" "$f"
+  python3 "$DISC/rebuild_consensus_row.py" "$f"
   python3 "$DISC/trim_display_flanks.py" "$f" \
     --mode "${TRIM_DISPLAY_MODE:-occupancy}" || true
 done
