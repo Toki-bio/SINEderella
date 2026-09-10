@@ -42,10 +42,23 @@ else
 fi
 
 if [[ "${SKIP_BORDER_LOOP:-0}" == "1" ]]; then
-  log "border loop: skipped (SKIP_BORDER_LOOP=1)"
-  cp -f "$RUN_ROOT/step2/step2_output/assigned.fasta" \
-    "$RUN_ROOT/step2/step2_output/assigned.publish.fasta"
-  cp -f "$RUN_ROOT/consensuses.clean.fa" "$RUN_ROOT/consensuses.publish.fa"
+  # SKIP_BORDER_LOOP means "don't RE-RUN the expensive scan", not "discard
+  # whatever border-loop widening already exists". This used to unconditionally
+  # cp the raw, un-widened assigned.fasta/consensuses.clean.fa over the
+  # *.publish.* files, silently reverting every subfamily's already-computed
+  # border-loop extension back to zero on every skip-flagged rerun -- caught
+  # 2026-09-10 on oma_SINE16: a real, correctly-computed +4/+75bp extension
+  # from an earlier run vanished after two SKIP_BORDER_LOOP=1 reruns done for
+  # an unrelated SINE10 fix. Only fall back to the raw copy when no prior
+  # publish file exists at all.
+  log "border loop: skipped (SKIP_BORDER_LOOP=1) -- preserving existing *.publish.* if present"
+  if [[ ! -f "$RUN_ROOT/step2/step2_output/assigned.publish.fasta" ]]; then
+    cp -f "$RUN_ROOT/step2/step2_output/assigned.fasta" \
+      "$RUN_ROOT/step2/step2_output/assigned.publish.fasta"
+  fi
+  if [[ ! -f "$RUN_ROOT/consensuses.publish.fa" ]]; then
+    cp -f "$RUN_ROOT/consensuses.clean.fa" "$RUN_ROOT/consensuses.publish.fa"
+  fi
 else
   log "detecting subfamilies needing border loop"
   NEED_ARGS=(python3 "$PUBLISH_DIR/needs_border_loop.py" "$RUN_ROOT")

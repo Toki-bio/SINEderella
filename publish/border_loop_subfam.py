@@ -100,37 +100,84 @@ def rebuild_consensus(bed, genome, work, sine_script):
     return seq, None
 
 
-def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log):
-    """Validate one flank: extract element + that flank only, then score."""
-    vf = os.path.join(work, "val_%s.flank.fa" % side)
-    F.extract_for_side(bed, genome, side, F.MAX_FLANK, vf, work)
-    F.write_fa(os.path.join(work, "anchor.fa"), [(anchor_name, anchor_seq)])
-    combined = os.path.join(work, "val_%s.combined.fa" % side)
-    F.sh("cat %s %s > %s" % (os.path.join(work, "anchor.fa"), vf, combined))
-    aln = os.path.join(work, "val_%s.aln.fa" % side)
-    F.mafft(combined, aln, opts=F.MAFFT_VAL)
-    F.postprocess_flanks(aln, anchor_name)
-    names, seqs = F.read_fa(aln)
-    k = F.consensus_index(names)
-    rows = [s.upper() for i, s in enumerate(seqs) if i != k]
-    cons = seqs[k].upper()
-    nz = [i for i, c in enumerate(cons) if c not in F.GAPS]
-    lo, hi = nz[0], nz[-1]
-    lo2, hi2, bdiag = F.element_window(cons, rows)
-    scan_side = "L" if side == "5prime" else "R"
-    if side == "5prime":
-        ext_bp = bdiag.get("extended_left", 0)
-        bed_new = F.update_bed_5prime(bed, ext_bp, work) if ext_bp else bed
+ISLAND_FRAC_STOP = 0.10   # below this, treat the flank as independent (matches
+                          # verdict.py's ISLAND_NOTE threshold -- same bar for
+                          # "worth flagging" and "counts as resolved")
+MAX_ROUNDS = 5            # rounds per side; each round is one extend+rescan
+
+
+def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
+             max_rounds=MAX_ROUNDS, island_frac_stop=ISLAND_FRAC_STOP):
+    """Iteratively extend one flank until it's independent, or extension runs
+    out, or MAX_FLANK/max_rounds is hit -- and says honestly which happened.
+
+    This REPLACES a single extend-then-ignore-the-result pass. The old
+    version already computed an island scan before and after extending
+    (isl_pre/isl_post in flank_border_iterate.py's prototype) but nothing
+    ever read the result to decide whether to extend further -- the
+    "iterate" in this file's name was aspirational, not implemented. Found
+    2026-09-10 on oma_SINE16: extension applied once, flank-sharing
+    unresolved, and the pipeline reported the family as clean anyway.
+
+    Each round: extract element+this-flank-only -> MAFFT -> element_window
+    (copy-supported extension) -> island scan on the (possibly still
+    unresolved) flank. Stops as soon as ANY of:
+      - island_fraction < island_frac_stop           -> genuinely independent
+      - no further copy-supported extension is found -> extension exhausted
+      - total extension for this side hits MAX_FLANK  -> capped, "STILL BAD"
+      - max_rounds reached                            -> capped, "STILL BAD"
+    The last two cases are reported as such, not silently accepted as clean.
+    """
+    total_extend = 0
+    island = None
+    stop_reason = None
+    for round_i in range(1, max_rounds + 1):
+        vf = os.path.join(work, "val_%s_r%d.flank.fa" % (side, round_i))
+        F.extract_for_side(bed, genome, side, F.MAX_FLANK, vf, work)
+        F.write_fa(os.path.join(work, "anchor.fa"), [(anchor_name, anchor_seq)])
+        combined = os.path.join(work, "val_%s_r%d.combined.fa" % (side, round_i))
+        F.sh("cat %s %s > %s" % (os.path.join(work, "anchor.fa"), vf, combined))
+        aln = os.path.join(work, "val_%s_r%d.aln.fa" % (side, round_i))
+        F.mafft(combined, aln, opts=F.MAFFT_VAL)
+        F.postprocess_flanks(aln, anchor_name)
+        names, seqs = F.read_fa(aln)
+        k = F.consensus_index(names)
+        rows = [s.upper() for i, s in enumerate(seqs) if i != k]
+        cons = seqs[k].upper()
+        lo2, hi2, bdiag = F.element_window(cons, rows)
+        scan_side = "L" if side == "5prime" else "R"
+        island = F.island_scan_side(aln, scan_side)
+        ext_bp = bdiag.get("extended_left" if side == "5prime" else "extended_right", 0)
+
+        out_log["steps"].append({
+            "side": side, "round": round_i, "extend_cols": ext_bp, "extend_bp": ext_bp,
+            "copy_supported": bdiag, "island": island,
+            "extract": "element+%s_flank_only" % ("left" if side == "5prime" else "right"),
+        })
+
+        island_frac = (island or {}).get("island_fraction")
+        if island_frac is None or island_frac < island_frac_stop:
+            stop_reason = "independent (island_fraction=%s)" % island_frac
+            break
+        if ext_bp <= 0:
+            stop_reason = ("extension exhausted, still shared (island_fraction=%s) "
+                            "-- STILL BAD" % island_frac)
+            break
+        bed = (F.update_bed_5prime(bed, ext_bp, work) if side == "5prime"
+               else update_bed_3prime(bed, ext_bp, work))
+        total_extend += ext_bp
+        if total_extend >= F.MAX_FLANK:
+            stop_reason = ("hit MAX_FLANK cap (%d bp), still shared "
+                            "(island_fraction=%s) -- STILL BAD"
+                            % (F.MAX_FLANK, island_frac))
+            break
     else:
-        ext_bp = bdiag.get("extended_right", 0)
-        bed_new = update_bed_3prime(bed, ext_bp, work) if ext_bp else bed
-    out_log["steps"].append({
-        "side": side, "extend_cols": ext_bp, "extend_bp": ext_bp,
-        "copy_supported": bdiag,
-        "island": F.island_scan_side(aln, scan_side),
-        "extract": "element+%s_flank_only" % ("left" if side == "5prime" else "right"),
-    })
-    return bed_new, ext_bp
+        island_frac = (island or {}).get("island_fraction")
+        stop_reason = ("hit max_rounds=%d cap, still shared (island_fraction=%s) "
+                        "-- STILL BAD" % (max_rounds, island_frac))
+
+    out_log["stop_reason_%s" % side] = stop_reason
+    return bed, total_extend
 
 
 def main():
@@ -194,8 +241,13 @@ def main():
     log["extend_3prime_bp"] = ext3
     with open(os.path.join(out_dir, "border_loop.json"), "w") as fh:
         json.dump(log, fh, indent=2)
-    print("OK %s extend5=%s extend3=%s consensus=%s"
-          % (sf, ext5, ext3, reb_path if final_seq else "unchanged"))
+    still_bad = [s for s in ("5prime", "3prime")
+                 if "STILL BAD" in (log.get("stop_reason_%s" % s) or "")]
+    print("OK %s extend5=%s extend3=%s consensus=%s%s"
+          % (sf, ext5, ext3, reb_path if final_seq else "unchanged",
+             ("  STILL_BAD_SIDES=%s" % ",".join(still_bad)) if still_bad else ""))
+    print("  5prime: %s" % log.get("stop_reason_5prime"))
+    print("  3prime: %s" % log.get("stop_reason_3prime"))
 
 
 if __name__ == "__main__":
