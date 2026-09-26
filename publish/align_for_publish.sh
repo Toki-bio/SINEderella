@@ -148,4 +148,21 @@ for f in "$STEP8_OUT"/*.aln.fa; do
     --mode "${TRIM_DISPLAY_MODE:-occupancy}" || true
 done
 
+# After rebuild. Do not run rebuild_consensus_row again: it would rewrite the
+# consensus from the copies and put a reverse-complement or a short edge back.
+[[ -f "$DISC/correct_published_aln.py" ]] || {
+  echo "ERROR: missing $DISC/correct_published_aln.py" >&2; exit 1; }
+BANK="$RUN_ROOT/consensuses.publish.fa"
+[[ -f "$BANK" ]] || {
+  echo "ERROR: missing forward seed bank $BANK" >&2; exit 1; }
+log "orient to the forward seed and extend shared flanks into the consensus"
+for f in "$STEP8_OUT"/*_top100.aln.fa "$STEP8_OUT"/*_rand100.aln.fa "$STEP8_OUT"/*_subfam.aln.fa; do
+  [[ -f "$f" ]] || continue
+  python3 "$DISC/correct_published_aln.py" "$BANK" "$f" --write
+done
+if [[ "$OUT_DIR" != "$STEP8_OUT" ]]; then
+  cp -a "$STEP8_OUT"/*_top100.aln.fa "$STEP8_OUT"/*_rand100.aln.fa \
+    "$STEP8_OUT"/*_subfam.aln.fa "$OUT_DIR/" 2>/dev/null || true
+fi
+
 log "Done: $STEP8_OUT"
