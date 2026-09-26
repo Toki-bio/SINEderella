@@ -15,6 +15,11 @@ TAIL_WINDOW = 60
 TAIL_MAX_PERIOD = 6
 TAIL_MIN_REPEATS = 3
 ORIENT_MIN_MARGIN = 0.15
+# Minimum absolute difference between the two strands' tail scores. Seeds with no
+# simple-repeat tail on either strand differ by <= 1.05 (rsi peel r1/r10: 0.22, and they
+# were reversed on that noise, 2026-09-26); real tails differ by 4-30 (oma SINE10-like 4.0,
+# A-tailed peel seeds, Rhin-1, VES 6.8-11.3). Below this the input orientation stands.
+ORIENT_MIN_DIFF = 2.0
 START_SLOP = 5  # allow tandem repeat to start a few bp in from 5'
 
 
@@ -214,7 +219,7 @@ def orient_by_simple_repeat_tail(
     rev, dr = tail_strand_score(ru, window, max_period, min_repeats)
     scale = max(abs(fwd), abs(rev), 1.0)
     detail = {"fwd": df, "rev": dr, "fwd_score": fwd, "rev_score": rev}
-    if abs(fwd - rev) < min_margin * scale:
+    if abs(fwd - rev) < min_margin * scale or abs(fwd - rev) < ORIENT_MIN_DIFF:
         return OrientResult(seq=u, action="undecided", fwd_score=fwd, rev_score=rev, detail=detail)
     if rev > fwd:
         return OrientResult(seq=ru, action="flipped", fwd_score=fwd, rev_score=rev, detail=detail)

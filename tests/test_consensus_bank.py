@@ -46,6 +46,15 @@ class TestRCMerge(unittest.TestCase):
         self.assertGreaterEqual(end["repeats"], 3)
         self.assertEqual(orient_by_simple_repeat_tail(rev).action, "flipped")
 
+    def test_no_tail_keeps_input_orientation(self):
+        # rsi peel r1_9seqs: no simple-repeat tail on either strand. Was flipped on
+        # a 0.2 score difference; must stay as given.
+        r1 = ("GGCCCGGTGGCTCAGGCGGTTGGAGCTCCATGCTCCTAACTCCGAAGGCTGCCGGTTCGATTCCCACATGGGCCAGTG"
+              "GGCTCTCAACCACAAGGTTGCCAGTTCGACTCCTGATCCCGCAAGGGATGGTGGGCTGTGCCCCCTGCAACTAACAA")
+        r = orient_by_simple_repeat_tail(r1)
+        self.assertNotEqual(r.action, "flipped")
+        self.assertEqual(r.seq, r1)
+
     def test_sine10_like_backwards(self):
         # T-rich/simple repeat at 5' when backwards; A-run at 3' when flipped
         backwards = "AATTTTTTTTTTTGTTA" + "G" * 80 + "CCGACTTTAT"
