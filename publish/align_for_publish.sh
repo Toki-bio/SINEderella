@@ -31,7 +31,11 @@ fi
   exit 1
 }
 
-export PATH="/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin:/usr/bin:$PATH"
+# DRAGEN toolchain only where it exists. On other hosts (therioserver) the unconditional
+# prepend put /usr/bin ahead of the active conda env: /usr/bin/python3 has no numpy, so the
+# border scan failed with a WARN and every subfamily was reported "none flagged".
+[[ -d /staging/conda/envs/bioinfo/bin ]] && \
+  export PATH="/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin:/usr/bin:$PATH"
 log(){ printf '[%s] %s\n' "$(date '+%F %T')" "$*" >&2; }
 
 if [[ "${SKIP_STEP7:-0}" != "1" ]]; then
