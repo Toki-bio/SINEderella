@@ -10,6 +10,7 @@ Such cases (per HANDOFF §68 + peel step4 border screen):
 import argparse
 import glob
 import os
+import re
 import subprocess
 import sys
 
@@ -96,13 +97,13 @@ def element_extend_scan(run_root, subfams, genome, assigned, flank=1000):
         bed = os.path.join(work, "%s.bed" % sf)
         with open(bed, "w") as fh:
             for h in headers:
-                parts = h.split("|")[0]
-                strand = "+"
-                if parts.endswith("(-)"):
-                    strand = "-"
-                loc = parts.replace("(+)", "").replace("(-)", "")
-                ctg, coords = loc.rsplit(":", 1)
-                start_s, end_s = coords.rsplit("-", 1)
+                # ctg:start-end(strand); merged loci hit on both strands are written
+                # "(+,-)" - no single strand to extend, so they are skipped (they used
+                # to crash the whole scan, which the caller reported as "none flagged").
+                m = re.match(r"^(.+):(\d+)-(\d+)\(([^)]*)\)$", h.split("|")[0])
+                if not m or m.group(4) not in ("+", "-"):
+                    continue
+                ctg, start_s, end_s, strand = m.groups()
                 fh.write("%s\t%d\t%d\t%s\t0\t%s\n"
                          % (ctg, int(start_s) - 1, int(end_s), h, strand))
         slop = os.path.join(work, "%s.slop.bed" % sf)
