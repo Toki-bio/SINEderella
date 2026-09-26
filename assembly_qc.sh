@@ -11,6 +11,11 @@
 # Output: TSV with assembly stats + quality verdict
 #   Columns: metric, value, flag
 #   Verdict: SOLID / CAUTION / WARN
+#
+# One pass over the sequence. Scaffold lengths are sorted with the external
+# sort. An earlier version appended every line onto one string and then
+# bubble-sorted every scaffold length inside awk; both are quadratic, and on
+# a fragmented assembly the sort never finishes.
 
 set -euo pipefail
 
@@ -31,137 +36,137 @@ OUT="${PREFIX}_assembly_qc.tsv"
 
 [[ ! -f "$GENOME" ]] && { echo "ERROR: File not found: $GENOME" >&2; exit 1; }
 
-# Determine cat command for gzipped input
 if [[ "$GENOME" == *.gz ]]; then
     CAT="zcat"
 else
     CAT="cat"
 fi
 
-# Check dependencies
-for cmd in awk; do
+for cmd in awk sort; do
     command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd not found" >&2; exit 1; }
 done
 
 echo "Analyzing assembly: $GENOME" >&2
 
-# Single-pass awk analysis
-$CAT "$GENOME" | awk '
+WORK="${TMPDIR:-$HOME/tmp}"
+mkdir -p "$WORK"
+LENS="$WORK/assembly_qc_lengths.$$"
+STATS="$WORK/assembly_qc_stats.$$"
+trap 'rm -f "$LENS" "$STATS"' EXIT
+
+$CAT "$GENOME" | awk -v stats="$STATS" '
 BEGIN {
-    n_scaffolds = 0
-    total_bases = 0
-    total_N = 0
-    total_ACGT = 0
-    edge_N = 0          # N bases in first/last 500bp of each scaffold
-    edge_total = 0       # total bases in edge regions
-    short_scaffolds = 0  # scaffolds < 1000bp
-    EDGE = 500           # edge window size
+    EDGE = 500; seen = 0; largest = 0
+    # Every counter printed to STATS must start at 0: an unset awk variable prints as an
+    # empty field and shifts the read below (no short scaffolds -> largest read as 0).
+    n_scaffolds = 0; total_bases = 0; total_N = 0; edge_N = 0; edge_total = 0; short_scaffolds = 0
 }
 
-/^>/ {
-    # Process previous scaffold
-    if (n_scaffolds > 0) {
-        process_scaffold()
-    }
+function finish(   left_len, right_len, left, right, n_in_left, n_in_right) {
     n_scaffolds++
-    seq = ""
-    next
-}
-
-{
-    seq = seq $0
-}
-
-function process_scaffold() {
-    len = length(seq)
     total_bases += len
-
+    total_N += ncount
     if (len < 1000) short_scaffolds++
+    if (len > largest) largest = len
+    print len
 
-    # Store lengths for N50
-    scaffold_lengths[n_scaffolds] = len
-
-    # Count Ns and ACGT in full sequence
-    n_count = gsub(/[nN]/, "&", seq)
-    total_N += n_count
-    total_ACGT += (len - n_count)
-
-    # Edge analysis: first EDGE bp and last EDGE bp
     left_len = (len < EDGE) ? len : EDGE
-    right_len = (len < EDGE) ? 0 : ((len < 2*EDGE) ? len - EDGE : EDGE)
+    right_len = (len < EDGE) ? 0 : ((len < 2 * EDGE) ? len - EDGE : EDGE)
 
-    left = substr(seq, 1, left_len)
-    edge_total += left_len
-    n_in_left = gsub(/[nN]/, "&", left)
-    edge_N += n_in_left
-
+    if (left_len > 0) {
+        left = substr(head, 1, left_len)
+        edge_total += left_len
+        n_in_left = gsub(/[nN]/, "", left)
+        edge_N += n_in_left
+    }
     if (right_len > 0) {
-        right = substr(seq, len - right_len + 1, right_len)
+        right = substr(tail, length(tail) - right_len + 1, right_len)
         edge_total += right_len
-        n_in_right = gsub(/[nN]/, "&", right)
+        n_in_right = gsub(/[nN]/, "", right)
         edge_N += n_in_right
     }
 }
 
+function reset() {
+    len = 0
+    ncount = 0
+    head = ""
+    tail = ""
+}
+
+/^>/ {
+    if (seen) finish()
+    seen = 1
+    reset()
+    next
+}
+
+{
+    if (!seen) next
+    line = $0
+    L = length(line)
+    if (L == 0) next
+    tmp = line
+    ncount += gsub(/[nN]/, "", tmp)
+    len += L
+    if (length(head) < EDGE) {
+        head = head line
+        if (length(head) > EDGE) head = substr(head, 1, EDGE)
+    }
+    tail = tail line
+    if (length(tail) > EDGE) tail = substr(tail, length(tail) - EDGE + 1)
+}
+
 END {
-    # Process last scaffold
-    if (n_scaffolds > 0) process_scaffold()
+    if (seen) finish()
+    print n_scaffolds, total_bases, total_N, edge_N, edge_total, short_scaffolds, largest > stats
+}
+' > "$LENS"
 
-    # Sort scaffold lengths descending for N50
-    n = n_scaffolds
-    for (i = 1; i <= n; i++) sorted[i] = scaffold_lengths[i]
-    for (i = 1; i <= n; i++) {
-        for (j = i+1; j <= n; j++) {
-            if (sorted[j] > sorted[i]) {
-                tmp = sorted[i]; sorted[i] = sorted[j]; sorted[j] = tmp
-            }
-        }
-    }
+read -r n_scaffolds total_bases total_N edge_N edge_total short_scaffolds largest < "$STATS"
 
-    # N50 calculation
-    half = total_bases / 2
-    cumul = 0
-    n50 = 0
-    l50 = 0
-    for (i = 1; i <= n; i++) {
-        cumul += sorted[i]
-        if (cumul >= half) {
-            n50 = sorted[i]
-            l50 = i
-            break
-        }
-    }
+n50=0
+l50=0
+if [[ "$n_scaffolds" -gt 0 && "$total_bases" -gt 0 ]]; then
+  read -r l50 n50 < <(sort -nr "$LENS" | awk -v half="$total_bases" '
+    BEGIN { half = half / 2 }
+    { cumul += $1; if (cumul >= half) { print NR, $1; exit } }
+  ')
+fi
 
-    # Largest scaffold
-    largest = (n > 0) ? sorted[1] : 0
+total_ACGT=$((total_bases - total_N))
 
-    # Metrics
+awk -v n_scaffolds="$n_scaffolds" \
+    -v total_bases="$total_bases" \
+    -v total_ACGT="$total_ACGT" \
+    -v total_N="$total_N" \
+    -v edge_N="$edge_N" \
+    -v edge_total="$edge_total" \
+    -v short_scaffolds="$short_scaffolds" \
+    -v largest="$largest" \
+    -v n50="$n50" \
+    -v l50="$l50" '
+BEGIN {
     gap_pct = (total_bases > 0) ? 100.0 * total_N / total_bases : 0
     edge_n_pct = (edge_total > 0) ? 100.0 * edge_N / edge_total : 0
     short_pct = (n_scaffolds > 0) ? 100.0 * short_scaffolds / n_scaffolds : 0
 
-    # Quality flags
-    # N50 flag
     if (n50 >= 10000000) n50_flag = "ok"
     else if (n50 >= 1000000) n50_flag = "caution"
     else n50_flag = "warn"
 
-    # Gap fraction flag
     if (gap_pct < 5) gap_flag = "ok"
     else if (gap_pct < 15) gap_flag = "caution"
     else gap_flag = "warn"
 
-    # Edge N flag (the Anilios bituberculatus signature)
     if (edge_n_pct < 5) edge_flag = "ok"
     else if (edge_n_pct < 20) edge_flag = "caution"
     else edge_flag = "warn"
 
-    # Short scaffolds flag
     if (short_pct < 5) short_flag = "ok"
     else if (short_pct < 20) short_flag = "caution"
     else short_flag = "warn"
 
-    # Overall verdict
     warns = 0; cautions = 0
     if (n50_flag == "warn") warns++
     if (gap_flag == "warn") warns++
@@ -176,7 +181,6 @@ END {
     else if (cautions >= 2) verdict = "CAUTION"
     else verdict = "SOLID"
 
-    # Output
     print "metric\tvalue\tflag"
     print "scaffolds\t" n_scaffolds "\t-"
     printf "total_bases\t%d\t-\n", total_bases

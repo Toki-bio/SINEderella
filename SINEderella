@@ -575,9 +575,12 @@ mode_full(){
   cd "$RUN" || die "Cannot cd into run dir: $RUN"
 
   ###########################################################################
-  # ASSEMBLY QC (diagnostic — does not block pipeline)
+  # ASSEMBLY QC is diagnostic only. Skip with SKIP_ASSEMBLY_QC=1.
+  # It still runs before step1 unless skipped; the verdict is only a log line.
   ###########################################################################
-  if [[ -f assembly_qc.sh ]]; then
+  if [[ "${SKIP_ASSEMBLY_QC:-0}" == "1" ]]; then
+    log "SKIP_ASSEMBLY_QC=1 — assembly QC skipped"
+  elif [[ -f assembly_qc.sh ]]; then
     log "Running assembly QC diagnostic"
     bash ./assembly_qc.sh genome.clean.fa genome.clean 2>&1 | tee assembly_qc.log || true
     if [[ -f genome.clean_assembly_qc.tsv ]]; then
