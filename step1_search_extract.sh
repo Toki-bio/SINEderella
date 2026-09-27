@@ -27,6 +27,16 @@ GENOME="$(readlink -f "$GENOME")"
 [[ ! -f "$CONSENSUS" ]] && { echo "ERROR: Consensus not found: $CONSENSUS"; exit 1; }
 [[ ! -f "$GENOME" ]] && { echo "ERROR: Genome not found: $GENOME"; exit 1; }
 
+# Masked search (docs/MASKING.md): SEARCH_GENOME is a copy of GENOME with known families as N,
+# same headers and lengths. sear searches it; extraction below stays on GENOME, so copies and
+# their flanks are real bases and coordinates need no mapping.
+SEARCH_GENOME="${SEARCH_GENOME:-$GENOME}"
+SEARCH_GENOME="$(readlink -f "$SEARCH_GENOME")"
+[[ ! -f "$SEARCH_GENOME" ]] && { echo "ERROR: SEARCH_GENOME not found: $SEARCH_GENOME"; exit 1; }
+if [[ "$SEARCH_GENOME" != "$GENOME" ]]; then
+    echo "[$(date)] Masked search: searching $SEARCH_GENOME, extracting from $GENOME"
+fi
+
 # Check required tools
 for tool in samtools seqkit sear bedtools SubFam mafft; do
     command -v "$tool" >/dev/null 2>&1 || {
@@ -92,7 +102,7 @@ echo "[$(date)] Found ${#QUERY_FILES[@]} consensus sequences to search"
 # sear must implement -k/--keep as discussed
 for query in "${QUERY_FILES[@]}"; do
     echo "[$(date)] Searching with $(basename "$query")"
-    sear -k "$query" "$GENOME" 0.8 65 50
+    sear -k "$query" "$SEARCH_GENOME" 0.8 65 50
 
     # Report sear results to stderr (visible in SINEderella_multi terminal)
     _qbase="${query%.*}"

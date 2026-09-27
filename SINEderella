@@ -35,6 +35,13 @@ Modes:
 
 Options:
   --run <dir>   Specify existing run directory (default: auto-detect latest)
+  --mask-bed <bed>
+                Full mode only, repeatable. Search a copy of the genome with these intervals
+                turned to N; copies are still extracted from the unmasked genome.
+  --mask-run <run_dir>[:NAME,NAME...]
+                Full mode only. Mask the loci that the named consensuses of an earlier run on the
+                same genome hit (all of its consensuses if no names). Pass every subfamily of a
+                family to mask the family. See docs/MASKING.md.
   --resume/-r   Resume an interrupted run from the last completed step.
                 Searches for the latest run_* in the working directory.
                 Use with --run <dir> to specify a run explicitly.
@@ -115,6 +122,8 @@ EXISTING_RUN=""
 GENOME_IN=""
 CONS_IN=""
 PUBLISH="${PUBLISH:-0}"
+MASK_BEDS=()
+MASK_RUN=""
 
 if [[ $# -eq 0 ]]; then usage; fi
 
@@ -140,6 +149,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     -r|--resume)
       MODE="resume"
+      shift
+      ;;
+    --mask-bed)
+      shift
+      [[ $# -gt 0 ]] || die "--mask-bed requires a BED file"
+      MASK_BEDS+=("$(readlink -f "$1")")
+      shift
+      ;;
+    --mask-run)
+      shift
+      [[ $# -gt 0 ]] || die "--mask-run requires <run_dir>[:NAME,NAME...]"
+      MASK_RUN="$1"
       shift
       ;;
     --run)
@@ -517,6 +538,37 @@ rebuild_from_searches(){
 ###############################################################################
 # MODE: FULL (original behavior)
 ###############################################################################
+###############################################################################
+# HELPER: masked search (docs/MASKING.md). Writes mask.bed + genome.masked.fa in the run dir.
+###############################################################################
+build_mask(){
+  local run="$1"
+  (( ${#MASK_BEDS[@]} )) || [[ -n "$MASK_RUN" ]] || return 0
+  local parts=() src=()
+  if [[ -n "$MASK_RUN" ]]; then
+    local mdir="${MASK_RUN%%:*}" names=""
+    [[ "$MASK_RUN" == *:* ]] && names="${MASK_RUN#*:}"
+    mdir="$(readlink -f "$mdir")"
+    python3 "$SCRIPT_DIR/tools/mask_from_run.py" "$mdir" ${names//,/ } -o "$run/mask.from_run.bed" \
+      || die "mask: could not build a mask from $MASK_RUN"
+    parts+=("$run/mask.from_run.bed"); src+=("run:$mdir${names:+:$names}")
+  fi
+  local b
+  for b in ${MASK_BEDS[@]+"${MASK_BEDS[@]}"}; do
+    [[ -s "$b" ]] || die "mask: BED not found or empty: $b"
+    parts+=("$b"); src+=("bed:$b")
+  done
+  log "Masked search: building genome.masked.fa from ${src[*]}"
+  cat "${parts[@]}" | awk 'BEGIN{OFS="\t"} NF>=3 && $1!~/^(#|track|browser)/ {print $1,$2,$3}' > "$run/mask.bed"
+  python3 "$SCRIPT_DIR/tools/mask_genome.py" "$run/genome.clean.fa" "$run/mask.bed" \
+    -o "$run/genome.masked.fa" --stats "$run/mask.stats.tsv" || die "mask: mask_genome.py refused the mask"
+  {
+    printf 'MASK_SOURCE\t%s\n' "${src[*]}"
+    awk -F'\t' 'NR==2{printf "MASK_BP\t%s\nMASK_FRACTION\t%s\nMASK_INTERVALS\t%s\n", $1, $3, $4}' "$run/mask.stats.tsv"
+  } >> "$run/manifest.txt"
+  export SEARCH_GENOME="$run/genome.masked.fa"
+}
+
 mode_full(){
   [[ -f "$GENOME_IN" && -s "$GENOME_IN" ]] || die "GENOME_FASTA must be a non-empty regular file: $GENOME_IN"
   [[ -f "$CONS_IN"   && -s "$CONS_IN"   ]] || die "CONSENSUS_FASTA must be a non-empty regular file: $CONS_IN"
@@ -571,6 +623,8 @@ mode_full(){
   sanitize_fasta "$CONS_IN" "$RUN/consensuses.clean.fa" consensus
   [[ -s "$RUN/consensuses.clean.fa" ]] || die "consensuses.clean.fa is empty (normalize failed)"
   canonicalize_consensus_bank "$RUN/consensuses.clean.fa"
+
+  build_mask "$RUN"
 
   cd "$RUN" || die "Cannot cd into run dir: $RUN"
 
@@ -1014,6 +1068,10 @@ mode_resume(){
     log "Step1 — already complete, skipping"
   else
     log "Step1 — running..."
+    if [[ -s genome.masked.fa ]]; then
+      export SEARCH_GENOME="$(pwd -P)/genome.masked.fa"
+      log "Masked search: resuming with genome.masked.fa"
+    fi
     set +e
     bash ./step1_search_extract.sh ./consensuses.clean.fa ./genome.clean.fa \
       "$CHUNK_BP" "$FLANK" \
@@ -1114,6 +1172,10 @@ mode_resume(){
 ###############################################################################
 # DISPATCH
 ###############################################################################
+if [[ "$MODE" != "full" ]] && { (( ${#MASK_BEDS[@]} )) || [[ -n "$MASK_RUN" ]]; }; then
+  die "--mask-bed / --mask-run apply to a full run only: --add re-votes loci where a new family overlaps an old one, and that overlap is what CONFLICT needs (docs/MASKING.md)"
+fi
+
 case "$MODE" in
   full)
     [[ -n "$GENOME_IN" && -n "$CONS_IN" ]] || usage
