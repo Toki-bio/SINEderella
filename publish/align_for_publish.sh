@@ -160,6 +160,14 @@ for f in "$STEP8_OUT"/*_top100.aln.fa "$STEP8_OUT"/*_rand100.aln.fa "$STEP8_OUT"
   [[ -f "$f" ]] || continue
   python3 "$DISC/correct_published_aln.py" "$BANK" "$f" --write
 done
+# Last: the consensus exactly as the genome was searched goes back on as row 2
+# (<subfamily>_seed_as_searched). Row 1 is rebuilt above and may differ; the seed
+# row lets both be read together. The DISC tools skip rows with that name, so a
+# later re-score or re-correction measures the copies only.
+if [[ "${SKIP_SEED_ROW:-0}" != "1" && -f "$SINEDERELLA_BIN/tools/add_seed_row.py" ]]; then
+  log "add the consensus as searched as row 2"
+  python3 "$SINEDERELLA_BIN/tools/add_seed_row.py" "$RUN_ROOT/consensuses.clean.fa" "$SPECIES"     "$STEP8_OUT"/*_top100.aln.fa "$STEP8_OUT"/*_rand100.aln.fa "$STEP8_OUT"/*_subfam.aln.fa     --threads "${THREADS:-4}" || log "WARNING: add_seed_row failed; plates published without the seed row"
+fi
 if [[ "$OUT_DIR" != "$STEP8_OUT" ]]; then
   cp -a "$STEP8_OUT"/*_top100.aln.fa "$STEP8_OUT"/*_rand100.aln.fa \
     "$STEP8_OUT"/*_subfam.aln.fa "$OUT_DIR/" 2>/dev/null || true
