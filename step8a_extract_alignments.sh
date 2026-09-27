@@ -181,9 +181,40 @@ awk 'BEGIN{OFS="\t"}
 }' "$ASSIGNED" > "$TMPDIR/loci.tsv"
 
 ###############################################################################
+# Soft-assigned loci -> soft.tsv (same columns as loci.tsv, plus "soft")
+#
+# top100/rand100 promise 100 copies. A subfamily with fewer than 100 firmly
+# assigned copies (10/10 votes, above the bitscore bar) is filled up to 100 with
+# its soft-assigned copies (unassigned.tsv, Soft_Subfamily = the query that found
+# the locus), ranked by that query's search score. Firm copies always come first.
+# Soft rows are marked " [soft]" in the plate header. Found on rsi 2026-09-27:
+# MEG-RS had 16 firm and 1,570 soft copies, so its "top 100" plate held 16 and the
+# verdict could not assess it. SOFT_TOPUP=0 restores firm-only plates.
+###############################################################################
+UNASSIGNED="$STEP2_OUT/unassigned.tsv"
+: > "$TMPDIR/soft.tsv"
+if [[ "${SOFT_TOPUP:-1}" == "1" && -s "$UNASSIGNED" ]]; then
+    awk -F'\t' 'BEGIN{OFS="\t"}
+    NR==1 { for (i=1; i<=NF; i++) h[$i]=i; next }
+    {
+        sf = $(h["Soft_Subfamily"]); if (sf == "" || sf == "NA") next
+        loc = $(h["SeqID"]); gsub(/\r/, "", loc)
+        strand = loc; sub(/.*\(/, "", strand); sub(/\)/, "", strand)
+        sub(/\([^)]*\)$/, "", loc)
+        ctg = loc; sub(/:[0-9]+-[0-9]+$/, "", ctg)
+        coords = loc; sub(/.*:/, "", coords); split(coords, se, "-")
+        if (strand != "+" && strand != "-") strand = "+"
+        print sf, $(h["Search_Score"]) + 0, ctg, se[1], se[2], strand, "soft"
+    }' "$UNASSIGNED" > "$TMPDIR/soft.tsv"
+fi
+
+###############################################################################
 # Subfamily list and member counts
 ###############################################################################
 cut -f1 "$TMPDIR/loci.tsv" | sort | uniq -c | awk '{print $2 "\t" $1}' > "$TMPDIR/counts.tsv"
+# subfamilies with soft copies only (count 0): plates from soft copies, no subfam plate
+cut -f1 "$TMPDIR/soft.tsv" | sort -u | awk -F'\t' 'NR==FNR{have[$1]=1; next} !($1 in have){print $1 "\t0"}' \
+    "$TMPDIR/counts.tsv" - >> "$TMPDIR/counts.tsv"
 
 ###############################################################################
 # Helper: extract consensus for a subfamily from consensuses.clean.fa
@@ -219,6 +250,12 @@ extract_flank_align() {
     # Extract sequences (strand-aware)
     bedtools getfasta -fi "$GENOME" -bed "$TMPDIR/cur_slop.bed" -s \
         > "$TMPDIR/cur_extracted.fa" 2>/dev/null || return 1
+
+    # Mark soft-assigned rows (loci column 7 == "soft"); getfasta keeps BED order
+    awk -F'\t' 'NR==FNR{ soft[NR] = ($7 == "soft"); next }
+        /^>/ { k++; if (soft[k]) { print $0 " [soft]"; next } }
+        { print }' "$loci_tsv" "$TMPDIR/cur_extracted.fa" > "$TMPDIR/cur_marked.fa" || return 1
+    mv "$TMPDIR/cur_marked.fa" "$TMPDIR/cur_extracted.fa"
 
     # Append consensus
     cat "$cons_fa" "$TMPDIR/cur_extracted.fa" > "$TMPDIR/cur_combined.fa" || return 1
@@ -287,6 +324,11 @@ while IFS=$'\t' read -r subfam count; do
     # -- top100: 100 highest-bitscore members --
     # Sort by bitscore descending -> temp file, then head (avoids SIGPIPE)
     sort -t$'\t' -k2,2nr "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/sorted_${idx}.tsv"
+    awk -F'\t' -v sf="$subfam" '$1==sf' "$TMPDIR/soft.tsv" > "$TMPDIR/soft_${idx}.tsv"
+    if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
+        sort -t$'\t' -k2,2nr "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"
+        echo "  $subfam: $count firm copies; top100/rand100 filled with soft copies (marked [soft])" >&2
+    fi
     head -100 "$TMPDIR/sorted_${idx}.tsv" > "$TMPDIR/top100_${idx}.tsv"
 
     if [[ -s "$TMPDIR/top100_${idx}.tsv" ]]; then
@@ -306,6 +348,9 @@ while IFS=$'\t' read -r subfam count; do
 
     # -- rand100: 100 randomly sampled members --
     shuf "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/shuffled_${idx}.tsv"
+    if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
+        shuf "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/shuffled_${idx}.tsv"
+    fi
     head -100 "$TMPDIR/shuffled_${idx}.tsv" > "$TMPDIR/rand100_${idx}.tsv"
 
     if [[ -s "$TMPDIR/rand100_${idx}.tsv" ]]; then
