@@ -118,16 +118,49 @@ Recorded per plate and side in `continuation.tsv` next to the plates.
    **independent copies only**: rows marked ` [array]` are left out, because tandem-array units share
    their flank far past the element and would drive the loop to the cap for nothing. With fewer than
    3 independent copies it asks for nothing.
-3. Decision rounds re-extract and align in **fast mode** (FFT-NS-2, `--retree 2`); they only decide how
-   far to go. `continuation.py` reads each copy's own bases past the edge, which a fast alignment gives.
-4. When nothing more is needed, the delivered plate is built **once** with L-INS-i at the final flank
-   size (only if the flanks were extended; otherwise round 0 is the plate).
+3. Each further round **re-extracts only the new 150 bp per side** (`extract_flank_align … extract`,
+   no alignment) and `tools/extend_plate.py` aligns just those segments among themselves (L-INS-i,
+   `--maxiterate 2`, ~100 × 150 bp, seconds) and appends the block to the plate on that side. Rows are
+   matched to the new extraction **by coordinate containment** (the header coordinates are the extracted
+   region, so they change every round; matching by name matched nothing and the loop ran to the cap on
+   the toy). Rows MAFFT reversed (`_R_…`) take the other side's segment, reverse-complemented. Rows with
+   no new segment (contig end) and the consensus rows get gaps.
+4. When `continuation.py --need` asks for nothing more, the delivered plate is built **once** with full
+   L-INS-i at the final flank size (only if the flanks were extended; otherwise round 0 is the plate).
 
-Why: before the fix every round re-aligned the whole 100-copy plate with L-INS-i, whose cost grows
-~L²: 5 rounds from ~320 to ~1,520 bp cost ~50× one plate, twice per subfamily (top100 and rand100).
-cse MEG-RS rand100 alone ran > 30 min; after the fix cse MEG-RS took ~2 min (GLM audit
-`glm-harness/out/step8a_audit.json`, its claims checked by hand). `--adjustdirection` is kept although
-the audit suggested dropping it: step8a extracts `+,-` loci as `+`, and MAFFT turns those copies round.
+All MAFFT calls in step8a now run with `--thread $MAFFT_THREADS` (default `$THREADS`, else 8).
+
+Why (his review, 2026-09-28): L-INS-i aligns every pair of sequences locally — 101 rows = **5,050
+pairwise alignments** — plus up to 1,000 refinement iterations, and its cost grows ~L². Before any fix,
+every round re-aligned the whole plate: 5 rounds from ~320 to ~1,520 bp cost ~50× one plate, twice per
+subfamily, single-threaded, plates in sequence. cse MEG-RS rand100 alone ran > 30 min. A first fix
+(7afbf65) used FFT-NS-2 for the decision rounds; the benchmark below showed FFT modes change the
+continuation calls, so it was replaced by the incremental append. `--adjustdirection` is kept although
+a GLM audit suggested dropping it: step8a extracts `+,-` loci as `+`, and MAFFT turns those copies round.
+
+### Speed benchmark (2026-09-28, therioserver, `tests/bench/`)
+
+Real copies of published cse plates (and rsi r1), re-extracted at base flanks and at +600 bp.
+Q = fraction of the 1-thread L-INS-i reference's aligned residue pairs that the test reproduces;
+cont = `continuation.py` status on the result.
+
+| case | flanks | L-INS-i 1 thr | L-INS-i 16 thr | L-INS-i it2 16 thr | FFT-NS-i | FFT-NS-2 |
+|---|---|---|---|---|---|---|
+| MEG-RL | base | 0.3 s | 0.2 s, Q .95 | 0.2 s, Q .96 | Q .23, 5′ ends:2 ✗ | Q .18, 3′ ends:12 ✗ |
+| MEG-RL | +600 | 3.5 s, 3′ ends:2 | 1.5 s, Q .98, 3′ none ✗ | 1.1 s, Q .96, 3′ ends:2 | Q .07 ✗ | Q .07 ✗ |
+| MEG-RS | base | 8.7 s | 1.2 s, Q .96 | 1.0 s, Q .95 | Q .43, 3′ unresolved:50 ✗ | Q .43 |
+| MEG-RS | +600 | **260.5 s** | 81.2 s, Q .47 | 21.5 s, Q .68 | 31.6 s, Q .15 | 13.7 s, Q .14 |
+| MEG-T2 | base | **254.4 s** | 46.1 s, Q .07 | 15.7 s, Q .05 | (running) | |
+
+✗ = continuation call differs from the reference. Reading so far:
+- FFT-NS-2 / FFT-NS-i: 3–5 × faster than threaded L-INS-i at best, and they change the calls — **unsafe**.
+- Threading gives 3–7 ×. On short plates it reproduces the reference (Q 0.95–0.98).
+- **Open:** on the long / hard cases (MEG-RS +600, MEG-T2 base) threaded L-INS-i reaches Q 0.07–0.47.
+  Q here counts all residues, including 1,200 bp of unrelated flank per copy whose alignment is
+  arbitrary under any mode. Before reading these numbers as a quality loss, still to do: Q restricted
+  to the element columns, and the reference's own run-to-run Q (1-thread vs 1-thread).
+- Continuation calls: the L-INS-i variants agree on everything except MEG-RL +600 3′ (16 threads:
+  none vs ends:2 bp).
 
 Examples (bat corpus): rsi r1_9seqs 3′ `ends` at +189 bp (79 % of copies still covered);
 cse MEG-T2 5′ `unresolved` — identical at +371 bp when coverage drops; rda Rhin-1 and rsi MEG-RL:

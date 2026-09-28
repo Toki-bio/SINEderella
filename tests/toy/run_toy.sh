@@ -10,7 +10,7 @@ T=~/tmp/toy8a; rm -rf $T; mkdir -p $T
 python3 "$HERE/make_toy.py" $T
 SECONDS=0
 DISC=$DISCD bash $SD/step8a_extract_alignments.sh $T toy > $T/step8a.log 2>&1; echo "step8a exit=$? in ${SECONDS}s"
-grep -E "re-extract|WARN|ERROR|rror" $T/step8a.log
+grep -E "extending by|WARN|ERROR|rror" $T/step8a.log
 A=$T/results/alignments
 echo "--- plates"; for f in $A/*.aln.fa; do printf "%-24s rows %3d soft %2d array %2d | row1 %s row2 %s row3 %s\n" $(basename $f) $(grep -c "^>" $f) $(grep -c "\[soft\]" $f) $(grep -c "\[array\]" $f) $(grep "^>" $f | head -3 | cut -c2-40 | tr -d ' '); done
 echo "--- checks"
@@ -21,8 +21,9 @@ chk "TOYS: 4 soft rows"                                 '[ $(grep -c "\[soft\]" 
 chk "TOYB/TOYC/TOYL: no array marks"                    '[ $(cat $A/toy_TOYB_*.aln.fa $A/toy_TOYC_*.aln.fa $A/toy_TOYL_*.aln.fa | grep -c "\[array\]") -eq 0 ]'
 chk "TOYC soft-only plates exist, 3 soft rows"          '[ $(grep -c "\[soft\]" $A/toy_TOYC_top100.aln.fa) -eq 3 ]'
 chk "every plate: row2 = original, row1 = _extended"    '! for f in $A/*.aln.fa; do s=$(basename $f .aln.fa | cut -d_ -f2); [ "$(grep "^>" $f | sed -n 1p)" = ">${s}_extended" ] && [ "$(grep "^>" $f | sed -n 2p)" = ">$s" ] || echo bad; done | grep -q bad'
-chk "TOYA not re-extracted (array units skipped)"   '! grep -q "toy_TOYA_.*re-extracting" $T/step8a.log'
-chk "TOYL re-extracted (continuation loop ran)"         'grep -q "toy_TOYL_top100.*re-extracting" $T/step8a.log'
+chk "TOYA not re-extracted (array units skipped)"   '! grep -q "toy_TOYA_.*extending by" $T/step8a.log'
+chk "TOYL re-extracted (continuation loop ran)"         'grep -q "toy_TOYL_top100.*extending by" $T/step8a.log'
+chk "TOYL top100 extended exactly once (appended block resolved it)" '[ $(grep -c "toy_TOYL_top100.*extending by" $T/step8a.log) -eq 1 ]'
 for f in $A/toy_TOYL_top100.aln.fa $A/toy_TOYB_top100.aln.fa; do echo "   $(basename $f): $(python3 $DISCD/continuation.py $f | tr '\n' ' ')"; done
 
 echo "=== align_for_publish on a fresh toy (as repub_soft: no step7 / border loop)"
