@@ -79,6 +79,26 @@ def read_kv_manifest(path: Path) -> Dict[str, str]:
     return out
 
 
+def run_inputs(manifest: Dict[str, str]) -> Tuple[str, str]:
+    """(genome file name, consensus bank name) of a run. An --add / --exclude run's manifest names only
+    SOURCE_RUN (and ADD_FILE), so the header said "Genome: ? - Consensus: ?" on every add run (all 25
+    bat pages, 2026-09-28): follow SOURCE_RUN back to the full run and list every added bank."""
+    genome, cons, added, m, seen = "", "", [], manifest, set()
+    while m:
+        if m.get("ADD_FILE"):
+            added.insert(0, m["ADD_FILE"].rstrip("/").split("/")[-1])
+        genome = genome or m.get("GENOME_IN", "")
+        cons = cons or m.get("CONS_IN", "")
+        src = m.get("SOURCE_RUN", "")
+        if (genome and cons) or not src or src in seen:
+            break
+        seen.add(src)
+        m = read_kv_manifest(Path(src) / "manifest.txt")
+    genome = genome.rstrip("/").split("/")[-1] or "?"
+    cons = " + ".join([cons.rstrip("/").split("/")[-1] or "?"] + added)
+    return genome, cons
+
+
 def read_tsv(path: Path, has_header: bool = True,
              max_rows: Optional[int] = None
              ) -> Tuple[List[str], List[List[str]]]:
@@ -1654,8 +1674,7 @@ def build_html(run_root: Path,
         )
 
     title = manifest.get("RUN", str(run_root)).rstrip("/").split("/")[-1]
-    genome_name = manifest.get("GENOME_IN", "?").rstrip("/").split("/")[-1]
-    cons_name = manifest.get("CONS_IN", "?").rstrip("/").split("/")[-1]
+    genome_name, cons_name = run_inputs(manifest)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     cross_nav = ""
