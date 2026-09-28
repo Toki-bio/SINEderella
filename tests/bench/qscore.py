@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""qscore.py REF.aln TEST.aln - fraction of the reference's aligned residue pairs (between different
+"""qscore.py REF.aln TEST.aln [--elem] - fraction of the reference's aligned residue pairs (between different
 rows, same column) that the test alignment reproduces (Q score, sampled over row pairs). Rows are
-matched by name; MAFFT's _R_ prefix is stripped."""
+matched by name; MAFFT's _R_ prefix is stripped.
+--elem: count only reference pairs in the element columns (first..last letter of the CONSENSUS row of
+REF). Unrelated flank has no true alignment, so whole-row Q on +600 bp plates mostly measures noise."""
 import random, sys
 
 
@@ -29,6 +31,11 @@ def colmap(s):
 
 
 ref, test = read(sys.argv[1]), read(sys.argv[2])
+lo, hi = 0, 10 ** 9
+if "--elem" in sys.argv:
+    cr = next(v for k, v in ref.items() if "CONSENSUS" in k)
+    let = [j for j, c in enumerate(cr) if c not in "-."]
+    lo, hi = let[0], let[-1]
 names = [n for n in ref if n in test]
 random.seed(1)
 pairs = [(a, b) for i, a in enumerate(names) for b in names[i + 1:]]
@@ -42,7 +49,7 @@ for a, b in pairs:
     col_b_test = {c: i for i, c in enumerate(tb)}
     for i, c in enumerate(ra):
         j = col_b_ref.get(c)
-        if j is None:
+        if j is None or not lo <= c <= hi:
             continue
         tot += 1
         ok += col_b_test.get(ta[i]) == j

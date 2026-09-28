@@ -40,7 +40,9 @@ mkdir -p "$OUTDIR"
 
 # Temp working directory under RUN_ROOT
 TMPDIR="$(mktemp -d "${RUN_ROOT}/.step8a_XXXXXX")"
-trap 'rm -rf "$TMPDIR"' EXIT
+BASE_TMP="$TMPDIR"   # shared inputs; each subfamily works in its own $BASE_TMP/sf_<idx> (run in parallel)
+export TMPDIR
+trap 'rm -rf "$BASE_TMP"' EXIT
 
 # Ensure genome is indexed for bedtools
 if [[ ! -s "$GENOME.fai" ]]; then
@@ -48,10 +50,13 @@ if [[ ! -s "$GENOME.fai" ]]; then
 fi
 
 # MAFFT parameters (shared across all variants)
-# --thread: step8a ran every MAFFT single-threaded (THREADS was never passed); L-INS-i on 16 threads is
-# ~7x faster with the same result (Q 0.95-0.98 vs 1 thread; tests/bench, 2026-09-28).
+# Speed comes from aligning SUBFAMILIES IN PARALLEL (PAR_SF, default THREADS), not from MAFFT --thread:
+# threaded L-INS-i is 3-7x faster but NOT the same alignment, and on hard plates it is worse - cse MEG-T2
+# on 16 threads spread the consensus row over 1580 columns instead of 671 (tests/bench, docs/PLATES.md,
+# 2026-09-28). One thread per plate keeps the delivered plate identical to the reference.
 # --adjustdirection stays: "+,-" loci are extracted as "+" and some copies come out reversed.
-MAFFT_THREADS="${MAFFT_THREADS:-${THREADS:-8}}"
+MAFFT_THREADS="${MAFFT_THREADS:-1}"
+PAR_SF="${PAR_SF:-${THREADS:-8}}"
 MAFFT_ARGS=(--localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --preservecase --adjustdirection --quiet --thread "$MAFFT_THREADS")
 
 # Base flank sizes
@@ -99,7 +104,7 @@ PYEOF
 
 reorder_consensus_first() {
     # args: aligned_fasta cons_fasta -> writes reordered fasta to stdout
-    python3 "$TMPDIR/reorder_consensus_first.py" "$1" "$2"
+    python3 "$BASE_TMP/reorder_consensus_first.py" "$1" "$2"
 }
 
 ###############################################################################
@@ -342,18 +347,22 @@ idx=0
 while IFS=$'\t' read -r subfam count; do
     [[ -n "$subfam" ]] || continue
     idx=$((idx + 1))
+    while (( $(jobs -rp | wc -l) >= PAR_SF )); do wait -n || true; done
+    (
+    TMPDIR="$BASE_TMP/sf_${idx}"; mkdir -p "$TMPDIR"; export TMPDIR
+    MANIFEST="$BASE_TMP/sf_${idx}/manifest.part"; : > "$MANIFEST"
 
     echo "[$(date '+%F %T')] Processing subfamily: $subfam ($count members)" >&2
 
     # Extract this subfamily's loci
-    awk -F'\t' -v sf="$subfam" '$1==sf' "$TMPDIR/loci.tsv" > "$TMPDIR/loci_${idx}.tsv"
+    awk -F'\t' -v sf="$subfam" '$1==sf' "$BASE_TMP/loci.tsv" > "$TMPDIR/loci_${idx}.tsv"
 
     # Determine flank sizes from boundary_refinement.tsv -- top100 and
     # rand100/subfam use DIFFERENT boundary populations (see the comment
     # above build_boundaries_file: a general/random-sample boundary is not
     # valid for the bitscore-ranked top100 set).
     general_up_ext=0; general_down_ext=0
-    boundary_line="$(awk -F'\t' -v sf="$subfam" '$1==sf{print $2"\t"$3; exit}' "$TMPDIR/boundaries_general.tsv" || true)"
+    boundary_line="$(awk -F'\t' -v sf="$subfam" '$1==sf{print $2"\t"$3; exit}' "$BASE_TMP/boundaries_general.tsv" || true)"
     if [[ -n "$boundary_line" ]]; then
         general_up_ext="$(printf '%s' "$boundary_line" | cut -f1)"
         general_down_ext="$(printf '%s' "$boundary_line" | cut -f2)"
@@ -362,7 +371,7 @@ while IFS=$'\t' read -r subfam count; do
     general_down_flank=$((BASE_DOWN + general_down_ext))
 
     top100_up_ext=0; top100_down_ext=0
-    boundary_line="$(awk -F'\t' -v sf="$subfam" '$1==sf{print $2"\t"$3; exit}' "$TMPDIR/boundaries_top100.tsv" || true)"
+    boundary_line="$(awk -F'\t' -v sf="$subfam" '$1==sf{print $2"\t"$3; exit}' "$BASE_TMP/boundaries_top100.tsv" || true)"
     if [[ -n "$boundary_line" ]]; then
         top100_up_ext="$(printf '%s' "$boundary_line" | cut -f1)"
         top100_down_ext="$(printf '%s' "$boundary_line" | cut -f2)"
@@ -375,7 +384,7 @@ while IFS=$'\t' read -r subfam count; do
     if [[ ! -s "$TMPDIR/cons_${idx}.fa" ]]; then
         echo "WARNING: No consensus found for $subfam -- skipping" >&2
         printf "%s\t0\t0\t0\t%s\n" "$subfam" "$count" >> "$MANIFEST"
-        continue
+        touch "$TMPDIR/ok"; exit 0
     fi
 
     has_top=0
@@ -385,7 +394,7 @@ while IFS=$'\t' read -r subfam count; do
     # -- top100: 100 highest-bitscore members --
     # Sort by bitscore descending -> temp file, then head (avoids SIGPIPE)
     sort -t$'\t' -k2,2nr "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/sorted_${idx}.tsv"
-    awk -F'\t' -v sf="$subfam" '$1==sf' "$TMPDIR/soft.tsv" > "$TMPDIR/soft_${idx}.tsv"
+    awk -F'\t' -v sf="$subfam" '$1==sf' "$BASE_TMP/soft.tsv" > "$TMPDIR/soft_${idx}.tsv"
     if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
         sort -t$'\t' -k2,2nr "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"
         echo "  $subfam: $count firm copies; top100/rand100 filled with soft copies (marked [soft])" >&2
@@ -515,8 +524,17 @@ while IFS=$'\t' read -r subfam count; do
 
     # Manifest entry
     printf "%s\t%s\t%s\t%s\t%s\n" "$subfam" "$has_top" "$has_rand" "$has_sub" "$count" >> "$MANIFEST"
-
+    touch "$TMPDIR/ok"
+    ) < /dev/null &
 done < "$TMPDIR/counts.tsv"
+wait
+# every subfamily must have finished (set -e inside a subshell ends only that subshell)
+fail=0
+for ((k = 1; k <= idx; k++)); do
+    if [[ -f "$BASE_TMP/sf_$k/ok" ]]; then cat "$BASE_TMP/sf_$k/manifest.part" >> "$MANIFEST"
+    else echo "ERROR: subfamily job $k did not finish (see messages above)" >&2; fail=1; fi
+done
+(( fail == 0 )) || exit 1
 
 # Copy manifest to output
 cp "$MANIFEST" "$OUTDIR/manifest.tsv"

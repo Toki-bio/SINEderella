@@ -24,6 +24,8 @@ chk "every plate: row2 = original, row1 = _extended"    '! for f in $A/*.aln.fa;
 chk "TOYA not re-extracted (array units skipped)"   '! grep -q "toy_TOYA_.*extending by" $T/step8a.log'
 chk "TOYL re-extracted (continuation loop ran)"         'grep -q "toy_TOYL_top100.*extending by" $T/step8a.log'
 chk "TOYL top100 extended exactly once (appended block resolved it)" '[ $(grep -c "toy_TOYL_top100.*extending by" $T/step8a.log) -eq 1 ]'
+chk "manifest: one row per subfamily, all 5 (subfamilies now run in parallel)" '[ $(tail -n +2 $A/manifest.tsv | cut -f1 | sort -u | wc -l) -eq 5 ] && [ $(tail -n +2 $A/manifest.tsv | wc -l) -eq 5 ]'
+chk "no leftover subfamily-job ERROR"                   '! grep -q "did not finish" $T/step8a.log'
 for f in $A/toy_TOYL_top100.aln.fa $A/toy_TOYB_top100.aln.fa; do echo "   $(basename $f): $(python3 $DISCD/continuation.py $f | tr '\n' ' ')"; done
 
 echo "=== align_for_publish on a fresh toy (as repub_soft: no step7 / border loop)"
