@@ -192,6 +192,7 @@ def main():
     # A 'mid' unit (no h) right after another is a piecewise match of one element, not a new copy.
     chains = collections.defaultdict(collections.Counter)
     chain_ex = {}
+    units = []     # per locus: chain key + every unit (family:cons a-b:window lo-hi:strand:bits)
     for i, (lid, sf, c, a, b, st) in enumerate(loci):
         w = "w%d" % i
         kept = []
@@ -213,12 +214,21 @@ def main():
         key = " ".join(parts)
         chains[sf][key] += 1
         chain_ex.setdefault((sf, key), lid)
+        ws, we = max(0, a - 1 - F), min(fai.get(c, b + F), b + F)
+        units.append((lid, sf, key, c, ws, we, st, ";".join(
+            "%s:%d-%d:%d-%d:%s:%.0f" % (h[3], h[4], h[5], h[1], h[2], h[6], h[0]) for h in kept)))
     with open(os.path.join(out, "composite_chains.tsv"), "w") as fh:
         fh.write("subfamily\tcount\tfraction\tchain\texample_locus\n")
         for sf in sorted(chains, key=lambda k: -S[k]["n"]):
             tot = sum(chains[sf].values())
             for key, v in chains[sf].most_common(15):
                 fh.write("%s\t%d\t%.3f\t%s\t%s\n" % (sf, v, v / float(tot), key, chain_ex[(sf, key)]))
+
+    # window coords are 0-based in the locus orientation: genomic = ws + x on '+', we - x on '-'
+    with open(os.path.join(out, "composite_units.tsv"), "w") as fh:
+        fh.write("locus\tsubfamily\tchain\tcontig\twin_start\twin_end\tstrand\tunits\n")
+        for u in units:
+            fh.write("%s\t%s\t%s\t%s\t%d\t%d\t%s\t%s\n" % u)
 
     with open(os.path.join(out, "composite_loci.tsv"), "w") as fh:
         fh.write("locus\tsubfamily\tclass\tmain_hit\tupstream_partner\tdownstream_partner\tpartner_in_locus\tnearest_30_200\n")
