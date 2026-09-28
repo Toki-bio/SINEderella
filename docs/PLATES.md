@@ -111,6 +111,24 @@ sequence at 0.9–1.0; similarity is lost below 0.60.
 
 Recorded per plate and side in `continuation.tsv` next to the plates.
 
+**How the re-extraction loop runs** (`align_until_resolved` in step8a, after the fixes of 2026-09-28):
+
+1. Round 0 is the normal plate: 50/70 bp flanks, MAFFT L-INS-i (`--localpair --maxiterate 1000`).
+2. `continuation.py --need` asks for +150 bp on each `unresolved` side. It decides on the
+   **independent copies only**: rows marked ` [array]` are left out, because tandem-array units share
+   their flank far past the element and would drive the loop to the cap for nothing. With fewer than
+   3 independent copies it asks for nothing.
+3. Decision rounds re-extract and align in **fast mode** (FFT-NS-2, `--retree 2`); they only decide how
+   far to go. `continuation.py` reads each copy's own bases past the edge, which a fast alignment gives.
+4. When nothing more is needed, the delivered plate is built **once** with L-INS-i at the final flank
+   size (only if the flanks were extended; otherwise round 0 is the plate).
+
+Why: before the fix every round re-aligned the whole 100-copy plate with L-INS-i, whose cost grows
+~L²: 5 rounds from ~320 to ~1,520 bp cost ~50× one plate, twice per subfamily (top100 and rand100).
+cse MEG-RS rand100 alone ran > 30 min; after the fix cse MEG-RS took ~2 min (GLM audit
+`glm-harness/out/step8a_audit.json`, its claims checked by hand). `--adjustdirection` is kept although
+the audit suggested dropping it: step8a extracts `+,-` loci as `+`, and MAFFT turns those copies round.
+
 Examples (bat corpus): rsi r1_9seqs 3′ `ends` at +189 bp (79 % of copies still covered);
 cse MEG-T2 5′ `unresolved` — identical at +371 bp when coverage drops; rda Rhin-1 and rsi MEG-RL:
 `none`.
@@ -163,8 +181,16 @@ CM093732.1 84.25–84.41 Mb.
 Two measures:
 
 - **step8a** (`tools/array_order.py`) marks loci in a tandem cluster (≥ 3 copies on one contig with
-  neighbours ≤ 50 kb apart) and, for top100, puts **one copy per cluster first** and the other members
-  after every independent locus. Plate rows from a cluster carry ` [array]`.
+  neighbours ≤ 50 kb apart) and, for top100, **selects one copy per cluster** before any second one:
+  the other members go after every independent locus, so they reach the 100 only if the family has
+  too few independent copies. Plate rows from a cluster carry ` [array]`. (Display order on the
+  plate is MAFFT's `--reorder` guide-tree order, not this order.)
+  Clusters are looked for **only among the candidates that can reach the plate**: the first 300 ranked
+  loci for top100, the 100 drawn rows for rand100 (`--limit`). The first version clustered all loci of
+  a subfamily; an abundant family (100,000 copies in 2 Gb, one per ~20 kb) then had nearly every copy
+  marked — 98 of 100 dispersed top100 copies in a test at genome density
+  (`tests/toy/test_array_order.py`). The toy run caught it before the bat republish.
+- **step8a continuation**: ` [array]` rows do not count when deciding to re-extract (above).
 - **verdict** (`verdict.py`, from the plate row names) reports `TANDEM_ARRAY` when ≥ 10 % of the copies
   are in such clusters, and caps the call when ≥ 50 % are (`overall.py` counts it as negative
   evidence: "Doubtful").
@@ -212,3 +238,31 @@ are right, whether the verdict agrees, note).
   - tandem PAIRS with shared flanks escape the >= 3 rule (ttr MEG-RS: two pairs, 7-11 kb apart);
   - several ttr MEG-RS copies continue past the A-run into a tRNA-like head - possibly a MEG-RS + tRNA
     SINE dimer; not examined further.
+
+## Testing: a toy run before any real publish
+
+Changed step8a / publish code is run end to end on a toy first (his rule, 2026-09-28: "always test long
+term code in advance on toy example"). `tests/toy/`:
+
+| file | what it does |
+|---|---|
+| `make_toy.py DIR` | builds a SINEderella run dir in seconds: a random 3 Mb + 2 × 100 kb genome, consensuses, `step2_output/assigned.fasta`, `unassigned.tsv` |
+| `run_toy.sh` | runs step8a and `publish/align_for_publish.sh` on it, with PASS/FAIL checks; `SD=` / `DISCD=` point it at test copies of SINEderella / SINE-discriminator |
+| `test_array_order.py tools/array_order.py` | tandem-array selection at genome density (100,000 random loci over 2 Gb + a 20-unit array) |
+
+Toy families, one per branch: **TOYS** — dispersed + 5-unit array + soft copies (array marks, soft
+top-up); **TOYA** — 8 array units sharing 300 bp + 4 independent copies (must NOT re-extract);
+**TOYB** — shared 40 bp tail (continuation `ends`); **TOYL** — 200 bp shared past the 70 bp flank
+(must re-extract once and end at ~195 bp); **TOYC** — soft copies only. Dispersed copies sit 60 kb
+apart (a 12 kb spacing made every copy look like an array). `publish_run.sh` stops at step6 on the
+toy (no step3 files); `inject_disc_report.py` was tested on a copy of the real rsi report instead.
+
+Each check was shown to fail on the code it guards against: the old array_order marked TOYB/TOYC
+copies; the old continuation re-extracted TOYA twice.
+
+## Rebuilt consensi across species
+
+Row 1 of every top100 plate, from all 25 bat species, aligned with the queries: Tal
+`chiroptera/recreated/` (scripts in `scripts/`, page card on `chiroptera.html`, LOG in
+`chiroptera/LOG.md`). The "Rhin-1" rebuilt in 15 non-rhinolophoid bats is one other element
+(≥ 0.90 to each other, 0.58–0.66 to Rhin-1); real Rhin-1 is only in the Rhinolophoidea.
