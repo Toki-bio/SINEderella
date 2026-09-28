@@ -21,6 +21,7 @@ chk "TOYS: 4 soft rows"                                 '[ $(grep -c "\[soft\]" 
 chk "TOYB/TOYC/TOYL: no array marks"                    '[ $(cat $A/toy_TOYB_*.aln.fa $A/toy_TOYC_*.aln.fa $A/toy_TOYL_*.aln.fa | grep -c "\[array\]") -eq 0 ]'
 chk "TOYC soft-only plates exist, 3 soft rows"          '[ $(grep -c "\[soft\]" $A/toy_TOYC_top100.aln.fa) -eq 3 ]'
 chk "every plate: row2 = original, row1 = _extended"    '! for f in $A/*.aln.fa; do s=$(basename $f .aln.fa | cut -d_ -f2); [ "$(grep "^>" $f | sed -n 1p)" = ">${s}_extended" ] && [ "$(grep "^>" $f | sed -n 2p)" = ">$s" ] || echo bad; done | grep -q bad'
+chk "TOYA not re-extracted (array units skipped)"   '! grep -q "toy_TOYA_.*re-extracting" $T/step8a.log'
 chk "TOYL re-extracted (continuation loop ran)"         'grep -q "toy_TOYL_top100.*re-extracting" $T/step8a.log'
 for f in $A/toy_TOYL_top100.aln.fa $A/toy_TOYB_top100.aln.fa; do echo "   $(basename $f): $(python3 $DISCD/continuation.py $f | tr '\n' ' ')"; done
 

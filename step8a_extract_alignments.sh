@@ -49,6 +49,12 @@ fi
 
 # MAFFT parameters (shared across all variants)
 MAFFT_ARGS=(--localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --preservecase --adjustdirection --quiet)
+# Continuation DECISION rounds only (align_until_resolved): FFT-NS-2. L-INS-i cost grows ~L^2 and each
+# round re-aligned the whole plate with it (cse MEG-RS rand100: 5 rounds up to ~1.5 kb, > 30 min; GLM
+# audit 2026-09-28). continuation.py reads each copy's own bases past the edge, so a fast alignment is
+# enough to decide; the delivered plate is still one L-INS-i run at the final flank size.
+# --adjustdirection stays: "+,-" loci are extracted as "+" and some copies come out reversed.
+MAFFT_FAST_ARGS=(--retree 2 --nuc --reorder --preservecase --adjustdirection --quiet)
 
 # Base flank sizes
 BASE_UP=50
@@ -237,7 +243,9 @@ extract_consensus() {
 # Args: loci_tsv, cons_fa, up_flank, down_flank, outfile
 ###############################################################################
 extract_flank_align() {
-    local loci_tsv="$1" cons_fa="$2" up_flank="$3" down_flank="$4" outfile="$5"
+    local loci_tsv="$1" cons_fa="$2" up_flank="$3" down_flank="$4" outfile="$5" mode="${6:-full}"
+    local margs=("${MAFFT_ARGS[@]}")
+    [[ "$mode" == "fast" ]] && margs=("${MAFFT_FAST_ARGS[@]}")
 
     # Create BED: chrom, start-1, end, name, score, strand (clamp start >= 0)
     awk -F'\t' 'BEGIN{OFS="\t"} {s=$4-1; if (s<0) s=0; print $3, s, $5, NR, $2, $6}' \
@@ -263,7 +271,7 @@ extract_flank_align() {
     cat "$cons_fa" "$TMPDIR/cur_extracted.fa" > "$TMPDIR/cur_combined.fa" || return 1
 
     # Align
-    mafft "${MAFFT_ARGS[@]}" "$TMPDIR/cur_combined.fa" \
+    mafft "${margs[@]}" "$TMPDIR/cur_combined.fa" \
         > "$TMPDIR/cur_aligned.fa" 2>"$TMPDIR/cur_mafft.err" || return 1
 
     # --reorder can move the consensus away from the top; force it back first
@@ -296,16 +304,24 @@ dup_original() {
 }
 align_until_resolved() {
     local loci_tsv="$1" cons_fa="$2" up="$3" down="$4" outfile="$5"
-    local extra_up=0 extra_down=0 need rc
+    local extra_up=0 extra_down=0 need rc mode=full
     while :; do
-        extract_flank_align "$loci_tsv" "$cons_fa" "$((up + extra_up))" "$((down + extra_down))" "$outfile" || return 1
+        # round 0 is the normal L-INS-i plate; later rounds only decide how far to extend (fast mode)
+        extract_flank_align "$loci_tsv" "$cons_fa" "$((up + extra_up))" "$((down + extra_down))" "$outfile" "$mode" || return 1
         [[ "${CONTINUATION:-1}" == "1" && -n "${DISC:-}" && -f "$DISC/continuation.py" ]] || return 0
         need="$(python3 "$DISC/continuation.py" "$outfile" --need 2>/dev/null || echo "0 0")"
         read -r n5 n3 <<< "$need"
         n5=${n5:-0}; n3=${n3:-0}
         (( extra_up + n5 > CONT_MAX_EXTRA )) && n5=0
         (( extra_down + n3 > CONT_MAX_EXTRA )) && n3=0
-        (( n5 + n3 == 0 )) && return 0
+        if (( n5 + n3 == 0 )); then
+            # extended in fast mode: build the delivered plate once, with L-INS-i, at the final size
+            if [[ "$mode" == "fast" ]]; then
+                extract_flank_align "$loci_tsv" "$cons_fa" "$((up + extra_up))" "$((down + extra_down))" "$outfile" full || return 1
+            fi
+            return 0
+        fi
+        mode=fast
         extra_up=$((extra_up + n5)); extra_down=$((extra_down + n3))
         echo "  $(basename "$outfile"): copies still similar where their flank ends - re-extracting with +${extra_up}/+${extra_down} bp" >&2
     done

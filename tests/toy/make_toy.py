@@ -5,6 +5,7 @@ TOYS  6 dispersed firm copies (ctgA) + a 5-unit tandem array on ctgB (5 kb spaci
       soft top-up, continuation 'unresolved' -> re-extraction loop (rand100 and/or top100)
 TOYB  8 dispersed copies with a shared 40 bp tail after the element     -> continuation 'ends'
 TOYC  3 copies, soft only                                               -> soft-only plates
+TOYA  8 array units sharing 300 bp + 4 independent copies -> NO re-extraction (arrays are skipped)
 TOYL  8 copies sharing 200 bp downstream (past the 70 bp flank)       -> continuation re-extraction loop
 Dispersed copies sit 60 kb apart (a 12 kb spacing made array_order call everything an array).
 """
@@ -21,11 +22,12 @@ def mut(s, p):
 
 
 cons = {"TOYS": rnd(140) + "A" * 12, "TOYB": rnd(150) + "A" * 10, "TOYC": rnd(130) + "A" * 10,
-        "TOYL": rnd(145) + "A" * 10}
+        "TOYL": rnd(145) + "A" * 10, "TOYA": rnd(138) + "A" * 10}
+downA = rnd(300)
 longL = rnd(200)
 tailB = rnd(40)
 arr_down = rnd(300)
-ctg = {"ctgA": list(rnd(3000000)), "ctgB": list(rnd(100000))}
+ctg = {"ctgA": list(rnd(3000000)), "ctgB": list(rnd(100000)), "ctgC": list(rnd(100000))}
 firm, soft = [], []   # (ctg, start1, end1, strand, sf, score)
 
 
@@ -51,6 +53,12 @@ for i in range(3):                                     # TOYC soft only
 for i in range(8):                                     # TOYL: shared 200 bp downstream
     e = mut(cons["TOYL"], 0.06); d = mut(longL, 0.03); put("ctgA", pos, e + d)
     firm.append(("ctgA", pos + 1, pos + len(e), "+", "TOYL", 230 - i)); pos += 60000
+for i in range(8):                                     # TOYA: array-dominated (8 units share 300 bp)
+    p = 10000 + i * 6000
+    e = mut(cons["TOYA"], 0.02); d = mut(downA, 0.02); put("ctgC", p, e + d)
+    firm.append(("ctgC", p + 1, p + len(e), "+", "TOYA", 320 - i))
+for i in range(4):                                     # TOYA: 4 independent copies
+    e = mut(cons["TOYA"], 0.08); put("ctgA", pos, e); firm.append(("ctgA", pos + 1, pos + len(e), "+", "TOYA", 200 - i)); pos += 60000
 assert pos < 3000000 - 1000
 s2 = os.path.join(root, "step2", "step2_output")
 os.makedirs(s2, exist_ok=True)
