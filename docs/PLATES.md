@@ -128,7 +128,7 @@ Recorded per plate and side in `continuation.tsv` next to the plates.
 4. When `continuation.py --need` asks for nothing more, the delivered plate is built **once** with full
    L-INS-i at the final flank size (only if the flanks were extended; otherwise round 0 is the plate).
 
-All MAFFT calls in step8a now run with `--thread $MAFFT_THREADS` (default `$THREADS`, else 8).
+Speed-up: the **subfamilies are aligned in parallel** (`PAR_SF`, default `THREADS`), each in its own temp dir; every MAFFT stays **single-threaded** (`MAFFT_THREADS=1`), so the delivered plate is the reference alignment. Threading MAFFT was tried and rejected — see the benchmark.
 
 Why (his review, 2026-09-28): L-INS-i aligns every pair of sequences locally — 101 rows = **5,050
 pairwise alignments** — plus up to 1,000 refinement iterations, and its cost grows ~L². Before any fix,
@@ -150,17 +150,31 @@ cont = `continuation.py` status on the result.
 | MEG-RL | +600 | 3.5 s, 3′ ends:2 | 1.5 s, Q .98, 3′ none ✗ | 1.1 s, Q .96, 3′ ends:2 | Q .07 ✗ | Q .07 ✗ |
 | MEG-RS | base | 8.7 s | 1.2 s, Q .96 | 1.0 s, Q .95 | Q .43, 3′ unresolved:50 ✗ | Q .43 |
 | MEG-RS | +600 | **260.5 s** | 81.2 s, Q .47 | 21.5 s, Q .68 | 31.6 s, Q .15 | 13.7 s, Q .14 |
-| MEG-T2 | base | **254.4 s** | 46.1 s, Q .07 | 15.7 s, Q .05 | (running) | |
+| MEG-T2 | base | **254.4 s** | 46.1 s, Q .07 | 15.7 s, Q .05 | 15.3 s, Q .01 | 4.6 s, Q .01 |
 
-✗ = continuation call differs from the reference. Reading so far:
-- FFT-NS-2 / FFT-NS-i: 3–5 × faster than threaded L-INS-i at best, and they change the calls — **unsafe**.
-- Threading gives 3–7 ×. On short plates it reproduces the reference (Q 0.95–0.98).
-- **Open:** on the long / hard cases (MEG-RS +600, MEG-T2 base) threaded L-INS-i reaches Q 0.07–0.47.
-  Q here counts all residues, including 1,200 bp of unrelated flank per copy whose alignment is
-  arbitrary under any mode. Before reading these numbers as a quality loss, still to do: Q restricted
-  to the element columns, and the reference's own run-to-run Q (1-thread vs 1-thread).
-- Continuation calls: the L-INS-i variants agree on everything except MEG-RL +600 3′ (16 threads:
-  none vs ends:2 bp).
+✗ = continuation call differs from the reference.
+
+Pairwise Q alone was misleading, so each alignment was also scored **reference-free**
+(`tests/bench/colq.py`): over the element columns (the CONSENSUS row's first..last letter), the fraction
+of residues equal to their column majority, next to how many columns the element occupies.
+
+| case | L-INS-i 1 thr | 16 thr | it2 16 thr | FFT-NS-i | FFT-NS-2 |
+|---|---|---|---|---|---|
+| MEG-RL base: element cols / agreement | 279 / .575 | 282 / .581 | 280 / .578 | 289 / .655 | 294 / .651 |
+| MEG-RL +600 | 948 / .564 | 950 / .564 | 945 / .563 | 995 / .615 | 987 / .612 |
+| MEG-RS base | 195 / .805 | 200 / .804 | 200 / .805 | 404 / .780 | 351 / .787 |
+| MEG-RS +600 | 284 / .778 | 290 / .786 | 270 / .779 | 1227 / .704 | 1123 / .700 |
+| MEG-T2 base | **671 / .477** | **1580 / .443** | 742 / .473 | 2037 / .484 | 2683 / .470 |
+
+Element-only Q (`qscore.py --elem`): MEG-RS +600 rises from .47/.68 to **.86/.91** — the low whole-row
+Q was the unrelated flank, which has no true alignment. MEG-RL / MEG-RS: the L-INS-i variants give
+equally good, slightly different alignments. **MEG-T2 (copies ~1 kb): 16-thread L-INS-i is genuinely
+worse** — the consensus row spreads over 1,580 columns instead of 671; `--maxiterate 2` stays close.
+FFT modes spread the element over 2–4× the columns and change continuation calls.
+
+**Decision:** the delivered plate keeps the reference setting (L-INS-i, 1,000 iterations, 1 thread);
+speed comes from parallel subfamilies plus the incremental continuation (the appended 150 bp blocks use
+`--maxiterate 2`; they only feed the decision, the final plate is re-aligned in full).
 
 Examples (bat corpus): rsi r1_9seqs 3′ `ends` at +189 bp (79 % of copies still covered);
 cse MEG-T2 5′ `unresolved` — identical at +371 bp when coverage drops; rda Rhin-1 and rsi MEG-RL:
