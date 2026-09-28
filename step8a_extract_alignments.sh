@@ -343,6 +343,14 @@ align_until_resolved() {
 MANIFEST="$TMPDIR/manifest.tsv"
 printf "subfamily\thas_top100\thas_rand100\thas_subfam\tn_members\n" > "$MANIFEST"
 
+# rand100 is drawn with a FIXED seed (his call, 2026-09-28): unseeded shuf gave a different plate on
+# every republish (cse MEG-RS rand100 3' went "ends 647" -> "unresolved 652"). RAND_SEED is printed on
+# the page (step6) so the draw can be reproduced.
+RAND_SEED="${RAND_SEED:-42}"
+export RAND_SEED
+seeded_shuf() { python3 -c 'import os, random, sys
+l = open(sys.argv[1]).readlines(); random.Random(int(os.environ["RAND_SEED"])).shuffle(l); sys.stdout.writelines(l)' "$1"; }
+
 # per-subfamily timestamps: subfamilies run in parallel, so the log shows where the time goes
 tlog() { echo "[$(date '+%F %T')] $*" >&2; }
 
@@ -425,9 +433,9 @@ while IFS=$'\t' read -r subfam count; do
     tlog "$subfam: top100 done"
 
     # -- rand100: 100 randomly sampled members --
-    shuf "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/shuffled_${idx}.tsv"
+    seeded_shuf "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/shuffled_${idx}.tsv"
     if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
-        shuf "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/shuffled_${idx}.tsv"
+        seeded_shuf "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/shuffled_${idx}.tsv"
     fi
     python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/shuffled_${idx}.tsv" --mark-only --limit 100 \
         > "$TMPDIR/shuffled_${idx}.ord" && mv "$TMPDIR/shuffled_${idx}.ord" "$TMPDIR/shuffled_${idx}.tsv"

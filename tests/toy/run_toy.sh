@@ -26,6 +26,9 @@ chk "TOYL re-extracted (continuation loop ran)"         'grep -q "toy_TOYL_top10
 chk "TOYL top100 extended exactly once (appended block resolved it)" '[ $(grep -c "toy_TOYL_top100.*extending by" $T/step8a.log) -eq 1 ]'
 chk "manifest: one row per subfamily, all 5 (subfamilies now run in parallel)" '[ $(tail -n +2 $A/manifest.tsv | cut -f1 | sort -u | wc -l) -eq 5 ] && [ $(tail -n +2 $A/manifest.tsv | wc -l) -eq 5 ]'
 chk "no leftover subfamily-job ERROR"                   '! grep -q "did not finish" $T/step8a.log'
+md5sum $A/*_rand100.aln.fa | awk '{print $1}' > $T/rand_md5.1
+DISC=$DISCD bash $SD/step8a_extract_alignments.sh $T toy > $T/step8a_2.log 2>&1
+chk "rand100 reproducible: second step8a run gives identical plates (fixed seed)" 'md5sum $A/*_rand100.aln.fa | awk "{print \$1}" | diff -q - $T/rand_md5.1 > /dev/null'
 for f in $A/toy_TOYL_top100.aln.fa $A/toy_TOYB_top100.aln.fa; do echo "   $(basename $f): $(python3 $DISCD/continuation.py $f | tr '\n' ' ')"; done
 
 echo "=== align_for_publish on a fresh toy (as repub_soft: no step7 / border loop)"
