@@ -343,6 +343,9 @@ align_until_resolved() {
 MANIFEST="$TMPDIR/manifest.tsv"
 printf "subfamily\thas_top100\thas_rand100\thas_subfam\tn_members\n" > "$MANIFEST"
 
+# per-subfamily timestamps: subfamilies run in parallel, so the log shows where the time goes
+tlog() { echo "[$(date '+%F %T')] $*" >&2; }
+
 idx=0
 while IFS=$'\t' read -r subfam count; do
     [[ -n "$subfam" ]] || continue
@@ -419,6 +422,7 @@ while IFS=$'\t' read -r subfam count; do
             tail -n 20 "$TMPDIR/cur_mafft.err" >&2 || true
         fi
     fi
+    tlog "$subfam: top100 done"
 
     # -- rand100: 100 randomly sampled members --
     shuf "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/shuffled_${idx}.tsv"
@@ -444,6 +448,7 @@ while IFS=$'\t' read -r subfam count; do
             tail -n 20 "$TMPDIR/cur_mafft.err" >&2 || true
         fi
     fi
+    tlog "$subfam: rand100 done"
 
     # -- subfam: only for subfamilies with >= 400 members --
     if (( count >= 400 )); then
@@ -484,9 +489,11 @@ while IFS=$'\t' read -r subfam count; do
             cp "$TMPDIR/subfam_elems_${idx}.fa" "$scratch/input.fasta"
 
             set +e
+            tlog "$subfam: subfam sample extracted ($(grep -c '^>' "$scratch/input.fasta") seqs), SubFam starts"
             (cd "$scratch" && SubFam input.fasta 50)
             subfam_rc=$?
             set -e
+            tlog "$subfam: SubFam done (rc=$subfam_rc)"
             fi
 
             if (( subfam_rc == 0 )) && [[ -s "$scratch/input.clw" ]]; then
@@ -524,6 +531,7 @@ while IFS=$'\t' read -r subfam count; do
 
     # Manifest entry
     printf "%s\t%s\t%s\t%s\t%s\n" "$subfam" "$has_top" "$has_rand" "$has_sub" "$count" >> "$MANIFEST"
+    tlog "$subfam: all plates done"
     touch "$TMPDIR/ok"
     ) < /dev/null &
 done < "$TMPDIR/counts.tsv"
