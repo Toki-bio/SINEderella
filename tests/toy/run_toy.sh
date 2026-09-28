@@ -32,6 +32,9 @@ THREADS=4 SKIP_STEP7=1 SKIP_BORDER_LOOP=1 DISC=$DISCD SINEDERELLA_BIN=$SD bash $
 grep -iE "error|traceback|warn|fail" $P/afp.log | head -15
 A=$P/results/alignments
 ls $A | head -30
+chk() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; fi; }
+chk "final plates keep [soft]/[array] marks (TOYS top100)" '[ $(grep -c "\[soft\]" $A/toy_TOYS_top100.aln.fa) -eq 4 ] && [ $(grep -c "\[array\]" $A/toy_TOYS_top100.aln.fa) -eq 5 ]'
+chk "final plates: row 1 _extended, row 2 original"  '[ "$(grep "^>" $A/toy_TOYS_top100.aln.fa | sed -n 1p)" = ">TOYS_extended" ] && [ "$(grep "^>" $A/toy_TOYS_top100.aln.fa | sed -n 2p)" = ">TOYS" ]'
 echo "--- proposals.tsv"; column -t -s$'\t' $A/proposals.tsv 2>/dev/null | cut -c1-200
 echo "--- continuation.tsv"; cat $A/continuation.tsv 2>/dev/null
 for f in $A/toy_TOYL_top100.aln.fa $A/toy_TOYS_top100.aln.fa; do echo "--- $f"; grep "^>" $f | head -4; python3 - "$f" <<'PY'

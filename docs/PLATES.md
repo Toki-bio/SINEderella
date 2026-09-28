@@ -260,6 +260,13 @@ toy (no step3 files); `inject_disc_report.py` was tested on a copy of the real r
 Each check was shown to fail on the code it guards against: the old array_order marked TOYB/TOYC
 copies; the old continuation re-extracted TOYA twice.
 
+The final plates are checked too, not only step8a's output: the cse republish showed every
+` [soft]` / ` [array]` mark gone from the published plates although step8a wrote them.
+`correct_published_aln.py` read the plate with a FASTA reader that keeps only the first word of a
+header and rewrote it. Fixed (it now keeps full names); `run_toy.sh` checks the marks after
+`align_for_publish`. The verdict's TANDEM_ARRAY was not affected (it uses the coordinates in the
+names), but the report's soft-copy counts were.
+
 ## Rebuilt consensi across species
 
 Row 1 of every top100 plate, from all 25 bat species, aligned with the queries: Tal
