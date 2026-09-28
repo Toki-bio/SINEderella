@@ -395,7 +395,7 @@ while IFS=$'\t' read -r subfam count; do
     if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
         shuf "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/shuffled_${idx}.tsv"
     fi
-    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/shuffled_${idx}.tsv" --mark-only \
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/shuffled_${idx}.tsv" --mark-only --limit 100 \
         > "$TMPDIR/shuffled_${idx}.ord" && mv "$TMPDIR/shuffled_${idx}.ord" "$TMPDIR/shuffled_${idx}.tsv"
     head -100 "$TMPDIR/shuffled_${idx}.tsv" > "$TMPDIR/rand100_${idx}.tsv"
 

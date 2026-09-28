@@ -180,14 +180,19 @@ original's span. A low value means the copies are a *different* element that the
 rmi's Rhin-1, VES and MEG-T2 plates are all the local tRNA SINE with the head
 `GGGGATGCCGGGATAGCGCAGTGG`; lly and mev "Rhin-1" copies are other tRNA families.
 
-## Reading 129 plates (2026-09-28)
+## Reading 159 plates (2026-09-28)
 
-Every top100 plate of 13 bat species (batches 0–10 of the corpus views: both edges, 10–25 copies each,
+Every top100 plate in the corpus views (159, all 25 bat species plus rsi's r-subfamilies: both edges, 10–25 copies each,
 support and occupancy per column) was read by eye against the verdict and the proposals. The log is
 `SINE_discriminator/plate_reading_2026-09-28.tsv` (plate, my 5′ and 3′ reading, whether the proposals
 are right, whether the verdict agrees, note).
 
-- **Verdict agrees** on 114 of 129, disagrees on 13 (4 of them already fixed during the day: rsi r2/r10, cth Rhin-1, msc MEG-RS), unclear on 2 (mau, msc MEG-RS on the new chain). Rhin-1 and VES are real wherever they have ≥ 100 copies; MEG-T2
+- **Verdict agrees** on 142 of 159, disagrees on 14, unclear on 3 (mau MEG-RS, msc MEG-RS, ttr MEG-RS).
+  After the fixes of the day 11 of the 14 are resolved on the 312-plate corpus rerun (rsi r2/r10, cth
+  Rhin-1, msc MEG-RS; cse MEG-RS/T2, hla MEG-TR, rmi MEG-RS, rsi MEG-TR, vmu MEG-RS -> Doubtful 45; rsi
+  MEG-RS -> Not SINE 45). Open: hla MEG-RS (SINE 100 on 36 copies, about half junk, not bimodal enough
+  for CONTAMINATED), mev MEG-RS (SINE 100 with array copies on top), ntu MEG-RS (Not SINE 45; a real
+  MEG-RS diluted by arrays - needs step8a's array ordering, which the corpus cannot test). Rhin-1 and VES are real wherever they have ≥ 100 copies; MEG-T2
   is junk in every microbat; MEG families are all real SINEs in rle (the positive control, SINE 100 on
   all four).
 - **Disagreements** are almost all tandem arrays (rsi MEG-RS/TR, rmi MEG-RS: called SINE/Cannot
@@ -203,4 +208,7 @@ are right, whether the verdict agrees, note).
     there, but A-runs could always be kept;
   - support measured from `[array]` copies should not count toward `add*_ungapped`;
   - copies sharing a long flank *across different contigs* (nle MEG-TR, 8 copies) are a larger repeat,
-    which the tandem test (same contig) does not see.
+    which the tandem test (same contig) does not see;
+  - tandem PAIRS with shared flanks escape the >= 3 rule (ttr MEG-RS: two pairs, 7-11 kb apart);
+  - several ttr MEG-RS copies continue past the A-run into a tRNA-like head - possibly a MEG-RS + tRNA
+    SINE dimer; not examined further.

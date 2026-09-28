@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""array_order.py LOCI.tsv [--mark-only] > OUT.tsv
+"""array_order.py LOCI.tsv [--mark-only] [--limit N] > OUT.tsv
 
 step8a loci rows: subfamily, score, ctg, start, end, strand[, soft]. Loci that sit in a TANDEM
 cluster - >= MIN_COPIES on one contig with neighbours <= GAP bp apart - get column 8 = "array"
@@ -7,8 +7,16 @@ cluster - >= MIN_COPIES on one contig with neighbours <= GAP bp apart - get colu
 
 Without --mark-only (top100) the order is also changed: every independent locus keeps its rank,
 the best-ranked member of each cluster keeps its place, and the other members move to the end, in
-their original order. So a plate shows as many independent insertions as the family has before any
-second copy of the same repeated unit.
+their original order. step8a takes the first 100, so the top100 plate SELECTS as many independent
+insertions as the family has before any second copy of the same repeated unit. (It does not set
+the rows' display order: MAFFT --reorder puts plate rows in guide-tree order.)
+
+Clusters are looked for only among the first --limit rows (default LIMIT; step8a passes 100 for
+rand100): the candidates that can reach the plate. Over ALL loci of an abundant family the rule is
+meaningless - 100,000 Rhin-1 copies in a 2 Gb genome sit ~20 kb apart on average, so nearly every
+copy has neighbours within GAP and was marked "array" (found on a toy run, 2026-09-28, before the
+bat republish). Among a few hundred top-ranked copies spread over the genome, chance neighbours
+within GAP are rare; a real array still shows, because its near-identical units rank together.
 
 Why (bat corpus, 2026-09-28): the MEG-RS top100 plates of vmu, tbr, fho, tni and cse held 99, 98,
 95, 87 and 82 of 100 copies from tandem clusters (spacing ~1-5 kb, near-identical flanks). Being
@@ -20,16 +28,19 @@ import sys
 
 GAP = 50000     # hla MEG-RL: an array with a ~27 kb period
 MIN_COPIES = 3
+LIMIT = 300
 
 
 def main(argv):
     path = argv[1]
     mark_only = "--mark-only" in argv
+    limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else LIMIT
     rows = [l.rstrip("\n").split("\t") for l in open(path) if l.strip()]
     for r in rows:
         while len(r) < 8:
             r.append("-")
-    order = sorted(range(len(rows)), key=lambda i: (rows[i][2], int(rows[i][3])))
+    cand = range(min(limit, len(rows)))
+    order = sorted(cand, key=lambda i: (rows[i][2], int(rows[i][3])))
     cluster = {}
     k = 0
     while k < len(order):
