@@ -1,0 +1,206 @@
+# Published plates: what each row means, and what the pipeline may change
+
+A *plate* is one published alignment of a subfamily: `<code>_<subfamily>_top100.aln.fa`,
+`_rand100.aln.fa` (and `_subfam.aln.fa`, SubFam chunk consensuses). Plates are built by
+`publish/align_for_publish.sh`: step7 boundary refinement → border loop → **step8a** extraction and
+MAFFT → the SINE-discriminator chain (`boundary_justify` → `orient_publish_aln` →
+`rebuild_consensus_row` → `trim_display_flanks` → `correct_published_aln`) → **`tools/add_seed_row.py`**.
+
+This file records the conventions introduced on 2026-09-27/28 after Toki's review of the bat plates
+(rsi MEG-RS, MEG-RL, r1_9seqs), and the measurements behind them.
+
+## Rows
+
+| row | name | what it is |
+|---|---|---|
+| 1 | `<subfamily>_extended` | the consensus **rebuilt from the copies on this plate** |
+| 2 | `<subfamily>` | the consensus **exactly as the genome was searched with** (the original) |
+| 3… | `ctg:start-end(strand)` | copies; `[soft]` after the name marks a soft-assigned copy |
+
+Plates published before 2026-09-28 name row 1 `<subfamily>` and row 2
+`<subfamily>_seed_as_searched`; `add_seed_row.py` converts them in place (no realignment).
+
+**How row 2 gets there.** step8a aligns the copies together with the consensus, so right after
+step8a's MAFFT the consensus row sits exactly over the copies. `tools/dup_original_row.py` then
+renames it `<subfamily>_extended` and inserts an identical row `<subfamily>` as row 2 — only if that
+row is the original as searched (`consensuses.clean.fa.pre_publish.bak`), i.e. not widened by the
+border loop. Every chain step skips row 2 as a copy and carries it unchanged (never packed or
+recased). The earlier way — adding the original at the very end with `mafft --add` — misplaced it
+on rsi r1_9seqs: its 3′ part landed ~100 columns away, in columns no copy occupies, although in the
+step8a alignment it sat on the copies at support 0.93. `add_seed_row.py` still uses `mafft --add`
+when row 2 is missing (plates made before this, or a border-loop-widened consensus).
+
+### Case in row 1: every automatic change is a *proposal*
+
+The rebuild adds bases past the ends of the original and drops original bases the copies do not
+carry. Neither is applied automatically any more (his decision, 2026-09-28: "trims also be
+proposals only since I don't know how to do it safely"; extensions "should stay until user removes
+them"). Row 1 therefore reads, against row 2 directly below it:
+
+- **UPPERCASE** — what the copies support within the original's span.
+- **lowercase outside the original's span** — a proposed **addition**.
+- **lowercase at an end inside the original's span** — a proposed **trim**: an original base the
+  copies do not carry, put back so nothing of the original is lost.
+
+Copies are uppercase over row 1's uppercase span and lowercase elsewhere; only the case changes —
+no copy is realigned, and no base is added or removed (checked on 312 plates, below).
+
+### `proposals.tsv` (next to the plates)
+
+One row per plate, rewritten on re-run (trim fields survive a re-run, since restored trims look
+like row-1 letters the second time):
+
+| column | meaning |
+|---|---|
+| `add5_bp`, `add3_bp` | proposed additions at each end |
+| `add5_ungapped`, `add3_ungapped` | median per-copy identity of each copy's own **ungapped** flank, read outward from the original's edge, to the proposed bases. Unrelated DNA gives ~0.25; this is the number to read |
+| `add5_support`/`_null` (and 3') | the same with gaps allowed, and with the proposal shuffled. Gapped alignment lifts random matches to ~0.5, and A-rich proposals score the same shuffled; kept for reference, not as a decision number |
+| `trim5_bp`, `trim3_bp` | proposed trims |
+| `trim5_support`, `trim3_support` | median per-copy identity to the trimmed original bases, in the alignment columns |
+
+Measured on the bat corpus (312 raw top100/rand100 plates, re-extracted from the published ones):
+- 132 additions of ≥ 5 bp sit at background (`ungapped` < 0.35) — e.g. rsi MEG-RL 5′ `tgggggaaata`,
+  0.27; the column walk wrote these into the consensus silently before.
+- 89 additions are clearly carried (≥ 0.6), up to +495 bp (cse MEG-RS, MEG-T2).
+- trims proposed on 71 (5′) and 122 (3′) plates, median 14 bp, support ~0.25 — mostly original ends
+  the copies really do not carry (SINEbase consensuses longer than the bat copies).
+
+### What the verdict judges
+
+`verdict.py` and `flank_uniqueness.py` judge the element **as rebuilt**: row 1 without its
+lowercase *trim* proposals, *with* its lowercase additions (`fix_alignments.judged_span`). That is
+what they judged before the marking, so their calibration stands. Judging only the uppercase span
+was tried and is wrong: the A-tail and target-site duplications the rebuild placed at the ends fell
+into the "flank", every copy's flank began with the same A-run, the shared-flank test collapsed the
+core (rsi r3_58seqs 82 → 1 of 100 copies), the TSD score went to 0, and six real SINEs were called
+Not SINE.
+
+Row 2 is not a copy. Every per-copy measurement skips it (`fix_alignments.is_seed(name, cons_name)`:
+the old `_seed_as_searched` tag, or the consensus name without `_extended`).
+
+## Copies on the plate: 100 means 100
+
+`top100` / `rand100` promise 100 copies. A subfamily with fewer than 100 **firmly** assigned copies
+(10/10 votes, above the bitscore bar) is filled up to 100 with its **soft**-assigned copies
+(`step2_output/unassigned.tsv`, `Soft_Subfamily` = the query that found the locus): top100 ranks
+them by search score, rand100 draws them at random; firm copies always come first. Soft rows carry
+` [soft]`. A subfamily with only soft copies still gets plates. `SOFT_TOPUP=0` restores firm-only
+plates. Found on rsi: MEG-RS had 16 firm and 1,570 soft copies (they split their votes with MEG-RL,
+whose first 134 bp are MEG-RS at 97.8 %), so its "top 100" held 16 and the verdict could not assess it.
+The report's buttons show the real count ("top 16", "top 100 (84 soft)") and state the rule on hover.
+
+## Sequence shared past the ends: kept aligned, and extracted far enough
+
+His review of rsi r1_9seqs: past the right end the copies continue with the same sequence (an A-run
+of variable length, then `gtcctggaagtacacactgttccccaataaagtcctgttcccc…`) for ~190 bp. That region
+must be shown **aligned until similarity is lost**, and where copies run out of sequence before that,
+the end (or its absence) cannot be established.
+
+`continuation.py` (SINE-discriminator) measures it **per copy**, because MAFFT splits such a stretch
+into blocks different copies occupy (column occupancy 0.1–0.9) and a column walk cannot follow it:
+each copy's own bases are read outward from the original's edge, a base scores 1 when it equals its
+column's majority (columns reached by ≥ 3 copies and ≥ 5 %), a 20-base window slides along the copy,
+and the median over copies is the similarity profile. Unrelated flank sits at 0.40–0.47, shared
+sequence at 0.9–1.0; similarity is lost below 0.60.
+
+| status | meaning | what happens |
+|---|---|---|
+| `none` | below 0.60 at the edge | nothing |
+| `ends` | falls below 0.60 while ≥ 50 % of copies still have sequence | `boundary_justify` keeps that stretch aligned; flanks are packed only beyond it; `correct_published_aln` neither extends nor repacks on that side |
+| `unresolved` | copies run out (< 50 %) while still similar | as `ends`, and **step8a re-extracts** the plate with +150 bp on that side and realigns, up to +600 bp (`CONT_MAX_EXTRA`); `CONTINUATION=0` switches it off |
+
+Recorded per plate and side in `continuation.tsv` next to the plates.
+
+Examples (bat corpus): rsi r1_9seqs 3′ `ends` at +189 bp (79 % of copies still covered);
+cse MEG-T2 5′ `unresolved` — identical at +371 bp when coverage drops; rda Rhin-1 and rsi MEG-RL:
+`none`.
+
+## Why not a better column walk
+
+Before settling on proposals, a stricter walk was drafted and measured. At 20 copies the top-base
+fraction of **random** DNA passes the walk's 0.45 cutoff in 17–25 % of columns (95th percentile of
+the top-base fraction: 0.60 at 10 copies, 0.50 at 20, 0.43 at 30, 0.35 at 100), and MAFFT pulls
+similar bases into the same flank column, so aligned flank passes more often still (rsi MEG-RL:
+17 of 26 flank columns). A per-plate cutoff with a run rule was too strict on old low-copy families
+(his 9-copy MEG-RL lost its real 3′ end), and a poly-A end rule fails because many SINEs do not end
+in poly-A. No cutoff removes flank letters without also losing real ones; hence proposals, with the
+support number next to each.
+
+## Stray original end blocks
+
+MAFFT sometimes aligns a few of the original's end bases on their own, far from the rest: SINEbase
+Rhin-1's first `GGGG` sat ~40 columns left of its body on cth, cse, fho, mtu, msc and rna; VES's first
+bases did the same on cth and rmi. Taking the original's span as first-to-last letter then stretched it
+over those empty columns, and whatever the rebuild had put there (flank letters at support 3–4)
+became UPPERCASE and was judged as element (rna Rhin-1: `gT--A--TAA--A--T` in front of the head,
+score 95.5). `add_seed_row.mark` now takes the span from the original's **main block**: an end block
+of ≤ 12 letters (`STRAY_MAX`) separated by > 5 empty columns (`STRAY_GAP`) from the next original
+letter is shown as a trim proposal instead — **unless the copies carry it**: ≥ 50 % of them have
+letters in its columns (`STRAY_OCC`) *and* match its letters at median identity ≥ 0.40 (`STRAY_ID`).
+
+Both conditions were learned the hard way. Without the "carried" test, cth Rhin-1's original head
+`GGGGCGGCCGGT` — 25 columns from its body, but so are the copies' heads — became a trim, every copy's
+head became "shared flank" (85 of 100), and the call went SINE 96.8 → Not SINE 45 (rsi r4 the same).
+Occupancy alone does not work on a published plate, where flanks are packed against the element and
+fill a stray block's columns (mtu Rhin-1 `GGGG`: occupied, identity 0.25); identity does (cth head 0.58,
+rsi r4 0.83, stray `GGGG` on rna/vmu/tni/cse/fho 0.00–0.25). A 15-column gap missed mtu's `GGGG`, 14
+columns from the body.
+
+The same main block is used by `continuation.py` (cth Rhin-1's last 6 original letters sat ~50 columns
+past its body where 8 % of copies reach; measured from there, cover was 0.11 and the ~80 bp the copies
+share were missed) and by the verdict's `judged_span`.
+
+## Tandem arrays
+
+A family whose best-scoring copies sit in one tandem array looks like a perfect SINE on a top100
+plate: the array's units are near-identical *including their flanks*, so they rank first by bitscore,
+fill the plate, agree at every column, and their shared flank reads as a "continuation" of the element
+with ungapped support ~1.00. Bat corpus: the MEG-RS top100 plates of vmu, tbr, fho, tni and cse held
+99, 98, 95, 87 and 82 copies from tandem clusters (spacing ~1–30 kb); rsi MEG-RS/MEG-TR/MEG-RL are one
+GC-rich array unit (`…ccctgccgccccttgcccct…`) hit by three queries; rmi MEG-RS is one array on
+CM093732.1 84.25–84.41 Mb.
+
+Two measures:
+
+- **step8a** (`tools/array_order.py`) marks loci in a tandem cluster (≥ 3 copies on one contig with
+  neighbours ≤ 50 kb apart) and, for top100, puts **one copy per cluster first** and the other members
+  after every independent locus. Plate rows from a cluster carry ` [array]`.
+- **verdict** (`verdict.py`, from the plate row names) reports `TANDEM_ARRAY` when ≥ 10 % of the copies
+  are in such clusters, and caps the call when ≥ 50 % are (`overall.py` counts it as negative
+  evidence: "Doubtful").
+
+The array share is not a verdict on the family: in ntu, mme and mtu the same MEG-RS consensus finds
+real, dispersed copies with the head `GTCTACGGCCATACCAC` and tail `TGTAGGCTTT(A)n` mixed with array
+units. Putting the independent loci first is what lets those be seen.
+
+## `rebuilt_vs_orig`
+
+`proposals.tsv` also records the identity of row 1 (as rebuilt from the copies) to row 2 over the
+original's span. A low value means the copies are a *different* element that the query merely hits —
+rmi's Rhin-1, VES and MEG-T2 plates are all the local tRNA SINE with the head
+`GGGGATGCCGGGATAGCGCAGTGG`; lly and mev "Rhin-1" copies are other tRNA families.
+
+## Reading 129 plates (2026-09-28)
+
+Every top100 plate of 13 bat species (batches 0–10 of the corpus views: both edges, 10–25 copies each,
+support and occupancy per column) was read by eye against the verdict and the proposals. The log is
+`SINE_discriminator/plate_reading_2026-09-28.tsv` (plate, my 5′ and 3′ reading, whether the proposals
+are right, whether the verdict agrees, note).
+
+- **Verdict agrees** on 114 of 129, disagrees on 13 (4 of them already fixed during the day: rsi r2/r10, cth Rhin-1, msc MEG-RS), unclear on 2 (mau, msc MEG-RS on the new chain). Rhin-1 and VES are real wherever they have ≥ 100 copies; MEG-T2
+  is junk in every microbat; MEG families are all real SINEs in rle (the positive control, SINE 100 on
+  all four).
+- **Disagreements** are almost all tandem arrays (rsi MEG-RS/TR, rmi MEG-RS: called SINE/Cannot
+  assess on array units) or real MEG-RS diluted by arrays (ntu MEG-RS: Not SINE 45 though ~half the
+  copies carry the real head and tail). The views were made before `TANDEM_ARRAY` and `array_order`.
+- **Proposals** are right on nearly every plate: A-tails and shared tails come out at 0.5–0.8, flank
+  junk at 0.2–0.35. Wrong only where the copies are array units (support ~1.00 from identical flanks)
+  and where a stray original block widened the span (fixed, above).
+- Seen, not yet acted on:
+  - additions longer than the continuation extent carry junk at their outer end (rle MEG-TR: +30 bp
+    proposed, continuation `ends` at +19, the extra is `aaaaa` at support 4–5);
+  - an A-tail addition at ungapped support 0.45 (rle MEG-T2) is dropped from the judged span; harmless
+    there, but A-runs could always be kept;
+  - support measured from `[array]` copies should not count toward `add*_ungapped`;
+  - copies sharing a long flank *across different contigs* (nle MEG-TR, 8 copies) are a larger repeat,
+    which the tandem test (same contig) does not see.

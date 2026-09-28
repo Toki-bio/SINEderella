@@ -252,8 +252,10 @@ extract_flank_align() {
         > "$TMPDIR/cur_extracted.fa" 2>/dev/null || return 1
 
     # Mark soft-assigned rows (loci column 7 == "soft"); getfasta keeps BED order
-    awk -F'\t' 'NR==FNR{ soft[NR] = ($7 == "soft"); next }
-        /^>/ { k++; if (soft[k]) { print $0 " [soft]"; next } }
+    # and loci in tandem clusters (column 8 == "array", tools/array_order.py)
+    awk -F'\t' 'NR==FNR{ soft[NR] = ($7 == "soft"); arr[NR] = ($8 == "array"); next }
+        /^>/ { k++; tag = (soft[k] ? " [soft]" : "") (arr[k] ? " [array]" : "")
+               if (tag != "") { print $0 tag; next } }
         { print }' "$loci_tsv" "$TMPDIR/cur_extracted.fa" > "$TMPDIR/cur_marked.fa" || return 1
     mv "$TMPDIR/cur_marked.fa" "$TMPDIR/cur_extracted.fa"
 
@@ -269,6 +271,44 @@ extract_flank_align() {
 
     # Restore @U@ -> _ in headers and write output
     sed '/^>/s/@U@/_/g' "$TMPDIR/cur_reordered.fa" > "$outfile" || return 1
+}
+
+###############################################################################
+# Helper: align, then lengthen the flanks while the copies are still similar where
+# their sequence runs out (DISC continuation.py --need prints extra bp per side).
+# His review of rsi r1_9seqs / cse MEG-T2 (2026-09-28): past an end the copies can go
+# on sharing sequence for 150-370 bp, and with 50/70 bp flanks many copies stop
+# before similarity is lost, so the end (or its absence) cannot be seen. Each round
+# adds CONT_STEP bp (from continuation.py) on an unresolved side, up to CONT_MAX_EXTRA
+# per side. CONTINUATION=0 or no DISC: one round, as before.
+# Args: loci_tsv, cons_fa, up_flank, down_flank, outfile
+###############################################################################
+CONT_MAX_EXTRA="${CONT_MAX_EXTRA:-600}"
+
+# The original consensus as searched (align_for_publish swaps the publish bank into
+# consensuses.clean.fa for step8a and keeps the searched one as .pre_publish.bak).
+ORIG_CONSENSUS="${ORIG_CONSENSUS:-$RUN_ROOT/consensuses.clean.fa.pre_publish.bak}"
+[[ -s "$ORIG_CONSENSUS" ]] || ORIG_CONSENSUS="$CONSENSUS"
+# Row 2 = the original, copied from row 1 while it still IS the original (tools/dup_original_row.py);
+# re-adding it at the end with mafft --add misplaced it (rsi r1_9seqs).
+dup_original() {
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/dup_original_row.py" "$1" "$2" "$ORIG_CONSENSUS" >&2 || true
+}
+align_until_resolved() {
+    local loci_tsv="$1" cons_fa="$2" up="$3" down="$4" outfile="$5"
+    local extra_up=0 extra_down=0 need rc
+    while :; do
+        extract_flank_align "$loci_tsv" "$cons_fa" "$((up + extra_up))" "$((down + extra_down))" "$outfile" || return 1
+        [[ "${CONTINUATION:-1}" == "1" && -n "${DISC:-}" && -f "$DISC/continuation.py" ]] || return 0
+        need="$(python3 "$DISC/continuation.py" "$outfile" --need 2>/dev/null || echo "0 0")"
+        read -r n5 n3 <<< "$need"
+        n5=${n5:-0}; n3=${n3:-0}
+        (( extra_up + n5 > CONT_MAX_EXTRA )) && n5=0
+        (( extra_down + n3 > CONT_MAX_EXTRA )) && n3=0
+        (( n5 + n3 == 0 )) && return 0
+        extra_up=$((extra_up + n5)); extra_down=$((extra_down + n3))
+        echo "  $(basename "$outfile"): copies still similar where their flank ends - re-extracting with +${extra_up}/+${extra_down} bp" >&2
+    done
 }
 
 ###############################################################################
@@ -329,17 +369,21 @@ while IFS=$'\t' read -r subfam count; do
         sort -t$'\t' -k2,2nr "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"
         echo "  $subfam: $count firm copies; top100/rand100 filled with soft copies (marked [soft])" >&2
     fi
+    # independent loci first: one copy per tandem cluster before any second one (tools/array_order.py)
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/sorted_${idx}.tsv" \
+        > "$TMPDIR/sorted_${idx}.ord" && mv "$TMPDIR/sorted_${idx}.ord" "$TMPDIR/sorted_${idx}.tsv"
     head -100 "$TMPDIR/sorted_${idx}.tsv" > "$TMPDIR/top100_${idx}.tsv"
 
     if [[ -s "$TMPDIR/top100_${idx}.tsv" ]]; then
         set +e
-        extract_flank_align "$TMPDIR/top100_${idx}.tsv" "$TMPDIR/cons_${idx}.fa" \
+        align_until_resolved "$TMPDIR/top100_${idx}.tsv" "$TMPDIR/cons_${idx}.fa" \
             "$top100_up_flank" "$top100_down_flank" \
             "$OUTDIR/${SPECIES_CODE}_${subfam}_top100.aln.fa"
         rc=$?
         set -e
         if (( rc == 0 )); then
             has_top=1
+            dup_original "$OUTDIR/${SPECIES_CODE}_${subfam}_top100.aln.fa" "$subfam"
         else
             echo "WARNING: top100 alignment failed for $subfam (rc=$rc)" >&2
             tail -n 20 "$TMPDIR/cur_mafft.err" >&2 || true
@@ -351,17 +395,20 @@ while IFS=$'\t' read -r subfam count; do
     if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
         shuf "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/shuffled_${idx}.tsv"
     fi
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/shuffled_${idx}.tsv" --mark-only \
+        > "$TMPDIR/shuffled_${idx}.ord" && mv "$TMPDIR/shuffled_${idx}.ord" "$TMPDIR/shuffled_${idx}.tsv"
     head -100 "$TMPDIR/shuffled_${idx}.tsv" > "$TMPDIR/rand100_${idx}.tsv"
 
     if [[ -s "$TMPDIR/rand100_${idx}.tsv" ]]; then
         set +e
-        extract_flank_align "$TMPDIR/rand100_${idx}.tsv" "$TMPDIR/cons_${idx}.fa" \
+        align_until_resolved "$TMPDIR/rand100_${idx}.tsv" "$TMPDIR/cons_${idx}.fa" \
             "$general_up_flank" "$general_down_flank" \
             "$OUTDIR/${SPECIES_CODE}_${subfam}_rand100.aln.fa"
         rc=$?
         set -e
         if (( rc == 0 )); then
             has_rand=1
+            dup_original "$OUTDIR/${SPECIES_CODE}_${subfam}_rand100.aln.fa" "$subfam"
         else
             echo "WARNING: rand100 alignment failed for $subfam (rc=$rc)" >&2
             tail -n 20 "$TMPDIR/cur_mafft.err" >&2 || true
@@ -434,6 +481,7 @@ while IFS=$'\t' read -r subfam count; do
                     sed '/^>/s/@U@/_/g' "$TMPDIR/subfam_reordered_${idx}.fa" \
                         > "$OUTDIR/${SPECIES_CODE}_${subfam}_subfam.aln.fa"
                     has_sub=1
+                    dup_original "$OUTDIR/${SPECIES_CODE}_${subfam}_subfam.aln.fa" "$subfam"
                 else
                     echo "WARNING: subfam mafft failed for $subfam (rc=$mafft_rc)" >&2
                     tail -n 20 "$TMPDIR/subfam_mafft_${idx}.err" >&2 || true

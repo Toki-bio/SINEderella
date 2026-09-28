@@ -117,7 +117,7 @@ cp -f "$RUN_ROOT/step2/step2_output/assigned.fasta" \
 cp -f "$RUN_ROOT/consensuses.publish.fa" "$RUN_ROOT/consensuses.clean.fa"
 cp -f "$RUN_ROOT/step2/step2_output/assigned.publish.fasta" \
   "$RUN_ROOT/step2/step2_output/assigned.fasta"
-"$SINEDERELLA_BIN/step8a_extract_alignments.sh" "$RUN_ROOT" "$SPECIES"
+DISC="$DISC" "$SINEDERELLA_BIN/step8a_extract_alignments.sh" "$RUN_ROOT" "$SPECIES"
 cp -f "$RUN_ROOT/consensuses.clean.fa.pre_publish.bak" "$RUN_ROOT/consensuses.clean.fa"
 cp -f "$RUN_ROOT/step2/step2_output/assigned.fasta.pre_publish.bak" \
   "$RUN_ROOT/step2/step2_output/assigned.fasta"
