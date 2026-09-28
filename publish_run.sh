@@ -77,7 +77,13 @@ else
 fi
 
 # ── 3. Step6 HTML report ───────────────────────────────────────────────────
-[[ -f "$RUN_ROOT/step6_report.py" ]] || cp -f "$SINEDERELLA_BIN/step6_report.py" "$RUN_ROOT/"
+# Always the installed step6: publishing is presentation, and a copy frozen in the run dir kept old
+# page bugs alive (the "Genome: ?" header fix and the seed label never reached the 25 bat runs,
+# 2026-09-28). The previous copy is kept as step6_report.py.prev.
+if [[ -f "$RUN_ROOT/step6_report.py" ]] && ! cmp -s "$SINEDERELLA_BIN/step6_report.py" "$RUN_ROOT/step6_report.py"; then
+    cp -f "$RUN_ROOT/step6_report.py" "$RUN_ROOT/step6_report.py.prev"
+fi
+cp -f "$SINEDERELLA_BIN/step6_report.py" "$RUN_ROOT/"
 mkdir -p "$RUN_ROOT/results"
 OUT_HTML="$RUN_ROOT/results/report.html"
 
