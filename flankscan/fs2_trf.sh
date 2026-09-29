@@ -11,9 +11,11 @@
 #   for periods >= 50 bp (two SINE-length units already make a dimer array).
 #
 # Classes (window coordinates, core = core_s..core_e from loci.tsv, TOL = 15 bp):
-#   tail       starts within 30 bp before / TOL after the core's 3' end and runs outward: the SINE's
-#              own tail ((A)n, (TA)n, (CA)n ...) - a candidate boundary extension, not contamination
-#   head       the mirror image at the core's 5' end
+#   tail       starts within 30 bp before / TOL after the core's 3' end and ends no earlier than TOL
+#              before it: the SINE's own tail ((A)n, (TA)n, (CA)n ...). The assigned core usually
+#              already contains the A tail, so a tail that ENDS at the core end is still a tail, not
+#              "core"; one that runs past the end is a candidate boundary extension, not contamination
+#   head       the mirror image at the core's 5' end ((A)n head = the copy sits in a host's A tail)
 #   satellite  starts >= 50 bp before the core and ends >= 50 bp after it: the copy is a unit of
 #              (or sits inside) a tandem array - flag the copy
 #   core       inside the core (internal repeat of the element)
@@ -36,8 +38,8 @@ gawk -F'\t' -v OFS='\t' '
         a = f[1]+0; b = f[2]+0; per = f[3]+0; cop = f[4]+0
         if (cop < (per < 50 ? 4 : 2)) next
         s = cs[w]; e = ce[w]
-        if      (a >= e - 30 && a <= e + 15 && b > e)                  cls = "tail"
-        else if (b <= s + 30 && b >= s - 15 && a < s)                  cls = "head"
+        if      (a >= e - 30 && a <= e + 15 && b >= e - 15)            cls = "tail"
+        else if (b <= s + 30 && b >= s - 15 && a <= s + 15)            cls = "head"
         else if (a <= s - 50 && b >= e + 50)                           cls = "satellite"
         else if (a >= s - 15 && b <= e + 15)                           cls = "core"
         else if (b < s - 15)                                           cls = "flank5"
@@ -54,7 +56,6 @@ gawk -F'\t' '
     FNR > 1 { k = $1 SUBSEP $3; if (!(k in seen)) { seen[k]; c[$2, $3]++ }
               if ($3 == "tail") tm[$2, (length($10) <= 12 ? $10 : "long:" $6)]++ }
     END {
-        print "family\tcopies\ttail\thead\tsatellite\tcore\tpartial\tflank5\tflank3\ttop_tail_motifs"
         for (f in n) {
             line = f "\t" n[f]
             split("tail head satellite core partial flank5 flank3", C, " ")
@@ -66,7 +67,9 @@ gawk -F'\t' '
                                                if (bk == "") break; m = m (m ? ", " : "") bk " " bv; delete best[bk] }
             print line "\t" m
         }
-    }' loci.tsv trf.tsv | sort -t$'\t' -k2,2nr > trf_summary.tsv
+    }' loci.tsv trf.tsv | sort -t$'\t' -k2,2nr > trf_summary.body
+{ printf "family\tcopies\ttail\thead\tsatellite\tcore\tpartial\tflank5\tflank3\ttop_tail_motifs\n"; cat trf_summary.body; } > trf_summary.tsv
+rm -f trf_summary.body
 
 # mask flank background repeats (N) for the partner search; everything else unchanged
 gawk -F'\t' '

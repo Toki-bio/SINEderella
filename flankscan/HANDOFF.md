@@ -20,7 +20,7 @@ worth trying for old partners. He also said: delegate work to GLM.
 | stage | script | status |
 |---|---|---|
 | 1 | `fs1_extract.sh RUN OUT [1000]` — windows ±F once; loci.tsv with core_s/core_e, clamp5/3, gap5/3, nb5/3 | **written, toy 4/4 PASS** |
-| 2 | `fs2_trf.sh OUT` — TRF, classes tail/head/satellite/core/partial/flank5/flank3, summary, masked windows | **written, NOT yet run** |
+| 2 | `fs2_trf.sh OUT` — TRF, classes tail/head/satellite/core/partial/flank5/flank3, summary, masked windows | **toy 20/20 PASS** (2026-09-29, after tail-rule fix) |
 | 3 | `fs3_partners.sh OUT CONS` — masked consensuses (A tails + dust) vs masked windows (ssearch36 -z 11, both strands); per partner: side, family, strand, core cons end, partner cons start, gap, gap sequence | to write |
 | 4 | `fs4_junctions.sh OUT` — per family junction histograms, null from density, classes composite / chance / atail / nested / homodimer / piecewise / satellite; linker agreement | to write |
 
@@ -69,3 +69,18 @@ copies, f[6] %match, f[8] score, f[14] motif - correct for -ngs (GLM first claim
 then retracted it itself). Q2 classes mutually exclusive - correct; GLM's example (400,980) with
 core 1001-1100 is NOT head as it said (980 < 986 = s-15) but flank5 - the code is right, its example
 wrong. Q3 coordinates - no defect; independently confirmed by the toy (core = planted core, 197/197).
+
+## Stage 2 result (2026-09-29, after compaction)
+- GLM audit (out/flankscan_audit.json): Q1 TRF fields, Q2 class exclusivity, Q3 off-by-one -> all
+  "no defect" (it retracted its own first Q1 claim). Verified independently: TRF rows show
+  pct_match 89-100 / score 24..3614 in f[6]/f[8]; toy core + masking checks pass.
+- GLM MISSED the real defect, found by looking at class x case counts: the core already contains
+  the A tail, so `tail` required `b > e` and 24/40 single copies had their own (A)n classed
+  `core`. Fixed: tail = a in [e-30, e+15] and b >= e-15; head mirrored (a <= s+15). Also the
+  trf_summary.tsv header was sorted to the bottom - fixed.
+- Toy after fix: own A tail = tail 30/40 single; (TA)n tails 20/20 (motif AT/TA); satellite 5/6
+  (first unit = partial, nothing upstream); every A-tail insertion has an (A)n head 15/15 (the
+  stage-4 atail signal); 0 satellite in dimer/nested/chance/atail; 602 N masked, all in flank repeats.
+- Note: flank3 of dimer_left = the partner TB's A tail, which gets masked. Harmless for stage 3
+  (consensus A tails are masked too) but stage 3 must not read N runs as gaps.
+- tests/checks_2.sh has 20 checks incl. anti-vacuity ones (N > 0, >= 25/40 A tails found).
