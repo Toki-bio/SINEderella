@@ -64,3 +64,8 @@ output `C:\work\glm-harness\out\flankscan_audit.json` (log `out/flankscan_audit.
 **Verify every claim independently before acting** (memory: feedback_use_glm_narrow_tasks).
 Next GLM candidates: write stage-2 checks (checks_2.sh) from the planted truth; review fs3/fs4
 once written (<= 3 claims per task).
+**Result (2026-09-29, verified by me):** no defects in fs1/fs2. Q1 TRF fields f[3] period, f[4]
+copies, f[6] %match, f[8] score, f[14] motif - correct for -ngs (GLM first claimed an off-by-one,
+then retracted it itself). Q2 classes mutually exclusive - correct; GLM's example (400,980) with
+core 1001-1100 is NOT head as it said (980 < 986 = s-15) but flank5 - the code is right, its example
+wrong. Q3 coordinates - no defect; independently confirmed by the toy (core = planted core, 197/197).
