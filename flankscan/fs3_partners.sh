@@ -48,6 +48,7 @@
 #        gap_seq          the gap (window orientation) when 1..GAPSEQ bp, else "."
 #        main_tail        bp of the copy's own A tail added to the main unit (side 3 row; 0 on side 5)
 #        p_tail           bp of the partner's own A tail added to it (only when its 3' end faces the copy)
+#        p_k              the partner's k in units.tsv (its bitscore is there)
 #      gap and free are counted between the units INCLUDING their own A tails: the gap is what
 #      neither element explains (a linker, target site, or an extra A run).
 set -euo pipefail
@@ -139,7 +140,7 @@ FILENAME == ARGV[4] { if (/^>/) w = substr($1, 2); else mseq[w] = $0; next }    
 END {
     print "wid", "family", "k", "role", "unit", "strand", "cons_s", "cons_e", "tag", "win_s", "win_e", "bits", "pid" > "units.tsv"
     print "wid", "family", "side", "main", "main_strand", "main_cons_s", "main_cons_e", "main_j", "partner", "rel",
-          "p_j", "p_far", "p_tag", "p_ws", "p_we", "gap", "ov", "free", "clamp", "gapA", "gapT", "gapN", "gap_seq", "main_tail", "p_tail" > "junctions.tsv"
+          "p_j", "p_far", "p_tag", "p_ws", "p_we", "gap", "ov", "free", "clamp", "gapA", "gapT", "gapN", "gap_seq", "main_tail", "p_tail", "p_k" > "junctions.tsv"
     for (i = 1; i <= nw; i++) {
         w = W[i]; m = 0
         for (k = 1; k <= nk[w]; k++)                      # kept in bitscore order: first core hit = main
@@ -148,7 +149,7 @@ END {
             for (k = 1; k <= nk[w]; k++) print w, fam[w], k, "other", KF[w, k], KS[w, k], KA[w, k], KB[w, k],
                 tag(KF[w, k], KA[w, k], KB[w, k]), KL[w, k], KH[w, k], KBits[w, k], KP[w, k] > "units.tsv"
             for (sd = 5; sd >= 3; sd -= 2) print w, fam[w], sd, "-", ".", ".", ".", ".", "nomain", ".", ".", ".", ".",
-                ".", ".", ".", ".", ".", (sd == 5 ? cl5[w] : cl3[w]), ".", ".", ".", ".", ".", "." > "junctions.tsv"
+                ".", ".", ".", ".", ".", (sd == 5 ? cl5[w] : cl3[w]), ".", ".", ".", ".", ".", ".", "." > "junctions.tsv"
             continue
         }
         ML = KL[w, m]; MH = KH[w, m]; mst = KS[w, m]
@@ -185,7 +186,7 @@ END {
             clamp = (d ? cl3[w] : cl5[w])                            # loci clamps are in window orientation
             if (!p) {
                 print w, fam[w], sd, KF[w, m], mst, KA[w, m], KB[w, m], mj, "-", ".", ".", ".", ".", ".", ".", ".", ".",
-                      (d ? wl[w] - MH : ML - 1), clamp, ".", ".", ".", ".", (sd == 3 ? mt : 0), "." > "junctions.tsv"
+                      (d ? wl[w] - MH : ML - 1), clamp, ".", ".", ".", ".", (sd == 3 ? mt : 0), ".", "." > "junctions.tsv"
                 continue
             }
             ps = KS[w, p]; pa = KA[w, p]; pb = KB[w, p]; pl = KL[w, p]; ph = KH[w, p]
@@ -205,7 +206,7 @@ END {
             print w, fam[w], sd, KF[w, m], mst, KA[w, m], KB[w, m], mj, KF[w, p], (ps == mst ? "same" : "opp"),
                   pj, pf, tag(KF[w, p], pa, pb), pl, ph, gap, ov, gap, clamp,
                   (gap ? sprintf("%.2f", nA / gap) : "."), (gap ? sprintf("%.2f", nT / gap) : "."), nN,
-                  (gap >= 1 && gap <= GAPSEQ ? gs : "."), (sd == 3 ? mt : 0), pt > "junctions.tsv"
+                  (gap >= 1 && gap <= GAPSEQ ? gs : "."), (sd == 3 ? mt : 0), pt, p > "junctions.tsv"
         }
     }
 }' cons.tsv loci.tsv <(seqkit seq -w 0 windows.fa) <(seqkit seq -w 0 windows.masked.fa) -

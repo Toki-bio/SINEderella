@@ -38,7 +38,8 @@
 #    composite > inverted > atail > chance > near > single ("nomain" = no consensus covers the core).
 #
 # Out: OUT/peaks.tsv           family side partner rel type n n_group expected main_j p_j gap
-#                              linker linker_id linker_A
+#                              linker linker_id linker_A peak   (peak = id P1, P2, ...)
+#      OUT/members.tsv         peak wid side: the copies (and the side) that make up each peak
 #      OUT/copies.tsv          wid locus family class side5 side3   (side = partner:label:gap or -)
 #      OUT/family_summary.tsv  per family: copies and % of each class
 set -euo pipefail
@@ -81,7 +82,8 @@ FNR == 1 { next }                                                               
 END {
     # ---- A) peaks
     print "family", "side", "partner", "rel", "type", "n", "n_group", "expected", "main_j", "p_j", "gap",
-          "linker", "linker_id", "linker_A" > "peaks.tsv"
+          "linker", "linker_id", "linker_A", "peak" > "peaks.tsv"
+    print "peak", "wid", "side" > "members.tsv"
     for (gi = 1; gi <= ng; gi++) {
         g = G[gi]; split(g, K, SUBSEP); F = K[1]; sd = K[2]; P = K[3]; rel = K[4]
         delete alive; na = 0; for (j = 1; j <= gn[g]; j++) { alive[gm[g, j]] = 1; na++ }
@@ -120,8 +122,9 @@ END {
                 id = 0; for (i = 1; i <= ns; i++) { mt = 0; for (x = 1; x <= bl; x++) if (substr(S[i], x, 1) == substr(lk, x, 1)) mt++; id += mt / bl }
                 lid = sprintf("%.2f", ns ? id / ns : 0); t = lk; lA = sprintf("%.2f", gsub(/A/, "", t) / bl)
             }
-            print F, sd, P, rel, type, np, gn[g], sprintf("%.2f", E), mmode, pmode, gmode, lk, lid, lA > "peaks.tsv"
-            for (i = 1; i <= np; i++) { lab[PK[i]] = type; delete alive[PK[i]]; na-- }
+            print F, sd, P, rel, type, np, gn[g], sprintf("%.2f", E), mmode, pmode, gmode, lk, lid, lA, "P" npk > "peaks.tsv"
+            for (i = 1; i <= np; i++) { lab[PK[i]] = type; delete alive[PK[i]]; na--
+                                        print "P" npk, Rw[PK[i]], sd > "members.tsv" }
         }
     }
     # ---- B) per copy

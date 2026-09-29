@@ -20,7 +20,8 @@
 #              starts mid-consensus)
 #   contigend  1 x TA 200 bp from the start of the 20 kb contig (clamp test)
 # Writes OUT/genome.clean.fa, OUT/consensuses.clean.fa, OUT/results/assignment_full.tsv (the
-# SINEderella layout) and OUT/truth.tsv (locus id, case, family).
+# SINEderella layout), OUT/truth.tsv (locus id, case, family) and OUT/planted.fa (the dimer,
+# homodimer and piecewise elements as planted, before mutation).
 set -euo pipefail
 OUT=$1; mkdir -p "$OUT/results"
 gawk -v OUT="$OUT" '
@@ -87,6 +88,8 @@ BEGIN{
         print "chr2:" cs "-" cs+length(e) "(+)\tsatellite\tTA" >> TR }
     g2=g2 rnd(4000)
     g1=g1 rnd(3000)
+    # the planted multi-part elements, unmutated (the truth for stage 5; printing uses no rand())
+    printf(">dimer\n%s\n>homodimer\n%s\n>piecewise\n%s\n", substr(TA,1,130) LINK TB, TB LINK2 TB, substr(TA,1,100) substr(TB,80)) > (OUT "/planted.fa")
     printf(">chr1\n") > (OUT "/genome.clean.fa")
     for(i=1;i<=length(g1);i+=80) print substr(g1,i,80) >> (OUT "/genome.clean.fa")
     printf(">chr2\n") >> (OUT "/genome.clean.fa")
