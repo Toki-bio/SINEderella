@@ -58,7 +58,8 @@ plate once); temp under /home; toy-test before real runs; commit + push after fi
 
 ## GLM (delegated 2026-09-29)
 Task `C:\work\glm-harness\tasks\flankscan_audit\flankscan_audit.md` (3 questions: TRF field parsing,
-class exclusivity, off-by-one in fs1 core coords + fs2 masking), run with `node glm.js ...`;
+class exclusivity, off-by-one in fs1 core coords + fs2 masking), run with `GLM_READ_ROOTS="C:/work/glm-harness/tasks/flankscan_audit" node glm.js tasks/flankscan_audit/flankscan_audit.md`
+(glm.js only reads inside GLM_READ_ROOTS - the first run failed on that);
 output `C:\work\glm-harness\out\flankscan_audit.json` (log `out/flankscan_audit.log`).
 **Verify every claim independently before acting** (memory: feedback_use_glm_narrow_tasks).
 Next GLM candidates: write stage-2 checks (checks_2.sh) from the planted truth; review fs3/fs4
