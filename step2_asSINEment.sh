@@ -131,7 +131,7 @@ run_assignment(){
   log " Assignment: SINE loci . Subfamilies"
   log "=========================================="
 
-  TMPDIR="$(mktemp -d -t step2_assign_XXXX)"
+  TMPDIR="$(mktemp -d "${STEP2_TMP_BASE:-$PWD}/.step2_assign_XXXX")"
   export LC_ALL=C
 
   # Clean headers (keep only first word after >)
@@ -524,7 +524,7 @@ run_incremental_assignment(){
   log " Incremental Assignment (carry-forward mode)"
   log "=========================================="
 
-  TMPDIR="$(mktemp -d -t step2_incr_XXXX)"
+  TMPDIR="$(mktemp -d "${STEP2_TMP_BASE:-$PWD}/.step2_incr_XXXX")"
   export LC_ALL=C
 
   log "Preparing input files..."
