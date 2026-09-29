@@ -196,7 +196,7 @@ def headers_to_bed(headers, work):
 def extract_flanked(bed, genome, flank_l, flank_r, out_fa, work):
     """Genomic extract with optional asymmetric flanks (0 = none on that side)."""
     sizes = os.path.join(work, "genome.sizes")
-    sh("cut -f1,2 %s.fai > %s" % (shlex.quote(genome), shlex.quote(sizes)))
+    sh("cut -f1,2 %s > %s" % (shlex.quote(genome + ".fai"), shlex.quote(sizes)))
     slop = os.path.join(work, "slop.bed")
     code, _, err = sh(
         "bedtools slop -s -l %d -r %d -g %s -i %s > %s 2>/dev/null"
@@ -417,7 +417,7 @@ def run_conse(aln_fa, pct, work):
 def run_sine(copies_fa, work, script):
     scw = os.path.join(work, "sine")
     os.makedirs(scw, exist_ok=True)
-    sh("cp %s %s/copies.fa" % (shlex.quote(copies_fa), shlex.quote(scw)))
+    sh("cp %s %s" % (shlex.quote(copies_fa), shlex.quote(os.path.join(scw, "copies.fa"))))
     code, _, err = sh("bash %s copies.fa 100 50 0.01" % (shlex.quote(script), ), cwd=scw, timeout=7200)
     hits = list(Path(scw).glob("*_consensus.fasta")) + list(Path(scw).glob("final_consensus.fasta"))
     if not hits:
@@ -526,8 +526,9 @@ def main():
     anchor_name = "CONSENSUS_" + anchor_key
     anchor_seq = consensuses[anchor_key]
     write_fa(os.path.join(work, "anchor.fa"), [(anchor_name, anchor_seq)])
-    sh("cat %s/work/anchor.fa %s > %s/work/val_pre.combined.fa"
-       % (shlex.quote(out_dir), shlex.quote(vf), shlex.quote(out_dir)))
+    sh("cat %s %s > %s"
+       % (shlex.quote(os.path.join(work, "anchor.fa")), shlex.quote(vf),
+          shlex.quote(os.path.join(work, "val_pre.combined.fa"))))
     val_pre_aln = os.path.join(work, "val_pre.aln.fa")
     mafft(os.path.join(work, "val_pre.combined.fa"), val_pre_aln)
     postprocess_flanks(val_pre_aln, anchor_name)
@@ -554,8 +555,9 @@ def main():
     # --- rebuild consensus from extended element window ---
     vf2 = os.path.join(work, "val_post.flank.fa")
     extract_for_side(bed_ext, genome, "5prime", MAX_FLANK, vf2, work)
-    sh("cat %s/work/anchor.fa %s > %s/work/val_post.combined.fa"
-       % (shlex.quote(out_dir), shlex.quote(vf2), shlex.quote(out_dir)))
+    sh("cat %s %s > %s"
+       % (shlex.quote(os.path.join(work, "anchor.fa")), shlex.quote(vf2),
+          shlex.quote(os.path.join(work, "val_post.combined.fa"))))
     val_post_aln = os.path.join(work, "val_post.aln.fa")
     mafft(os.path.join(work, "val_post.combined.fa"), val_post_aln)
     postprocess_flanks(val_post_aln, anchor_name)

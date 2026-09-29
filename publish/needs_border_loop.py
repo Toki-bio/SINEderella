@@ -79,7 +79,7 @@ def element_extend_scan(run_root, subfams, genome, assigned, flank=1000):
     sizes = os.path.join(work, "genome.sizes")
     if not os.path.isfile(sizes):
         subprocess.check_call(
-            "cut -f1,2 %s.fai > %s" % (shlex.quote(genome), shlex.quote(sizes)), shell=True)
+            "cut -f1,2 %s > %s" % (shlex.quote(genome + ".fai"), shlex.quote(sizes)), shell=True)
 
     for sf in sorted(subfams):
         headers = []
