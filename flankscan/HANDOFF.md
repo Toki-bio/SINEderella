@@ -21,7 +21,7 @@ worth trying for old partners. He also said: delegate work to GLM.
 |---|---|---|
 | 1 | `fs1_extract.sh RUN OUT [1000]` — windows ±F once; loci.tsv with core_s/core_e, clamp5/3, gap5/3, nb5/3 | **written, toy 4/4 PASS** |
 | 2 | `fs2_trf.sh OUT` — TRF, classes tail/head/satellite/core/partial/flank5/flank3, summary, masked windows | **toy 20/20 PASS** (2026-09-29, after tail-rule fix) |
-| 3 | `fs3_partners.sh OUT CONS` — masked consensuses (A tails + dust) vs masked windows (ssearch36 -z 11, both strands); per partner: side, family, strand, core cons end, partner cons start, gap, gap sequence | to write |
+| 3 | `fs3_partners.sh OUT CONS [T]` — masked consensuses (A tails + dust) vs masked windows (ssearch36 -z 11); units.tsv + junctions.tsv (per window and side: nearest partner, consensus coords at the junction, gap, gap seq, clamp) | **toy 11/11 PASS** |
 | 4 | `fs4_junctions.sh OUT` — per family junction histograms, null from density, classes composite / chance / atail / nested / homodimer / piecewise / satellite; linker agreement | to write |
 
 Tests: `tests/make_toy.sh` (gawk, seed 7) plants: 40 single TA; 40 dimers TA[1-130]+39 bp linker+TB
@@ -84,3 +84,20 @@ wrong. Q3 coordinates - no defect; independently confirmed by the toy (core = pl
 - Note: flank3 of dimer_left = the partner TB's A tail, which gets masked. Harmless for stage 3
   (consensus A tails are masked too) but stage 3 must not read N runs as gaps.
 - tests/checks_2.sh has 20 checks incl. anti-vacuity ones (N > 0, >= 25/40 A tails found).
+
+## Stage 3 result (2026-09-29)
+- ssearch36 -m 8 DOES report several alignments of one consensus in one window (nested TC twice).
+- Two junction problems found on the toy and fixed by rule, not by tolerance:
+  1. Local alignments overrun a junction by 10-30 bp when the sequence across it scores positive
+     (TC ran 31 bp into an inserted TA: TA 1-10 resembles TC 81-90). The prototype's rule "drop
+     a hit overlapping a kept one by > 20 bp" lost the partner (nested found 6/15). Now: best hit
+     first, weaker hits keep only their parts outside kept units (>= 40 bp, consensus coords
+     linear along the alignment). Same weakness exists in tools/composite_scan.py.
+  2. Consensus A tails are masked, so the main unit stopped where its tail starts and the
+     neighbour's alignment ran back over the copy's own A tail (TC start 67 instead of 81). Now the
+     main unit owns its own tail when it reaches its consensus tail (tag e): extended over the A run
+     (>= 80 % A walker), neighbours trimmed; gap is counted after the copy's own tail (main_tail col).
+- Toy: dimers linker 39+-3 >= 36/40 both halves (tested as main overrun + gap + partner start, so it
+  holds however the aligners split the linker); chance TA head within 30 bp; A-tail insertion: TC
+  tag e + gap >= 70 % A; nested TC facing ends 80-82|82 (truth 80|81); satellite gap ~300; single
+  and (TA)n-tailed copies no partner; clamp reported.
