@@ -154,3 +154,14 @@ why), **IMPLEMENT** (real gap - where and how), **DECIDE** (changes results or f
 Count, one verdict per trick: DONE 26, DROP 43, IMPLEMENT 16 (= 85; RepeatMasker 10/20/5, RepeatModeler2
 5/6/6, AnnoSINE_v2 2/9/2, HiTE 4/5/1, EarlGrey 5/3/2). Borrowed ideas (27 incl. the dissent): DONE 10,
 DROP 12, IMPLEMENT 1 (contained-consensus report), DECIDE 4.
+
+## 8. His decisions (2026-09-30)
+
+- D1 bitscore filter for <= 10 unanimous copies: **NO** - leave as is.
+- D2 CpG-adjusted divergence: **very important question - needs a thorough test on multiple species
+  and SINEs** before any change (not a code change yet; design the test).
+- D3 divergence difference next to LEAK: **undecided - needs a concrete example** (find a LEAK copy
+  where the two numbers disagree, show it to him).
+- D4 mask consensus A tails in assignment: **NO** - many SINEs have other types of repeat ends.
+- D5 TE-protein negative check: **NO**.
+- Implement items 1-9 (hygiene / reproducibility): **YES**, delegated to GLM (aider), checked by Claude.
