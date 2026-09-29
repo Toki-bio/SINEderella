@@ -18,6 +18,7 @@
 #   homodimer  30 x TB + fixed 20 bp + TB   (loci = both TB parts)
 #   piecewise  30 x TA[1-100] + TB[80-212], no gap  (loci = the TA part and the TB part, which
 #              starts mid-consensus)
+#   after_line 20 x LE + TA   (LE = a "LINE 3' end" + A10, in OUT/partnerlib.fa only; locus = TA)
 #   contigend  1 x TA 200 bp from the start of the 20 kb contig (clamp test)
 # Writes OUT/genome.clean.fa, OUT/consensuses.clean.fa, OUT/results/assignment_full.tsv (the
 # SINEderella layout), OUT/truth.tsv (locus id, case, family) and OUT/planted.fa (the dimer,
@@ -77,6 +78,11 @@ BEGIN{
     LINK2=rnd(20)
     for(i=0;i<30;i++){ h=mut(TB); put2(h, LINK2, mut(TB), "TB", "TB", "homo_left", "homo_right") }
     for(i=0;i<30;i++){ h=mut(substr(TA,1,100)); put2(h, "", mut(substr(TB,80)), "TA", "TB", "piece_left", "piece_right") }
+    # a LINE 3-prime end (300 bp + A10) that is NOT in the consensus bank, only in the partner
+    # library (OUT/partnerlib.fa, as x.LE): 20 x LE + TA, the TA copy in the A tail of the LINE end
+    LE=rnd(300) reps("A",10)
+    printf(">x.LE\n%s\n", LE) > (OUT "/partnerlib.fa")
+    for(i=0;i<20;i++){ l=mut(LE); a=mut(TA); put(l a, "after_line", "TA", length(l)+1, length(l)+length(a)) }
     # contig 2: satellite array (6 x (TA + 300 bp)) and one TA near the contig start
     unit=rnd(300); g2=rnd(200)
     e=mut(TA); cs=length(g2); g2=g2 e

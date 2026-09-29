@@ -17,8 +17,9 @@
 #    bitscore; copies whose genomic spans overlap are one element (kept once: the mirror peak sees
 #    the same element from its other unit). The best NBEST are cut from the genome.
 # 3) MAFFT L-INS-i; consensus = majority base of every column where >= half the copies have a base.
-# 4) Candidates that are the same element twice (>= 90 % identity over >= 90 % of the shorter,
-#    ssearch36) are kept once: the one from the larger peak.
+# 4) Candidates that are the same element twice (one ssearch36 alignment, >= 90 % identity,
+#    covering >= 90 % of BOTH) are kept once: the one from the larger peak. Stage 6 counts the
+#    copies of a folded candidate for the kept one.
 #
 # Out: OUT/candidates.fa       the kept candidate consensuses (name = U__D_Pn, Pn = the peak id)
 #      OUT/candidates.tsv      name peak type upstream downstream n_peak mirrors elements n_used
@@ -138,8 +139,10 @@ while read -r N; do cat "cand/$N.fa"; done < <(cut -f1 cand/built.tsv) > cand/al
 ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> /dev/null > cand/self.m8 || true
 gawk -F'\t' -v OFS='\t' '
     FILENAME == ARGV[1] { L[$1] = $13; ord[++n] = $1; next }             # built.tsv: cons_len
-    $1 != $2 { sh = (L[$1] < L[$2]) ? L[$1] : L[$2]                      # m8: pid alignment length
-               if ($3 >= 90 && $4 >= 0.9 * sh) same[$1, $2] = same[$2, $1] = 1 }
+    # m8: pid, q_s q_e ($7 $8), s_s s_e ($9 $10). Same element = the alignment covers >= 90 % of
+    # BOTH: a shorter candidate contained in a longer one is a different element (r3 with its
+    # internal repeat inside r1 + 39 bp + r3; r10 + r6 part inside r10 + 105 bp + group B)
+    $1 != $2 { if ($3 >= 90 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2]) same[$1, $2] = same[$2, $1] = 1 }
     END { for (i = 1; i <= n; i++) { st[ord[i]] = "kept"
               for (j = 1; j < i; j++) if (st[ord[j]] == "kept" && same[ord[i], ord[j]]) { st[ord[i]] = "same_as:" ord[j]; break } }
           for (i = 1; i <= n; i++) print ord[i], st[ord[i]] }' cand/built.tsv cand/self.m8 > cand/status.tsv

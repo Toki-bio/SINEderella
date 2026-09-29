@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# fs3_partners.sh OUT_DIR CONSENSUSES.fa [THREADS=8]
+# fs3_partners.sh OUT_DIR CONSENSUSES.fa [THREADS=8] [PARTNERS.fa]
+#
+# PARTNERS.fa (optional, fs0_partnerlib.sh): tRNAs, 7SL, 5S, LINE 3' ends, every name starting "x.".
+# Searched with the consensuses, but they are PARTNERS only: never the copy's main unit, and in a
+# window they come after every family hit (they only fill what no family consensus covers - a
+# LINE 3' end that resembles a SINE's 3' end must not cut the SINE's own unit short).
 #
 # Stage 3 of flankscan: which consensus units lie in each window (stage 1 windows, flank repeats
 # masked by stage 2), and what sits right next to the copy on each side.
@@ -20,7 +25,10 @@
 #    across it happens to score positive (toy: TC's alignment ran 31 bp into an inserted TA copy
 #    and through its A tail). Dropping such a hit loses a real partner; trimming keeps it and the
 #    stronger unit decides where the junction is. A hit spanning a whole inserted copy splits into
-#    two pieces (a nested insertion).
+#    two pieces (a nested insertion). A trimmed piece that is >= 60 % A (or >= 60 % T) is dropped:
+#    that is an alignment running on through the copy's poly-A tail, not a partner (rsi: r3's 3' end
+#    shares r7's last ~40 bp; its alignment overran r7 into the copies' A-rich tails and 496 r7
+#    copies read "r7 then r3 145-201" - one r7 copy and its tail, when looked at).
 #    The MAIN unit is the first kept unit overlapping the core by >= 30 bp. Every other unit is
 #    upstream or downstream of it.
 # 4) Per window and side, the NEAREST unit on that side is the partner. Sides are named in the MAIN
@@ -52,12 +60,14 @@
 #      gap and free are counted between the units INCLUDING their own A tails: the gap is what
 #      neither element explains (a linker, target site, or an extra A run).
 set -euo pipefail
-OUT=${1:?OUT_DIR}; CONS=$(readlink -f "${2:?CONSENSUSES.fa}"); T=${3:-8}
+OUT=${1:?OUT_DIR}; CONS=$(readlink -f "${2:?CONSENSUSES.fa}"); T=${3:-8}; PART=${4:-}
 MIN_ALN=40; EVAL=1e-5; GAPSEQ=300; CHUNK=20000
+[[ -n "$PART" ]] && PART=$(readlink -f "$PART")
 cd "$OUT"
+cat "$CONS" ${PART:+"$PART"} > lib.in.fa                  # the family consensuses (+ partner library)
 
 # 1) mask consensus A tails and low complexity; record where each tail starts
-dustmasker -in "$CONS" -outfmt fasta 2> /dev/null | seqkit seq -w 0 \
+dustmasker -in lib.in.fa -outfmt fasta 2> /dev/null | seqkit seq -w 0 \
 | gawk -v OFS='\t' '
     /^>/ { n = substr($1, 2); sub(/^lcl\|/, "", n); next }
     {
@@ -87,7 +97,8 @@ done > hits.m8
 rm -rf ss_parts
 
 # 3) + 4) units and junctions
-sort -t$'\t' -k2,2V -k12,12gr hits.m8 \
+# per window: family hits first (best bitscore first), partner-library hits ("x.") after them
+gawk -F'\t' -v OFS='\t' '{ print $0, ($1 ~ /^x\./) }' hits.m8 | sort -t$'\t' -k2,2V -k13,13n -k12,12gr \
 | gawk -F'\t' -v OFS='\t' -v MIN_ALN=$MIN_ALN -v GAPSEQ=$GAPSEQ '
 function min(x, y) { return x < y ? x : y }
 function max(x, y) { return x > y ? x : y }
@@ -106,6 +117,11 @@ function tailrun(s, x, step, base, stop,   n, a, c, best) {
         x += step
     }
     return best
+}
+# the larger of the A share and the T share of s[a..b]
+function arich(s, a, b,   x, na, nt) {
+    x = toupper(substr(s, a, b - a + 1)); na = gsub(/A/, "", x); nt = gsub(/T/, "", x)
+    return (na > nt ? na : nt) / (b - a + 1)
 }
 function tag(f, a, b,   t) { t = (a <= 15 ? "h" : "") (b >= ctail[f] - 1 - 15 ? "e" : ""); return t == "" ? "mid" : t }
 FILENAME == ARGV[1] { clen[$1] = $2; ctail[$1] = $3; next }                               # cons.tsv
@@ -131,6 +147,7 @@ FILENAME == ARGV[4] { if (/^>/) w = substr($1, 2); else mseq[w] = $0; next }    
     }
     for (j = 1; j <= np; j++) {
         if (PH[j] - PL[j] + 1 < MIN_ALN) continue
+        if ((PL[j] > lo || PH[j] < hi) && arich(seq[w], PL[j], PH[j]) >= 0.6) continue   # tail overrun
         k = ++nk[w]
         KL[w, k] = PL[j]; KH[w, k] = PH[j]; KF[w, k] = $1; KS[w, k] = st; KBits[w, k] = $12; KP[w, k] = $3
         TL[w, k] = PL[j] - lo; TR[w, k] = hi - PH[j]            # bp trimmed off each window end
@@ -144,7 +161,7 @@ END {
     for (i = 1; i <= nw; i++) {
         w = W[i]; m = 0
         for (k = 1; k <= nk[w]; k++)                      # kept in bitscore order: first core hit = main
-            if (min(KH[w, k], ce[w]) - max(KL[w, k], cs[w]) + 1 >= 30) { m = k; break }
+            if (KF[w, k] !~ /^x\./ && min(KH[w, k], ce[w]) - max(KL[w, k], cs[w]) + 1 >= 30) { m = k; break }
         if (!m) {
             for (k = 1; k <= nk[w]; k++) print w, fam[w], k, "other", KF[w, k], KS[w, k], KA[w, k], KB[w, k],
                 tag(KF[w, k], KA[w, k], KB[w, k]), KL[w, k], KH[w, k], KBits[w, k], KP[w, k] > "units.tsv"

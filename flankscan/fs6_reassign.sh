@@ -51,8 +51,11 @@ echo "fs6: $(wc -l < "$RE/wids.txt") copies of $(tail -n +2 candidates.tsv | gaw
 bash "$HERE/fs3_partners.sh" "$RE" "$RE/library.fa" "$T"
 
 gawk -F'\t' -v OFS='\t' -v ACCEPT=$ACCEPT -v RE="$RE" '
-FILENAME == ARGV[1] { if (FNR > 1 && $14 == "kept") { C[++nc] = $1; cand[$1] = 1; pk[$2] = $1
-                          n = split($7, m, ","); for (i = 1; i <= n; i++) if (m[i] != "-") pk[m[i]] = $1 }; next }
+FILENAME == ARGV[1] { if (FNR == 1) next                                          # candidates.tsv
+                      to = ($14 == "kept") ? $1 : substr($14, 9)                   # same_as:NAME -> NAME
+                      if ($14 == "kept") { C[++nc] = $1; cand[$1] = 1 }
+                      pk[$2] = to; n = split($7, m, ","); for (i = 1; i <= n; i++) if (m[i] != "-") pk[m[i]] = to
+                      next }
 FILENAME == ARGV[2] { if (FNR > 1 && ($1 in pk)) inpk[$2] = pk[$1]; next }       # members.tsv: wid -> candidate
 FILENAME == ARGV[3] { ctg[$4] = $1; ws[$4] = $2; we[$4] = $3; wst[$4] = $6; next }  # windows.bed
 FILENAME == ARGV[4] { if (FNR > 1) { W[++nw] = $1; old[$1] = $3 }; next }          # reassign/loci.tsv
