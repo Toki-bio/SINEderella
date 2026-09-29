@@ -332,7 +332,6 @@ def compute_position_weights(consensus_seqs, outdir, top_k=30):
     # â”€â”€ Build alignment of all copies â”€â”€
     # We align each subfamily's copies to the consensus bank
     subfamilies = sorted(consensus_seqs.keys())
-    subfam_list = sorted(subfamily_assignments.keys())
 
     # First, find the reference length (longest consensus)
     ref_len = max(len(seq) for seq in consensus_seqs.values())
