@@ -139,3 +139,23 @@ Open, NOT verified (look at alignments before any claim):
 - r7 -> r3 piecewise 411: 57 bp matching r3 145-201 right after r7's end; prototype said r7 99 %
   single. Possibly a 3' part missing from r7's consensus - check the alignment.
 - MEG families mostly nomain (MEG-T2, MEG-TR 100 %): no core hit at E 1e-5 (weak-match limit), 162 copies.
+
+## Real data 2: tbr (2026-09-29) and a search fix it forced
+`fs_all.sh ~/chiro/tbr/run_add_20260927_143901 ~/tmp/fs_tbr2 16 50` - 621 939 copies, ~18 min.
+- **Satellite: tbr MEG-RS array found** - 55 % of MEG-RS copies (137/249) classed satellite, TRF
+  period 900-930 (62 at 920, 50 at 910) = the ~910 bp array. Unchanged across the fix below.
+- **Bug found on tbr, fixed:** one ssearch36 over all 622 k windows returned 81 k hits; 91 % of VES
+  copies had no core hit (sample: 257/3000), Rhin-1 got 2 hits. The same windows in a 3 000 or
+  20 000 library: 100 % covered (VES assignment bits median 1066 - not weak copies). ssearch36
+  loses hits when the library is huge and one family dominates. Fix in fs3: search in chunks of
+  20 000 windows with a fixed -Z 20000 (E means the same in every genome). VES nomain 91.2 % -> 0 %.
+  rsi re-run with the fix (~/tmp/fs_rsi2): same peaks within the -z 11 noise (r1+39+r3 9 194 vs
+  9 164), 49 vs 47 peaks. Toy 52/52 PASS.
+- Rhin-1 in tbr stays 92 % nomain: genuinely weak (best ssearch hit median 44 bits / 76 bp) - the
+  documented weak-match limit, like MEG-T2/TR.
+- VES: 0 peaks; 76 % single, 17.8 % near, 5.5 % chance. Observation (not a finding): 56 k VES have
+  another VES <= 200 bp downstream, same strand, starting at its 5' end, gaps spread 0-50 bp;
+  ~5x the density expectation in the 0-10 bp bin (rough), below the 10x peak rule. Head-to-tail
+  VES neighbours - insertion preference? Needs his look.
+Run times: rsi 67 k copies 3.5 min; tbr 622 k copies 18 min (fs2 TRF 8.5 min, fs3 7.7 min).
+Results: therioserver ~/tmp/fs_rsi2, ~/tmp/fs_tbr2 (peaks.tsv, copies.tsv, family_summary.tsv).

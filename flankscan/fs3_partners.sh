@@ -9,7 +9,8 @@
 #      the 3' end, stops once the A share falls below 50 %;
 #    - low complexity (dustmasker).
 #    Otherwise every copy would "match" every other copy's A tail.
-# 2) ssearch36 -m 8 -E 1e-5 -z 11, every masked consensus vs every masked window, both strands
+# 2) ssearch36 -m 8 -E 1e-5 -Z 20000 -z 11 in chunks of 20 000 windows (see step 2 below), every
+#    masked consensus vs every masked window, both strands
 #    (-z 11 because the library is all homologs; default statistics return nothing). ssearch36
 #    reports several alignments of one consensus in one window (a split or repeated partner).
 # 3) Per window, hits are taken best bitscore first; the bases a better hit already covers belong to
@@ -51,7 +52,7 @@
 #      neither element explains (a linker, target site, or an extra A run).
 set -euo pipefail
 OUT=${1:?OUT_DIR}; CONS=$(readlink -f "${2:?CONSENSUSES.fa}"); T=${3:-8}
-MIN_ALN=40; EVAL=1e-5; GAPSEQ=300
+MIN_ALN=40; EVAL=1e-5; GAPSEQ=300; CHUNK=20000
 cd "$OUT"
 
 # 1) mask consensus A tails and low complexity; record where each tail starts
@@ -73,8 +74,16 @@ dustmasker -in "$CONS" -outfmt fasta 2> /dev/null | seqkit seq -w 0 \
         print n, L, t, nd > "cons.tsv"
     }'
 
-# 2) search
-ssearch36 -m 8 -E $EVAL -z 11 -T "$T" cons.masked.fa windows.masked.fa > hits.m8 2> /dev/null
+# 2) search, in chunks of CHUNK windows with E-values computed for a fixed library size (-Z CHUNK).
+#    One search over all windows lost most hits when the library is large and one family dominates
+#    (tbr: 621 k VES windows -> 257 of 3 000 sampled VES copies had a core hit; the same windows
+#    searched in a 20 000 chunk: 19 984 of 19 984). A fixed -Z also makes the threshold mean the same
+#    in every genome, whatever its copy number.
+rm -rf ss_parts; seqkit split2 -s $CHUNK -O ss_parts windows.masked.fa 2> /dev/null
+for f in ss_parts/*; do
+    ssearch36 -m 8 -E $EVAL -Z $CHUNK -z 11 -T "$T" cons.masked.fa "$f" 2> /dev/null
+done > hits.m8
+rm -rf ss_parts
 
 # 3) + 4) units and junctions
 sort -t$'\t' -k2,2V -k12,12gr hits.m8 \
