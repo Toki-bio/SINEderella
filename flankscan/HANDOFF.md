@@ -22,7 +22,7 @@ worth trying for old partners. He also said: delegate work to GLM.
 | 1 | `fs1_extract.sh RUN OUT [1000]` — windows ±F once; loci.tsv with core_s/core_e, clamp5/3, gap5/3, nb5/3 | **written, toy 4/4 PASS** |
 | 2 | `fs2_trf.sh OUT` — TRF, classes tail/head/satellite/core/partial/flank5/flank3, summary, masked windows | **toy 20/20 PASS** (2026-09-29, after tail-rule fix) |
 | 3 | `fs3_partners.sh OUT CONS [T]` — masked consensuses (A tails + dust) vs masked windows (ssearch36 -z 11); units.tsv + junctions.tsv (per window and side: nearest partner, consensus coords at the junction, gap, gap seq, clamp) | **toy 11/11 PASS** |
-| 4 | `fs4_junctions.sh OUT` — per family junction histograms, null from density, classes composite / chance / atail / nested / homodimer / piecewise / satellite; linker agreement | to write |
+| 4 | `fs4_junctions.sh OUT RUN [MINK=50]` — junction peaks per (family, side, partner, strand) vs density null; peaks.tsv (type, linker consensus + identity), copies.tsv, family_summary.tsv | **toy 19/19 PASS** (MINK 20 on toy) |
 
 Tests: `tests/make_toy.sh` (gawk, seed 7) plants: 40 single TA; 40 dimers TA[1-130]+39 bp linker+TB
 (two loci each, as SINEderella splits them); 20 chance TA-head+TC; 15 TA inserted in TC's A tail;
@@ -101,3 +101,22 @@ wrong. Q3 coordinates - no defect; independently confirmed by the toy (core = pl
   holds however the aligners split the linker); chance TA head within 30 bp; A-tail insertion: TC
   tag e + gap >= 70 % A; nested TC facing ends 80-82|82 (truth 80|81); satellite gap ~300; single
   and (TA)n-tailed copies no partner; clamp reported.
+
+## Stage 4 result (2026-09-29)
+- Toy extended: + 30 homodimers (TB + fixed 20 bp + TB) and 30 piecewise pairs (TA[1-100] + TB[80-]);
+  now 317 loci. Two peaks share one group (TB side 5 TA: dimer and piecewise) - found in turn.
+- Peaks = gap mode, then main_j, then p_j, each +-10; kept if >= MINK and >= 10x chance
+  (N_family x density_partner x 21 x 1/2). Type by the DOWNSTREAM unit's start: <= 15 composite
+  (homodimer if same family), mid = piecewise; opposite strands = inverted.
+- Fixes on the way: mode() returned the centre of the first window covering a tight cluster (10 bp
+  off) -> now the commonest value inside the densest window. Tail ownership made symmetric in fs3:
+  a partner whose 3' end faces the copy owns its A tail too (p_tail col 25); before, the homodimer
+  gap read 34 on one side (partner tail + 20 bp) and 20 on the other. atail rule now = partner
+  reaches its tail and owns >= 5 bp A run against the copy (a TA head cut before its tail next to a
+  TC was called atail 3/20 before).
+- Toy peaks exact: dimer TA..138 +31+ TB 1.. (= 39 bp linker, 100 % id), piecewise TA 100 | TB 80,
+  homodimer gap 20 both sides with the planted linker; chance TC 20/20 chance, no peak.
+- Open design point for him: an A-rich structural linker (Alu-like) and an A-tail insertion
+  hotspot look alike; peaks.tsv reports linker_A, the call is his.
+NEXT: real data - rsi (~/rhin/rsi/run_add_20260927_180847), expect r1+39bp+r3, r5head+r6,
+r10+105bp+groupB; then tbr MEG-RS ~910 bp satellite.

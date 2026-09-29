@@ -20,8 +20,12 @@ chk "fs3: dimer_right: TA on side 5, same strand, linker 39 +- 3 (>= 36/40)" \
     "[ \$(J dimer_right '\$3==5 && \$9==\"TA\" && \$10==\"same\" && (d=(\$11-130)+\$16+(\$8-1)) >= 36 && d <= 42') -ge 36 ]"
 chk "fs3: chance: TA head on side 5 within 30 bp, tag h (>= 16/20)" \
     "[ \$(J chance_right '\$3==5 && \$9==\"TA\" && \$10==\"same\" && \$16<=30 && \$13 ~ /h/') -ge 16 ]"
-chk "fs3: A-tail insertion: TC on side 5 ending at its tail (tag e), gap >= 70 % A (>= 13/15)" \
-    "[ \$(J atail_right '\$3==5 && \$9==\"TC\" && \$10==\"same\" && \$13 ~ /e/ && \$20>=0.7') -ge 13 ]"
+chk "fs3: A-tail insertion: TC on side 5 ending at its tail (tag e), owning >= 5 bp A run (>= 13/15)" \
+    "[ \$(J atail_right '\$3==5 && \$9==\"TC\" && \$10==\"same\" && \$13 ~ /e/ && \$25>=5') -ge 13 ]"
+chk "fs3: chance TA heads (cut before their tail) own no A run (<= 1/20)" \
+    "[ \$(J chance_right '\$3==5 && \$9==\"TA\" && \$25>=5') -le 1 ]"
+chk "fs3: homodimer: both sides see the 20 bp linker once the tails are owned (>= 27/30 each)" \
+    "[ \$(J homo_left '\$3==3 && \$9==\"TB\" && \$16>=17 && \$16<=23') -ge 27 ] && [ \$(J homo_right '\$3==5 && \$9==\"TB\" && \$16>=17 && \$16<=23') -ge 27 ]"
 # nested: TC[1-80] + TA + TC[81-165]: TC on both sides, and its two facing ends are consecutive
 chk "fs3: nested: TC split around the copy, facing ends 80|81 +- 10 (>= 13/15)" \
     "[ \$(gawk -F'\t' 'FNR==NR{if(\$2==\"nested\")w[\$1];next}

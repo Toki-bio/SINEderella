@@ -15,6 +15,9 @@
 #   nested     15 x TC[1-80] + TA + TC[81-165]               (TA inside TC; locus = TA)
 #   satellite  1 array of 6 units, unit = TA + 300 bp, on the 20 kb contig (loci = the 6 TA copies)
 #   tatail     20 x TB whose A tail is followed by (TA)15    (a microsatellite SINE tail; locus = TB)
+#   homodimer  30 x TB + fixed 20 bp + TB   (loci = both TB parts)
+#   piecewise  30 x TA[1-100] + TB[80-212], no gap  (loci = the TA part and the TB part, which
+#              starts mid-consensus)
 #   contigend  1 x TA 200 bp from the start of the 20 kb contig (clamp test)
 # Writes OUT/genome.clean.fa, OUT/consensuses.clean.fa, OUT/results/assignment_full.tsv (the
 # SINEderella layout) and OUT/truth.tsv (locus id, case, family).
@@ -39,6 +42,18 @@ function put(e, cas, fam, coreFrom, coreTo,   st, s, a, b){
     print id "\t" fam "\t500\t10\tassigned\t100" >> ASG
     print id "\t" cas "\t" fam >> TR
 }
+# put2: a two-part element h + link + t; SINEderella assigns its two parts as two loci - plant both
+function put2(h, link, t, f1, f2, c1, c2,   e, st, s, L, hl, bs, a1, b1, a2, b2, base){
+    e=h link t
+    st=(rand()<0.5)?"+":"-"; s=(st=="-")?rc(e):e; gap=rnd(3000+int(rand()*1500)); g1=g1 gap
+    L=length(e); hl=length(h); bs=hl+length(link)+1
+    if(st=="+"){ a1=1; b1=hl; a2=bs; b2=L } else { a1=L-hl+1; b1=L; a2=1; b2=L-bs+1 }
+    base=length(g1); g1=g1 s
+    print "chr1:" base+a1-1 "-" base+b1 "(" st ")\t" f1 "\t500\t10\tassigned\t100" >> ASG
+    print "chr1:" base+a1-1 "-" base+b1 "(" st ")\t" c1 "\t" f1 >> TR
+    print "chr1:" base+a2-1 "-" base+b2 "(" st ")\t" f2 "\t500\t10\tassigned\t100" >> ASG
+    print "chr1:" base+a2-1 "-" base+b2 "(" st ")\t" c2 "\t" f2 >> TR
+}
 BEGIN{
     srand(7); ASG=OUT "/results/assignment_full.tsv"; TR=OUT "/truth.tsv"
     print "Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold" > ASG
@@ -48,16 +63,7 @@ BEGIN{
     printf(">TA\n%s\n>TB\n%s\n>TC\n%s\n", TA, TB, TC) > (OUT "/consensuses.clean.fa")
     g1=rnd(2000)
     for(i=0;i<40;i++) put(mut(TA), "single", "TA", 1, length(TA))
-    for(i=0;i<40;i++){ h=mut(substr(TA,1,130)); e=h LINK mut(TB)
-        # the dimer is one element; SINEderella assigns its two parts as two loci - plant both
-        st=(rand()<0.5)?"+":"-"; s=(st=="-")?rc(e):e; gap=rnd(3000+int(rand()*1500)); g1=g1 gap
-        L=length(e); hl=length(h); bs=hl+39+1
-        if(st=="+"){ a1=1; b1=hl; a2=bs; b2=L } else { a1=L-hl+1; b1=L; a2=1; b2=L-bs+1 }
-        base=length(g1); g1=g1 s
-        print "chr1:" base+a1-1 "-" base+b1 "(" st ")\tTA\t500\t10\tassigned\t100" >> ASG
-        print "chr1:" base+a1-1 "-" base+b1 "(" st ")\tdimer_left\tTA" >> TR
-        print "chr1:" base+a2-1 "-" base+b2 "(" st ")\tTB\t500\t10\tassigned\t100" >> ASG
-        print "chr1:" base+a2-1 "-" base+b2 "(" st ")\tdimer_right\tTB" >> TR }
+    for(i=0;i<40;i++){ h=mut(substr(TA,1,130)); put2(h, LINK, mut(TB), "TA", "TB", "dimer_left", "dimer_right") }
     for(i=0;i<20;i++){ k=90+int(rand()*81); gp=int(rand()*26); h=mut(substr(TA,1,k)) rnd(gp); c=mut(TC)
         put(h c, "chance_right", "TC", length(h)+1, length(h)+length(c)) }
     for(i=0;i<15;i++){ c=mut(TC) reps("A",3+int(rand()*18)); a=mut(TA)
@@ -65,6 +71,11 @@ BEGIN{
     for(i=0;i<15;i++){ c=mut(TC); a=mut(TA); e=substr(c,1,80) a substr(c,81,85)
         put(e, "nested", "TA", 81, 80+length(a)) }
     for(i=0;i<20;i++){ b=mut(TB) reps("TA",15); put(b, "tatail", "TB", 1, length(TB)) }
+    # homodimer: TB + fixed 20 bp + TB; piecewise: TA[1-100] joined directly to TB[80-] (the
+    # downstream part starts mid-consensus: one element that two consensuses each cover in part)
+    LINK2=rnd(20)
+    for(i=0;i<30;i++){ h=mut(TB); put2(h, LINK2, mut(TB), "TB", "TB", "homo_left", "homo_right") }
+    for(i=0;i<30;i++){ h=mut(substr(TA,1,100)); put2(h, "", mut(substr(TB,80)), "TA", "TB", "piece_left", "piece_right") }
     # contig 2: satellite array (6 x (TA + 300 bp)) and one TA near the contig start
     unit=rnd(300); g2=rnd(200)
     e=mut(TA); cs=length(g2); g2=g2 e

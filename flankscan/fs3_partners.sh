@@ -46,7 +46,9 @@
 #        gapA gapT gapN   A / T share and masked-N count of the gap (window orientation)
 #        gap_seq          the gap (window orientation) when 1..GAPSEQ bp, else "."
 #        main_tail        bp of the copy's own A tail added to the main unit (side 3 row; 0 on side 5)
-#      gap and free are counted from the end of the main unit INCLUDING its own A tail.
+#        p_tail           bp of the partner's own A tail added to it (only when its 3' end faces the copy)
+#      gap and free are counted between the units INCLUDING their own A tails: the gap is what
+#      neither element explains (a linker, target site, or an extra A run).
 set -euo pipefail
 OUT=${1:?OUT_DIR}; CONS=$(readlink -f "${2:?CONSENSUSES.fa}"); T=${3:-8}
 MIN_ALN=40; EVAL=1e-5; GAPSEQ=300
@@ -82,6 +84,19 @@ function max(x, y) { return x > y ? x : y }
 # consensus coordinate at window position x, linear along the alignment lo..hi <-> qa..qb
 function cpos(x) { return int(0.5 + (st == "+" ? qa + (x - lo) * (qb - qa) / max(1, hi - lo) \
                                              : qb - (x - lo) * (qb - qa) / max(1, hi - lo))) }
+# length of the A run (base A, or T on the other strand) starting at x and walking by step: the
+# longest stretch that is >= 80 % base and ends on base; gives up once it falls below 50 % after
+# 10 bp; never reaches the position stop
+function tailrun(s, x, step, base, stop,   n, a, c, best) {
+    a = 0; best = 0
+    for (n = 1; x >= 1 && x <= length(s) && x != stop; n++) {
+        c = toupper(substr(s, x, 1)); if (c == base) a++
+        if (n >= 10 && a / n < 0.5) break
+        if (a / n >= 0.8 && c == base) best = n
+        x += step
+    }
+    return best
+}
 function tag(f, a, b,   t) { t = (a <= 15 ? "h" : "") (b >= ctail[f] - 1 - 15 ? "e" : ""); return t == "" ? "mid" : t }
 FILENAME == ARGV[1] { clen[$1] = $2; ctail[$1] = $3; next }                               # cons.tsv
 FILENAME == ARGV[2] { if (FNR > 1) { W[++nw] = $1; fam[$1] = $3; cs[$1] = $8; ce[$1] = $9    # loci.tsv
@@ -115,7 +130,7 @@ FILENAME == ARGV[4] { if (/^>/) w = substr($1, 2); else mseq[w] = $0; next }    
 END {
     print "wid", "family", "k", "role", "unit", "strand", "cons_s", "cons_e", "tag", "win_s", "win_e", "bits", "pid" > "units.tsv"
     print "wid", "family", "side", "main", "main_strand", "main_cons_s", "main_cons_e", "main_j", "partner", "rel",
-          "p_j", "p_far", "p_tag", "p_ws", "p_we", "gap", "ov", "free", "clamp", "gapA", "gapT", "gapN", "gap_seq", "main_tail" > "junctions.tsv"
+          "p_j", "p_far", "p_tag", "p_ws", "p_we", "gap", "ov", "free", "clamp", "gapA", "gapT", "gapN", "gap_seq", "main_tail", "p_tail" > "junctions.tsv"
     for (i = 1; i <= nw; i++) {
         w = W[i]; m = 0
         for (k = 1; k <= nk[w]; k++)                      # kept in bitscore order: first core hit = main
@@ -124,7 +139,7 @@ END {
             for (k = 1; k <= nk[w]; k++) print w, fam[w], k, "other", KF[w, k], KS[w, k], KA[w, k], KB[w, k],
                 tag(KF[w, k], KA[w, k], KB[w, k]), KL[w, k], KH[w, k], KBits[w, k], KP[w, k] > "units.tsv"
             for (sd = 5; sd >= 3; sd -= 2) print w, fam[w], sd, "-", ".", ".", ".", ".", "nomain", ".", ".", ".", ".",
-                ".", ".", ".", ".", ".", (sd == 5 ? cl5[w] : cl3[w]), ".", ".", ".", ".", "." > "junctions.tsv"
+                ".", ".", ".", ".", ".", (sd == 5 ? cl5[w] : cl3[w]), ".", ".", ".", ".", ".", "." > "junctions.tsv"
             continue
         }
         ML = KL[w, m]; MH = KH[w, m]; mst = KS[w, m]
@@ -133,15 +148,8 @@ END {
         # its consensus tail (tag e), extend it over the A run that follows (T run before it when -),
         # same >= 80 % rule as the consensus mask; neighbours are trimmed back from there.
         mt = 0
-        if (tag(KF[w, m], KA[w, m], KB[w, m]) ~ /e/) {
-            s = seq[w]; a = 0; x = (mst == "+") ? MH + 1 : ML - 1
-            for (n = 1; x >= 1 && x <= length(s); n++) {
-                c = toupper(substr(s, x, 1)); if (c == (mst == "+" ? "A" : "T")) a++
-                if (n >= 10 && a / n < 0.5) break
-                if (a / n >= 0.8 && c == (mst == "+" ? "A" : "T")) mt = n
-                x += (mst == "+") ? 1 : -1
-            }
-        }
+        if (tag(KF[w, m], KA[w, m], KB[w, m]) ~ /e/)
+            mt = (mst == "+") ? tailrun(seq[w], MH + 1, 1, "A", -1) : tailrun(seq[w], ML - 1, -1, "T", -1)
         if (mst == "+") MH += mt; else ML -= mt
         up = dn = 0
         for (k = 1; k <= nk[w]; k++) {
@@ -168,13 +176,19 @@ END {
             clamp = (d ? cl3[w] : cl5[w])                            # loci clamps are in window orientation
             if (!p) {
                 print w, fam[w], sd, KF[w, m], mst, KA[w, m], KB[w, m], mj, "-", ".", ".", ".", ".", ".", ".", ".", ".",
-                      (d ? wl[w] - MH : ML - 1), clamp, ".", ".", ".", ".", (sd == 3 ? mt : 0) > "junctions.tsv"
+                      (d ? wl[w] - MH : ML - 1), clamp, ".", ".", ".", ".", (sd == 3 ? mt : 0), "." > "junctions.tsv"
                 continue
             }
             ps = KS[w, p]; pa = KA[w, p]; pb = KB[w, p]; pl = KL[w, p]; ph = KH[w, p]
             # the partner end facing the main unit: its window-left end when downstream, right end when upstream
             if (d) { ov = TL[w, p]; if (ps == "+") { pj = pa; pf = pb } else { pj = pb; pf = pa } }
             else   { ov = TR[w, p]; if (ps == "+") { pj = pb; pf = pa } else { pj = pa; pf = pb } }
+            # the partner owns its own A tail too, when its 3 end (reached: tag e) faces the copy
+            pt = 0
+            if (tag(KF[w, p], pa, pb) ~ /e/) {
+                if (!d && ps == "+") { pt = tailrun(seq[w], ph + 1, 1, "A", ML); ph += pt }
+                if (d && ps == "-")  { pt = tailrun(seq[w], pl - 1, -1, "T", MH); pl -= pt }
+            }
             gap = d ? pl - MH - 1 : ML - ph - 1
             gs = (gap > 0) ? substr(seq[w],  d ? MH + 1 : ph + 1, gap) : ""
             gm = (gap > 0) ? substr(mseq[w], d ? MH + 1 : ph + 1, gap) : ""
@@ -182,7 +196,7 @@ END {
             print w, fam[w], sd, KF[w, m], mst, KA[w, m], KB[w, m], mj, KF[w, p], (ps == mst ? "same" : "opp"),
                   pj, pf, tag(KF[w, p], pa, pb), pl, ph, gap, ov, gap, clamp,
                   (gap ? sprintf("%.2f", nA / gap) : "."), (gap ? sprintf("%.2f", nT / gap) : "."), nN,
-                  (gap >= 1 && gap <= GAPSEQ ? gs : "."), (sd == 3 ? mt : 0) > "junctions.tsv"
+                  (gap >= 1 && gap <= GAPSEQ ? gs : "."), (sd == 3 ? mt : 0), pt > "junctions.tsv"
         }
     }
 }' cons.tsv loci.tsv <(seqkit seq -w 0 windows.fa) <(seqkit seq -w 0 windows.masked.fa) -
