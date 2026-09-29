@@ -55,3 +55,11 @@ web API (urlencoded POST https://dfam.org/api/searches, organism "Homo sapiens" 
 lucifugus"; "Mammalia"/"Chiroptera" fail).
 Rules: remote commands via uploaded script files only (PowerShell strips quotes: a `>` truncated a
 plate once); temp under /home; toy-test before real runs; commit + push after fixes.
+
+## GLM (delegated 2026-09-29)
+Task `C:\work\glm-harness\tasks\flankscan_audit\flankscan_audit.md` (3 questions: TRF field parsing,
+class exclusivity, off-by-one in fs1 core coords + fs2 masking), run with `node glm.js ...`;
+output `C:\work\glm-harness\out\flankscan_audit.json` (log `out/flankscan_audit.log`).
+**Verify every claim independently before acting** (memory: feedback_use_glm_narrow_tasks).
+Next GLM candidates: write stage-2 checks (checks_2.sh) from the planted truth; review fs3/fs4
+once written (<= 3 claims per task).
