@@ -28,6 +28,7 @@ import collections
 import os
 import random
 import re
+import shlex
 import subprocess
 import sys
 
@@ -100,9 +101,9 @@ def main():
         for i, (lid, sf, c, a, b, st) in enumerate(loci):
             fh.write("%s\t%d\t%d\tw%d\t0\t%s\n" % (c, max(0, a - 1 - F), min(fai.get(c, b + F), b + F), i, st))
     wfa = os.path.join(out, "windows.fa")
-    subprocess.run("bedtools getfasta -fi %s -bed %s -s -nameOnly > %s" % (genome, bed, wfa), shell=True, check=True)
+    subprocess.run("bedtools getfasta -fi %s -bed %s -s -nameOnly > %s" % (shlex.quote(genome), shlex.quote(bed), shlex.quote(wfa)), shell=True, check=True)
     hits_path = os.path.join(out, "hits.m8")
-    subprocess.run("ssearch36 -m 8 -E 1e-5 -z 11 -T %d %s %s > %s 2> /dev/null" % (T, cons, wfa, hits_path),
+    subprocess.run("ssearch36 -m 8 -E 1e-5 -z 11 -T %d %s %s > %s 2> /dev/null" % (T, shlex.quote(cons), shlex.quote(wfa), shlex.quote(hits_path)),
                    shell=True, check=True)
 
     # window geometry: offset of the locus inside the window (window is in locus orientation)

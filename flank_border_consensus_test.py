@@ -13,6 +13,7 @@ import html
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from collections import Counter
@@ -167,7 +168,7 @@ def conservation_from_alignment(cons_row, copy_rows):
 
 def run_conse(aln_fa, pct, work):
     out_cons = aln_fa + ".cons"
-    code, _, err = sh("bash /usr/bin/conse %s %d" % (aln_fa, pct), cwd=work)
+    code, _, err = sh("bash /usr/bin/conse %s %d" % (shlex.quote(aln_fa), pct), cwd=work)
     if code != 0 or not os.path.isfile(out_cons):
         return None, "conse failed: %s" % err[-500:]
     _, seqs = read_fa(out_cons)
@@ -177,7 +178,7 @@ def run_conse(aln_fa, pct, work):
 
 
 def run_sine_consensus(copies_fa, work, script):
-    code, _, err = sh("bash %s %s 100 50 0.01" % (script, copies_fa), cwd=work,
+    code, _, err = sh("bash %s %s 100 50 0.01" % (shlex.quote(script), shlex.quote(copies_fa)), cwd=work,
                       timeout=7200)
     hits = list(Path(work).glob("*_consensus.fasta")) + \
            list(Path(work).glob("final_consensus.fasta"))
@@ -267,7 +268,7 @@ def main():
     aln_out = os.path.join(work, "copies.mafft.aln.fa")
     code, _, err = sh(
         "mafft --retree 2 --maxiterate 0 --adjustdirection --quiet --thread 4 "
-        "%s > %s 2>/dev/null" % (copies_fa, aln_out), cwd=work)
+        "%s > %s 2>/dev/null" % (shlex.quote(copies_fa), shlex.quote(aln_out)), cwd=work)
     if code != 0:
         sys.exit("mafft failed: %s" % err[-800:])
 
@@ -325,7 +326,7 @@ def main():
         write_fa(prof_fa, [(key, seq)] + copies[:20])  # subsample 20 for speed
         prof_aln = prof_fa + ".aln"
         sh("mafft --retree 1 --maxiterate 0 --quiet %s > %s 2>/dev/null"
-           % (prof_fa, prof_aln), cwd=work)
+           % (shlex.quote(prof_fa), shlex.quote(prof_aln)), cwd=work)
         if os.path.isfile(prof_aln):
             pn, ps = read_fa(prof_aln)
             if ps:

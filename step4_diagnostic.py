@@ -32,6 +32,7 @@ Outputs (written to step2/step2_output*/diagnostic/):
 import argparse
 import os
 import sys
+import shlex
 import subprocess
 import tempfile
 import shutil
@@ -149,7 +150,7 @@ def build_bitscore_matrix(assignment_path, consensus_path, subfamily_fastas,
     ssearch_out = tempfile.NamedTemporaryFile(
         mode="w", suffix=".m8", delete=False).name
     cmd = (f"ssearch36 -Q -n -z 11 -E 100 -T {threads} -m 8 "
-           f"{consensus_path} {all_copies_fa} > {ssearch_out}")
+           f"{shlex.quote(consensus_path)} {shlex.quote(all_copies_fa)} > {shlex.quote(ssearch_out)}")
     log(f"  Running ssearch36 ({n_copies} copies Ã— query consensuses) ...")
     ret = subprocess.run(cmd, shell=True, stderr=subprocess.PIPE, text=True)
     if ret.returncode != 0 or not os.path.exists(ssearch_out) or os.path.getsize(ssearch_out) == 0:
@@ -351,7 +352,7 @@ def compute_position_weights(consensus_seqs, outdir, top_k=30):
         cons_file = tmp.name
 
     aln_file = cons_file + ".aln"
-    run_cmd(f"mafft --quiet --auto {cons_file} > {aln_file}")
+    run_cmd(f"mafft --quiet --auto {shlex.quote(cons_file)} > {shlex.quote(aln_file)}")
     if not os.path.exists(aln_file) or os.path.getsize(aln_file) == 0:
         log("  WARNING: MAFFT alignment failed, using raw consensus positions")
         os.unlink(cons_file)
@@ -601,7 +602,7 @@ def compute_copy_diagnostic_state(subfamily_fastas, consensus_seqs,
 
         aln_out = copies_file + ".aln"
         cmd = (f"mafft --thread {threads} --quiet --auto "
-               f"--preservecase {combined} > {aln_out}")
+               f"--preservecase {shlex.quote(combined)} > {shlex.quote(aln_out)}")
         run_cmd(cmd)
 
         if os.path.exists(aln_out) and os.path.getsize(aln_out) > 0:
@@ -952,7 +953,7 @@ def plot_volcano_plots(consensus_seqs, position_weights_df,
         cons_file = tmp.name
 
     aln_file = cons_file + ".aln"
-    run_cmd(f"mafft --quiet --auto {cons_file} > {aln_file}")
+    run_cmd(f"mafft --quiet --auto {shlex.quote(cons_file)} > {shlex.quote(aln_file)}")
     if not os.path.exists(aln_file) or os.path.getsize(aln_file) == 0:
         os.unlink(cons_file)
         return
@@ -1058,7 +1059,7 @@ def generate_sineplot_input(consensus_seqs, subfamily_fastas, outdir, threads):
                     fh.write(f">{name}\n{seq}\n")
 
     scores_out = os.path.join(outdir, "sineplot_input.txt")
-    cmd = (f"ssearch36 -m 8 -T {threads} {combined} {combined} > {scores_out}")
+    cmd = (f"ssearch36 -m 8 -T {threads} {shlex.quote(combined)} {shlex.quote(combined)} > {shlex.quote(scores_out)}")
     log(f"  Running ssearch36 all-vs-all (this may take a while) ...")
     ret = subprocess.run(cmd, shell=True, stderr=subprocess.PIPE, text=True)
     if ret.returncode != 0:
