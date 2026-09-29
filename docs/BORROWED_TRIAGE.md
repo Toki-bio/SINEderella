@@ -19,7 +19,7 @@ why), **IMPLEMENT** (real gap - where and how), **DECIDE** (changes results or f
 | Guaranteed trailing newline, fixed wrap (RM #35) | `sanitize_fasta` rewraps at 60 |
 | Records with empty header or sequence not passed on (RM #4, #8) | `sanitize_fasta` keeps only `hdr!="" && seq!=""` (silently - see IMPLEMENT 7) |
 | Input-file and tool existence checked with a clear message (RM #34) | `SINEderella` l.75-99 (`die "Missing ..."`), `step2_asSINEment.sh` `need`/"Missing tools" |
-| Non-zero-size checks, die on empty intermediate (RM #11, #21) | `[[ -s ... ]] || die` throughout; `genome.clean.fa is empty (sanitize failed)` |
+| Non-zero-size checks, die on empty intermediate (RM #11) | `[[ -s ... ]] || die` throughout; `genome.clean.fa is empty (sanitize failed)` |
 | Backup before overwrite (RM #13, #31) | `consensuses.clean.fa.pre_publish.bak`, `rebuild_consensus_bank.py --inplace` -> `.pre_rebuild.bak` |
 | Fixed random seeds (general; RM2 #9 spirit) | `step4_plots.sh` `seqkit sample -s 42`; `step7` `random.seed(42)`; `step8a` `RAND_SEED` (default 42, printed) |
 | Deterministic ordering of ties (RM2 #9) | top100 `sort -t$'\t' -k2,2nr` (step8a l.407): GNU sort without `-s` breaks ties by the whole line, so the order is reproducible; flankscan fs4 `mode()` tie fixed 2026-09-29 |
@@ -74,7 +74,7 @@ why), **IMPLEMENT** (real gap - where and how), **DECIDE** (changes results or f
    published plates are safe, and I have not found a place that breaks today - this is a cheap guard.
 3. **Non-sequence characters** (RM #2). Anything other than CR/space/tab passes into `genome.clean.fa`.
    Count non-IUPAC letters/bytes per file; die above zero with the first offenders.
-4. **Tool versions in `manifest.txt`** (RM2 #6, #8; EarlGrey #1). The manifest records paths, threads and
+4. **Tool versions in `manifest.txt`** (RM2 #6, #8). The manifest records paths, threads and
    date but no versions. Record ssearch36, MAFFT, bedtools, samtools, seqkit, SubFam, sear, TRF,
    dustmasker, python. Also needed for the manuscript (Methods "Computing environment" is PENDING).
 5. **Temp files under the run dir** (RM2 #12, RM #32; memory: therioserver /tmp is RAM, /var/tmp the SSD).
@@ -91,6 +91,12 @@ why), **IMPLEMENT** (real gap - where and how), **DECIDE** (changes results or f
    files (`tools/build_composite.py`, `tools/composite_scan.py`, `publish/flank_border_iterate.py`,
    `publish/needs_border_loop.py`, `flank_border_consensus_test.py`, `step4_diagnostic.py`) build shell
    strings with `%` formatting; a path with a space breaks them. Use `shlex.quote` or argument lists.
+
+10b. **Report consensuses contained in another** (Borrowed RM2 main "satellite/contained-consensus
+    filtering"). Not as a filter - a family whose head is another family's head (rsi MEG-RS inside
+    MEG-RL, 134 bp at 97.8 %) is real and must stay - but as a line in `tools/audit_consensus_bank.py`,
+    which today reports RC duplicates, N content and divergence only. Explains split votes and soft
+    calls before anyone reads the plates.
 
 ## 4. IMPLEMENT - flankscan into the pipeline (from today's work)
 
@@ -126,3 +132,25 @@ why), **IMPLEMENT** (real gap - where and how), **DECIDE** (changes results or f
 - Does `sear` merge same-consensus hits inside one insertion, so a dimer or array unit is counted once?
 - Would a composite family trip step4's 5'/3' chimera flag on every copy?
 - How are the up to 10 000 copies of the subfamily plate sampled - is there a seed?
+
+## 7. The remaining catalog tricks (every one of the 85 is placed)
+
+| trick | verdict |
+|---|---|
+| RM #18 divergence division-by-zero, RM #29 zero non-ambiguous bases | DROP - no such divisions here; the only ratio (sim_ratio) divides by a consensus self-score, which is never 0 |
+| RM #25 touch empty output, RM2 #16 remove empty masked output, EarlGrey #2, #9, #10 empty guards | DONE - empty intermediates stop the run (`[[ -s ]] \|\| die`) |
+| RM #28 writability probe | DONE - run dir created with `mkdir -p ... \|\| die` at the start |
+| RM #30 signal-safe `system()` wrapper | DROP - Bash steps with `trap cleanup EXIT`; runs are stopped by PID tree (memory rule) |
+| RM2 #2 tool exits 0 while failing | covered by IMPLEMENT 6 (count invariants catch silently lost records, e.g. `getfasta` with stderr to /dev/null in step8a) |
+| RM2 #10 delete-while-iterating | DROP - Perl-specific |
+| RM2 #12 temp-dir writability | IMPLEMENT 5 |
+| AnnoSINE #1 IUPAC -> N | DROP - ssearch36, bedtools and MAFFT accept IUPAC; IMPLEMENT 3 only rejects non-sequence bytes |
+| AnnoSINE #3 truncate before append | DONE - every run writes into a new timestamped run dir |
+| AnnoSINE #12 parsed vs header count | IMPLEMENT 6 |
+| HiTE #2, EarlGrey #4 single-line FASTA | DONE where offsets are computed (flankscan `seqkit seq -w 0`); elsewhere samtools/bedtools index the 60-col file |
+| HiTE #4 clean rebuild of output dir | DONE - new timestamped run dir per run |
+| HiTE #5 absolute paths | DONE - manifest `readlink -f`; flankscan fs3 `readlink -f` on the consensus file |
+
+Count, one verdict per trick: DONE 26, DROP 43, IMPLEMENT 16 (= 85; RepeatMasker 10/20/5, RepeatModeler2
+5/6/6, AnnoSINE_v2 2/9/2, HiTE 4/5/1, EarlGrey 5/3/2). Borrowed ideas (27 incl. the dissent): DONE 10,
+DROP 12, IMPLEMENT 1 (contained-consensus report), DECIDE 4.
