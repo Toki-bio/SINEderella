@@ -50,6 +50,7 @@ gawk -F'\t' -v F="$F" -v OUT="$OUT" '
             gl = -1; fl = "-"; gr = -1; fr = "-"
             if (i-1 in c && c[i-1] == c[i]) { gl = s[i] - e[i-1]; if (gl < 0) gl = 0; fl = fam[i-1] }
             if (i+1 in c && c[i+1] == c[i]) { gr = s[i+1] - e[i]; if (gr < 0) gr = 0; fr = fam[i+1] }
+            if (!(c[i] in clen)) { print "fs1: contig " c[i] " is not in the genome index - stop" > "/dev/stderr"; exit 1 }
             L = clen[c[i]]
             ws = s[i] - F; if (ws < 0) ws = 0
             we = e[i] + F; if (we > L) we = L

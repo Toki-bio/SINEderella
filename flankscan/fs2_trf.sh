@@ -26,9 +26,13 @@
 #      OUT/trf_summary.tsv    per family: copies, % with each class, top tail motifs
 #      OUT/windows.masked.fa  windows with flank5 / flank3 repeats replaced by N
 set -euo pipefail
-OUT=${1:?OUT_DIR}
+OUT=${1:?OUT_DIR}; T=${2:-8}
 cd "$OUT"
-trf windows.fa 2 5 7 80 10 20 2000 -h -ngs > trf.raw 2> /dev/null || true   # trf's exit code is not an error code
+# TRF is single-threaded: split the windows into T parts and run them side by side; the -ngs output
+# ("@window" line, then its repeats) of the parts simply concatenates
+rm -rf trf_parts; seqkit split2 -p "$T" -O trf_parts windows.fa 2> /dev/null
+ls trf_parts/*.fa* | xargs -P "$T" -I{} sh -c 'trf "$1" 2 5 7 80 10 20 2000 -h -ngs > "$1.trf" 2> /dev/null || true' _ {}
+cat trf_parts/*.trf > trf.raw; rm -rf trf_parts                   # trf's exit code is not an error code
 
 gawk -F'\t' -v OFS='\t' '
     FNR == NR { if (FNR > 1) { fam[$1]=$3; cs[$1]=$8; ce[$1]=$9 }; next }      # loci.tsv

@@ -120,3 +120,22 @@ wrong. Q3 coordinates - no defect; independently confirmed by the toy (core = pl
   hotspot look alike; peaks.tsv reports linker_A, the call is his.
 NEXT: real data - rsi (~/rhin/rsi/run_add_20260927_180847), expect r1+39bp+r3, r5head+r6,
 r10+105bp+groupB; then tbr MEG-RS ~910 bp satellite.
+
+## Real data 1: rsi (2026-09-29) - `fs_all.sh ~/rhin/rsi/run_add_20260927_180847 ~/tmp/fs_rsi 16 50`
+67 418 copies, 2.5 min total (fs2 18 s with 16 parallel TRF parts, fs3 130 s). 47 peaks.
+Reproduces the hand / prototype results (Tal rsi/REFINEMENT.md §5-11):
+- r3 <- r1 composite 9 164 copies, gap 39, r1 ends 154 (full), linker consensus 96 % id  [r1 + 39 bp + r3]
+- r3 <- r2 composite gap 0 (5 804); r1 -> r2 gap 31 (231)                                  [r1 ~ r2 + r3]
+- r3 -> r3 piecewise 4 357: r3 ends 161, next part starts 114                            [r3 1-163 + 115-201]
+- r6 <- r5 composite 3 513 (r5 ends 127, gap 10) + 1 109 (139, gap 0); r5 -> r6 1 154     [r5 head ~130 + r6]
+- r3 <- r5 composite 678+393+110 [r5h + r3, 4.6 %]; r5 homodimer 73+52 [r5 + r5, 4 %]
+- single shares: r3 2.4 % (proto 2.3), r6 54.6 (51), r5 49.6 (48), r9 93.6 (91)
+Open, NOT verified (look at alignments before any claim):
+- r10 + 105 bp + group B: only ~210 copies in peaks (r10 -> r8, gaps 100-121, linker id 0.5-0.65) vs
+  ~4 100 compound copies per §10. Likely the known limit - group B is barely in this bank (r8 covers
+  it partly), a part absent from the library shows as flank, not partner. r10 has 13.3 % "near".
+- r3 <- r1 piecewise 3 457 (r1 1-79, then r3 from 29); prototype called a similar layout
+  r10[h] + r3[e] (9.5 % of r3). r1/r10 heads both tRNA-derived; which wins may depend on masking.
+- r7 -> r3 piecewise 411: 57 bp matching r3 145-201 right after r7's end; prototype said r7 99 %
+  single. Possibly a 3' part missing from r7's consensus - check the alignment.
+- MEG families mostly nomain (MEG-T2, MEG-TR 100 %): no core hit at E 1e-5 (weak-match limit), 162 copies.
