@@ -16,13 +16,16 @@ poly-A tails / low complexity, handle homodimers, **A-tail insertion hotspot** (
 consensus, re-assign once), library should include tRNA / 7SL / 5S heads and LINE 3' ends; nhmmer
 worth trying for old partners. He also said: delegate work to GLM.
 
-## Plan — four stages, one readable script each (SINEderella/flankscan/)
+## Plan — stages 0-6, one readable script each (SINEderella/flankscan/)
 | stage | script | status |
 |---|---|---|
 | 1 | `fs1_extract.sh RUN OUT [1000]` — windows ±F once; loci.tsv with core_s/core_e, clamp5/3, gap5/3, nb5/3 | **written, toy 4/4 PASS** |
 | 2 | `fs2_trf.sh OUT` — TRF, classes tail/head/satellite/core/partial/flank5/flank3, summary, masked windows | **toy 20/20 PASS** (2026-09-29, after tail-rule fix) |
 | 3 | `fs3_partners.sh OUT CONS [T]` — masked consensuses (A tails + dust) vs masked windows (ssearch36 -z 11); units.tsv + junctions.tsv (per window and side: nearest partner, consensus coords at the junction, gap, gap seq, clamp) | **toy 11/11 PASS** |
 | 4 | `fs4_junctions.sh OUT RUN [MINK=50]` — junction peaks per (family, side, partner, strand) vs density null; peaks.tsv (type, linker consensus + identity), copies.tsv, family_summary.tsv | **toy 19/19 PASS** (MINK 20 on toy) |
+| 0 | `fs0_partnerlib.sh OUT.fa [TAXID=9397]` — partner library x.*: tRNAs, 7SL, 5S (Rfam cmemit), Dfam LINE 3' ends (clade + ancestors); fs3 4th arg | toy checks_6 PASS (2026-09-30) |
+| 5 | `fs5_build.sh OUT RUN [NBEST=60] [MINK=50]` — candidate consensus per peak (mirrors folded, best 60 elements, L-INS-i majority), same-element fold | toy: planted elements 100 % (2026-09-30) |
+| 6 | `fs6_reassign.sh OUT RUN` — re-assign ONCE with candidates added (fs3 rerun), per candidate % one full unit (accept >= 70 %), moves by old family | toy all accept, no false moves |
 
 Tests: `tests/make_toy.sh` (gawk, seed 7) plants: 40 single TA; 40 dimers TA[1-130]+39 bp linker+TB
 (two loci each, as SINEderella splits them); 20 chance TA-head+TC; 15 TA inserted in TC's A tail;
@@ -159,3 +162,48 @@ Open, NOT verified (look at alignments before any claim):
   VES neighbours - insertion preference? Needs his look.
 Run times: rsi 67 k copies 3.5 min; tbr 622 k copies 18 min (fs2 TRF 8.5 min, fs3 7.7 min).
 Results: therioserver ~/tmp/fs_rsi2, ~/tmp/fs_tbr2 (peaks.tsv, copies.tsv, family_summary.tsv).
+
+
+## Session 2026-09-30: stages 5-6, partner library, direct tests
+Full toy suite `run_tests.sh 2 3 4 5 6` = **70/70 PASS**. Commits a0862bc, then the library commit.
+**Stage 5+6 on rsi (~/tmp/fs_rsi3, re-run after the fold fix) reproduce the hand rebuilds (Tal
+rsi/REFINEMENT.md §10-12) without hand work** - checked by aligning candidate vs hand consensus
+(~/rhin/rsi_comp/run_add_20260928_222535/consensuses.clean.fa):
+- r1__r3_P1 (398 bp) = r1_r3: 99.75 % over 396/396. accept, 72 % of its elements one full unit.
+- r5__r6_P26 (370 bp) = r5h_r6: 100 % over 360/360. accept 89.6 %; ~7 400 elements move in (hand 7 294).
+- r10__r8_P18 (393 bp) ~ r10_groupB: 97.2 %, NOT identical - ours 1-393 aligns to hand 8-368
+  (~30 bp indel, likely the middle-length variant). Built from a peak of only 87 copies, yet
+  re-assignment moves **4 374 r10 elements** to it (3 775 one full unit), 469 stay r10 (hand: r10_groupB
+  4 181, r10 5 188 -> 1 072). = the "misassigned copies" item of his brief, working.
+- r1-head+r3 piecewise P2 (255 bp) 93 % accept - the prototype's r10[h]+r3[e] layout.
+- The r3 internal-repeat variant (P9, r3 1-161 + 114-201) is only 2 % full: its copies have r1
+  upstream and go to r1_r3. The 3-part element r1 + 39 + r3(with repeat) needs a SECOND round
+  (stage 3-4 again with the kept candidates in the bank) - not done yet.
+- Fold rule bug found and fixed on the way: "same element" first = 90 % of the SHORTER, which folded
+  contained elements (r3 variant into r1_r3, r10__r8 403 bp into r10__r6 194 bp). Now 90 % of BOTH.
+- Coordinate bug found on the toy first: window -> genome used the unit strand instead of the window
+  strand (half the toy elements were minus-strand: 87 % consensuses, 62 elements instead of 40).
+**r7 -> r3 piecewise (496) = an artifact, now removed** (looked at the P20 alignment): r3 145-201
+shares r7's last ~40 bp (CTTGACTTGG...CCTGGAAAAACACACT); its alignment ran past r7's end into the
+copies' A-rich tails (TAAATAAATAAAAGTT + A runs), and the trimmed >= 40 bp remainder was kept as a
+partner. Rule added in fs3: a trimmed remainder >= 60 % A (or T) is a tail overrun and dropped.
+**nhmmer rescue - tested directly, NOT implemented:** profile HMMs from the run's top100 alignments
+(hmmbuild --hand, RF = the consensus row -> HMM length = consensus length exactly) against the 145
+rsi nomain copies: 9 rescued (MEG-RS 4, TR 2, RL 3), MEG-T2 0/109. The MEG-T2 copies are 61-68 %
+identical to the consensus (ssearch vs ONE copy E ~1e-3): old copies, not a search-engine limit.
+SINEderella assigned them at bits 300-370 by its own votes; flankscan cannot place their junctions.
+**Partner library:** therioserver `~/refs/partnerlib/partnerlib_9397.fa` (101 seqs, 35 kb: 88 Dfam
+LINE 3' ends of Chiroptera + ancestors, 7SL, 5S, tRNAs). The local ~/refs/smallrna/hg38-tRNAs.fa is
+TRUNCATED (123 records, Ala..Cys only - no Ile/Leu/...); a 120 s curl from GtRNAdb stops at the
+same 123, so the old file was probably a cut-off download too (GtRNAdb drops the connection at
+~23 kB, curl 56, even with resume). **He gave the source: local `C:\work\hg19-tRNAs.fa`** (GtRNAdb
+hg19, 419 genes, 49 anticodons incl. Ile-AAT/GAT/TAT) -> copied to therioserver
+~/refs/smallrna/hg19-tRNAs.fa, now fs0's default; library rebuilt (49 tRNAs + 7SL + 5S + 88 LINE ends).
+Recorded in SINE_discriminator/DATA_LOCATIONS.md.
+**Tail rule on rsi (~/tmp/fs_rsi4 vs fs_rsi3):** 49 vs 50 peaks, every other peak within the -z 11
+noise; r7 -> r3 fell 496 -> 329 but did not vanish. The 329 left are the same thing, looked at: the
+piece is r7's real 3' end TAAATAA(A)TAAAAGTT + A run, then 10-30 bp of unrelated flank (A share
+0.44-0.57, below 0.6). No further heuristic added: stage 6 already rejects the candidate (0 % of its
+copies re-assign to it - masked, it equals r7), and its alignment (cand/r7_133seqs__r3_58seqs_P20.aln.fa)
+shows the actual finding: **the r7 consensus stops ~17 bp before the copies' structured tail
+(ACACT|TAAATAAATAAAAGTT(A)n)** - a boundary note for r7, his call.

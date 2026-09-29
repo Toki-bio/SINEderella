@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# fs0_partnerlib.sh OUT.fa [TAXID=9397] [LINE3=400] [TRNA_FA=~/refs/smallrna/hg38-tRNAs.fa] [RFAM_CM=~/refs/smallrna/Rfam.cm]
+# fs0_partnerlib.sh OUT.fa [TAXID=9397] [LINE3=400] [TRNA_FA=~/refs/smallrna/hg19-tRNAs.fa] [RFAM_CM=~/refs/smallrna/Rfam.cm]
 #
 # A PARTNER library for stage 3: the pieces a SINE is commonly built from or sits next to, that a
 # SINE consensus bank does not hold. A part missing from the bank shows only as spacer / flank;
 # with these added it gets a name (a tRNA head, a 7SL or 5S part, a LINE 3' end).
 # Every name starts with "x." - stage 3 uses them as partners only, never as the copy's main unit.
 #   x.tRNA-<aa>-<anticodon>   one human tRNA per anticodon (the first listed), from TRNA_FA
+#                             (hg19 GtRNAdb, 419 genes / 49 anticodons; the hg38 copy on therioserver
+#                             is a truncated download, 123 genes, Ala..Cys only)
 #   x.7SL, x.5S               Rfam consensus (cmemit -c, U -> T) of RF00017 Metazoa_SRP and RF00001 5S_rRNA
 #   x.<LINE>_3end             the last LINE3 bp of every Dfam LINE family of the clade TAXID and its
 #                             ancestors (default 9397 Chiroptera: the Mammalia-wide L1M / L2 / CR1_Mam
@@ -14,7 +16,7 @@
 # Needs: conda env rnatools (cmfetch, cmemit), curl (dfam.org API). Writes OUT.fa and OUT.fa.README.
 set -euo pipefail
 OUT=${1:?OUT.fa}; TAX=${2:-9397}; LINE3=${3:-400}
-TRNA=${4:-$HOME/refs/smallrna/hg38-tRNAs.fa}; CM=${5:-$HOME/refs/smallrna/Rfam.cm}
+TRNA=${4:-$HOME/refs/smallrna/hg19-tRNAs.fa}; CM=${5:-$HOME/refs/smallrna/Rfam.cm}
 TMP=$(mktemp -d "$HOME/tmp/fs0.XXXX"); trap 'rm -rf "$TMP"' EXIT
 
 # tRNAs: header ">Homo_sapiens_tRNA-Ala-AGC-1-1 (...)" -> the first gene of each anticodon; Undet / Sup skipped

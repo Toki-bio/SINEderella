@@ -11,7 +11,8 @@
 #    A peak is kept when it has >= MINK copies and >= FOLD x the chance expectation
 #        E = copies of the family x (copies of the partner / genome bp) x (2 TOL + 1) x 1/2 (strand)
 #    = how many copies would have a random partner copy at that gap (it ignores the consensus
-#    positions, so it overestimates chance - conservative). Then its copies are removed and the next
+#    positions, so it overestimates chance - conservative; a partner from the partner library,
+#    x.*, has no copy count in the run: E = 0, that peak rests on MINK alone). Then its copies are removed and the next
 #    peak in the group is looked for, until none passes (one group can hold several peaks: TB after
 #    a whole-TA linker dimer and TB after a piecewise TA head).
 #    Peak type, with the DOWNSTREAM unit of the pair (same strand only):
@@ -87,7 +88,8 @@ END {
     for (gi = 1; gi <= ng; gi++) {
         g = G[gi]; split(g, K, SUBSEP); F = K[1]; sd = K[2]; P = K[3]; rel = K[4]
         delete alive; na = 0; for (j = 1; j <= gn[g]; j++) { alive[gm[g, j]] = 1; na++ }
-        E = N[F] * (N[P] / GSIZE) * (2 * TOL + 1) * 0.5
+        # a partner-library unit (x.*) has no copy count in the run: no density null, MINK only
+        E = (P in N) ? N[F] * (N[P] / GSIZE) * (2 * TOL + 1) * 0.5 : 0
         while (na >= MINK) {
             n = 0; delete V; delete R
             for (r in alive) { n++; R[n] = r + 0; V[n] = Rgap[r] }
@@ -158,7 +160,7 @@ END {
     # ---- family summary
     hdr = "family\tcopies"; for (i = 1; i <= 11; i++) hdr = hdr "\t" ORD[i]
     print hdr > "family_summary.tsv"; close("family_summary.tsv")
-    for (F in N) { line = F "\t" N[F]; for (i = 1; i <= 11; i++) line = line "\t" sprintf("%.1f%%", 100 * cnt[F, ORD[i]] / N[F])
+    for (F in N) { if (!N[F]) continue; line = F "\t" N[F]; for (i = 1; i <= 11; i++) line = line "\t" sprintf("%.1f%%", 100 * cnt[F, ORD[i]] / N[F])
                    print line | "sort -t\"\t\" -k2,2nr >> family_summary.tsv" }
     close("sort -t\"\t\" -k2,2nr >> family_summary.tsv")
     printf "fs4: %d peaks; classes in copies.tsv, per family in family_summary.tsv\n", npk > "/dev/stderr"
