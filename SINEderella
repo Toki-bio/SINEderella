@@ -221,36 +221,123 @@ find_latest_run(){
 ###############################################################################
 sanitize_fasta(){
   # $1=input $2=output $3=mode (genome|consensus)
-  local mode="${3:-genome}"
-  if [[ "$mode" == "consensus" ]]; then
-    awk 'BEGIN{RS=">"; ORS=""; FS="\n"}
-         NR==1{next}
-         {
-           hdr=$1
-           gsub(/\r/,"",hdr)
-           sub(/[ \t].*$/,"",hdr)
-           seq=""
-           for(i=2;i<=NF;i++){ line=$i; gsub(/[ \t\r]/,"",line); seq=seq line }
-           if(hdr!="" && seq!=""){
-             print ">" hdr "\n"
-             for(i=1;i<=length(seq);i+=60) print substr(seq,i,60) "\n"
-           }
-         }' "$1" > "$2"
+  # Cleans headers/sequences (CR/space/tab stripping, 60-col wrap, @U@ in genome
+  # mode, first word in consensus mode), uppercases sequences, enforces the
+  # alphabet A C G T U N R Y K M S W B D H V and '-', rejects duplicate names,
+  # skips empty records, and reads *.gz input through zcat.
+  local input="$1" output="$2" mode="${3:-genome}"
+  local tmp_out diag rc=0
+  tmp_out="$(mktemp "$(dirname -- "$output")/sanitize.XXXXXX")" || die "sanitize_fasta: mktemp failed"
+  diag="$(mktemp "$(dirname -- "$output")/sanitize.diag.XXXXXX")" || die "sanitize_fasta: mktemp failed"
+
+  local -a reader
+  if [[ "$input" == *.gz ]]; then
+    need zcat
+    reader=(zcat -- "$input")
   else
-    awk 'BEGIN{RS=">"; ORS=""; FS="\n"}
-         NR==1{next}
-         {
-           hdr=$1
-           gsub(/\r/,"",hdr)
-           gsub(/_/,"@U@",hdr)
-           seq=""
-           for(i=2;i<=NF;i++){ line=$i; gsub(/[ \t\r]/,"",line); seq=seq line }
-           if(hdr!="" && seq!=""){
-             print ">" hdr "\n"
-             for(i=1;i<=length(seq);i+=60) print substr(seq,i,60) "\n"
-           }
-         }' "$1" > "$2"
+    reader=(cat -- "$input")
   fi
+
+  "${reader[@]}" | awk -v mode="$mode" -v diag="$diag" '
+    BEGIN{RS=">"; ORS=""; FS="\n"}
+    NR==1{next}
+    {
+      hdr=$1
+      gsub(/\r/,"",hdr)
+      if(mode=="consensus"){ sub(/[ \t].*$/,"",hdr) }
+      else{ gsub(/_/,"@U@",hdr) }
+      seq=""
+      for(i=2;i<=NF;i++){ line=$i; gsub(/[ \t\r]/,"",line); seq=seq line }
+      seq=toupper(seq)
+      if(hdr=="" || seq==""){ skipped++; next }
+      name=hdr; sub(/[ \t].*$/,"",name)
+      seen[name]++
+      if(seen[name]==2){
+        ndups++
+        if(ndups<=5){ duplist=duplist (duplist==""?"":", ") name }
+      }
+      n=gsub(/[^ACGTUNRYKMSWBDHV-]/,"&",seq)
+      if(n>0){
+        badcount += n
+        if(firstbad==""){
+          match(seq,/[^ACGTUNRYKMSWBDHV-]/)
+          firstbad=substr(seq,RSTART,1)
+        }
+      }
+      print ">" hdr "\n"
+      for(i=1;i<=length(seq);i+=60) print substr(seq,i,60) "\n"
+    }
+    END{
+      printf "skipped\t%d\n", skipped+0 > diag
+      printf "badcount\t%d\n", badcount+0 > diag
+      printf "firstbad\t%s\n", firstbad > diag
+      printf "ndups\t%d\n", ndups+0 > diag
+      printf "duplist\t%s\n", duplist > diag
+      close(diag)
+    }
+  ' > "$tmp_out" || rc=$?
+
+  if (( rc != 0 )); then
+    rm -f "$tmp_out" "$diag"
+    die "sanitize_fasta: failed while reading '$input' (exit $rc)"
+  fi
+
+  local skipped=0 badcount=0 ndups=0 firstbad="" duplist="" key val
+  while IFS=$'\t' read -r key val; do
+    case "$key" in
+      skipped)  skipped="$val" ;;
+      badcount) badcount="$val" ;;
+      firstbad) firstbad="$val" ;;
+      ndups)    ndups="$val" ;;
+      duplist)  duplist="$val" ;;
+    esac
+  done < "$diag"
+  rm -f "$diag"
+
+  if (( skipped > 0 )); then
+    log "sanitize: skipped $skipped empty records in $input"
+  fi
+
+  if (( ndups > 0 )); then
+    rm -f "$tmp_out"
+    local extra=""
+    if (( ndups > 5 )); then extra=" (showing first 5 of $ndups)"; fi
+    die "sanitize_fasta: duplicate sequence names in '$input': $duplist$extra"
+  fi
+
+  if (( badcount > 0 )); then
+    rm -f "$tmp_out"
+    die "sanitize_fasta: $badcount disallowed character(s) in '$input', first: '$firstbad' (allowed: A C G T U N R Y K M S W B D H V -)"
+  fi
+
+  mv -f "$tmp_out" "$output" || die "sanitize_fasta: failed to write '$output'"
+}
+
+###############################################################################
+# HELPER: record tool versions (for the run manifest)
+###############################################################################
+tool_versions(){
+  # Emit "VERSION<TAB>tool<TAB>first line of version output" for key tools.
+  local t out line
+  for t in ssearch36 mafft bedtools samtools seqkit trf dustmasker python3; do
+    if command -v "$t" >/dev/null 2>&1; then
+      case "$t" in
+        ssearch36)  out="$(ssearch36 2>&1 | grep -i -m1 "version" || echo "not found")" ;;
+        mafft)      out="$(mafft --version 2>&1 || echo "not found")" ;;
+        bedtools)   out="$(bedtools --version 2>&1 || echo "not found")" ;;
+        samtools)   out="$(samtools --version 2>&1 || echo "not found")" ;;
+        seqkit)     out="$(seqkit version 2>&1 || echo "not found")" ;;
+        trf)        out="$(trf 2>&1 | grep -m1 "Tandem Repeats Finder" || echo "not found")" ;;
+        dustmasker) out="$(dustmasker -version 2>&1 || echo "not found")" ;;
+        python3)    out="$(python3 --version 2>&1 || echo "not found")" ;;
+        *)          out="not found" ;;
+      esac
+      line="${out%%$'\n'*}"
+    else
+      line="not found"
+    fi
+    printf "VERSION\t%s\t%s\n" "$t" "$line"
+  done
 }
 
 ###############################################################################
@@ -589,6 +676,7 @@ mode_full(){
     printf "CHUNK_BP\t%s\n" "$CHUNK_BP"
     printf "FLANK\t%s\n" "$FLANK"
     printf "MODE\tfull\n"
+    tool_versions
     printf "DATE\t%s\n" "$(date)"
   } > "$RUN/manifest.txt"
 

@@ -203,6 +203,10 @@ bedtools getfasta -s -fi "$GENOME" -bed merged_hits.bed > extracted.fasta
 
 EXTRACTED=$(grep -c "^>" extracted.fasta)
 echo "[$(date)] Extracted $EXTRACTED sequences"
+# every merged interval must come back as one sequence (getfasta skips intervals it cannot read)
+if [[ "$EXTRACTED" -ne "$BED_COUNT" ]]; then
+    echo "ERROR: extracted $EXTRACTED sequences from $BED_COUNT merged intervals" >&2; exit 1
+fi
 
 # --- SAMPLING ---
 if [[ $EXTRACTED -le $SAMPLE_SIZE ]]; then

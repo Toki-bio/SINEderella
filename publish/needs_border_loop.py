@@ -11,6 +11,7 @@ import argparse
 import glob
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -78,7 +79,7 @@ def element_extend_scan(run_root, subfams, genome, assigned, flank=1000):
     sizes = os.path.join(work, "genome.sizes")
     if not os.path.isfile(sizes):
         subprocess.check_call(
-            "cut -f1,2 %s.fai > %s" % (genome, sizes), shell=True)
+            "cut -f1,2 %s > %s" % (shlex.quote(genome + ".fai"), shlex.quote(sizes)), shell=True)
 
     for sf in sorted(subfams):
         headers = []
@@ -110,10 +111,10 @@ def element_extend_scan(run_root, subfams, genome, assigned, flank=1000):
         fa = os.path.join(work, "%s.fa" % sf)
         subprocess.call(
             "bedtools slop -s -l %d -r %d -g %s -i %s > %s 2>/dev/null"
-            % (flank, flank, sizes, bed, slop), shell=True)
+            % (flank, flank, shlex.quote(sizes), shlex.quote(bed), shlex.quote(slop)), shell=True)
         subprocess.call(
             "bedtools getfasta -s -nameOnly -fi %s -bed %s > %s 2>/dev/null"
-            % (genome, slop, fa), shell=True)
+            % (shlex.quote(genome), shlex.quote(slop), shlex.quote(fa)), shell=True)
         if not os.path.getsize(fa):
             continue
         cons_seq = None

@@ -10,6 +10,7 @@ Writes OUT_DIR/NAME.fa (consensus), NAME.copies.fa, NAME.aln.fa (consensus as ro
 """
 import collections
 import os
+import shlex
 import subprocess
 import sys
 
@@ -49,7 +50,7 @@ def main():
         for c, g0, g1, st, lid in pick:
             fh.write("%s\t%d\t%d\t%s\t0\t%s\n" % (c, g0, g1, lid, st))
     cfa = os.path.join(out, name + ".copies.fa")
-    subprocess.run("bedtools getfasta -fi %s -bed %s -s | sed '/^>/s/@U@/_/g' > %s" % (genome, bed, cfa), shell=True, check=True)
+    subprocess.run("bedtools getfasta -fi %s -bed %s -s | sed '/^>/s/@U@/_/g' > %s" % (shlex.quote(genome), shlex.quote(bed), shlex.quote(cfa)), shell=True, check=True)
     aln = subprocess.run(["mafft", "--localpair", "--maxiterate", "1000", "--ep", "0.123", "--nuc", "--quiet",
                           "--thread", str(T), cfa], capture_output=True, text=True, check=True).stdout
     names, seqs = [], []

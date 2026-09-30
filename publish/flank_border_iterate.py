@@ -12,6 +12,7 @@ import html
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -115,7 +116,7 @@ def write_fa(path, pairs):
 
 
 def sh(cmd, cwd=None, timeout=7200):
-    full = "export PATH=%s:$PATH; %s" % (ENV_PATH, cmd)
+    full = "export PATH=%s:$PATH; %s" % (shlex.quote(ENV_PATH), cmd)
     r = subprocess.run(full, shell=True, cwd=cwd, capture_output=True, text=True,
                        timeout=timeout)
     return r.returncode, r.stdout, r.stderr
@@ -195,16 +196,16 @@ def headers_to_bed(headers, work):
 def extract_flanked(bed, genome, flank_l, flank_r, out_fa, work):
     """Genomic extract with optional asymmetric flanks (0 = none on that side)."""
     sizes = os.path.join(work, "genome.sizes")
-    sh("cut -f1,2 %s.fai > %s" % (genome, sizes))
+    sh("cut -f1,2 %s > %s" % (shlex.quote(genome + ".fai"), shlex.quote(sizes)))
     slop = os.path.join(work, "slop.bed")
     code, _, err = sh(
         "bedtools slop -s -l %d -r %d -g %s -i %s > %s 2>/dev/null"
-        % (flank_l, flank_r, sizes, bed, slop))
+        % (flank_l, flank_r, shlex.quote(sizes), shlex.quote(bed), shlex.quote(slop)))
     if code != 0 or not os.path.getsize(slop):
         return False, err
     code, _, err = sh(
         "bedtools getfasta -s -nameOnly -fi %s -bed %s > %s 2>/dev/null"
-        % (genome, slop, out_fa))
+        % (shlex.quote(genome), shlex.quote(slop), shlex.quote(out_fa)))
     if code != 0 or not os.path.getsize(out_fa):
         return False, err
     return True, ""
@@ -227,14 +228,14 @@ def mafft(in_fa, out_fa, threads=8, opts=None):
     o = opts or MAFFT_OPTS
     code, _, err = sh(
         "mafft --thread %d %s %s > %s 2>/dev/null"
-        % (threads, o, in_fa, out_fa))
+        % (threads, o, shlex.quote(in_fa), shlex.quote(out_fa)))
     return code == 0 and os.path.getsize(out_fa) > 0, err
 
 
 def extract_elements(bed, genome, out_fa, work):
     code, _, err = sh(
         "bedtools getfasta -s -nameOnly -fi %s -bed %s > %s 2>/dev/null"
-        % (genome, bed, out_fa))
+        % (shlex.quote(genome), shlex.quote(bed), shlex.quote(out_fa)))
     return code == 0 and os.path.getsize(out_fa) > 0, err
 
 
@@ -404,7 +405,7 @@ def run_conse(aln_fa, pct, work):
     os.makedirs(work, exist_ok=True)
     out_cons = os.path.join(work, os.path.basename(aln_fa) + ".cons")
     aln_abs = os.path.abspath(aln_fa)
-    code, _, err = sh("conse %s %d" % (aln_abs, pct), cwd=work)
+    code, _, err = sh("conse %s %d" % (shlex.quote(aln_abs), pct), cwd=work)
     if not os.path.isfile(out_cons):
         out_cons = aln_abs + ".cons"
     if code != 0 or not os.path.isfile(out_cons):
@@ -416,8 +417,8 @@ def run_conse(aln_fa, pct, work):
 def run_sine(copies_fa, work, script):
     scw = os.path.join(work, "sine")
     os.makedirs(scw, exist_ok=True)
-    sh("cp %s %s/copies.fa" % (copies_fa, scw))
-    code, _, err = sh("bash %s copies.fa 100 50 0.01" % (script, ), cwd=scw, timeout=7200)
+    sh("cp %s %s" % (shlex.quote(copies_fa), shlex.quote(os.path.join(scw, "copies.fa"))))
+    code, _, err = sh("bash %s copies.fa 100 50 0.01" % (shlex.quote(script), ), cwd=scw, timeout=7200)
     hits = list(Path(scw).glob("*_consensus.fasta")) + list(Path(scw).glob("final_consensus.fasta"))
     if not hits:
         return None, err[-300:]
@@ -525,8 +526,9 @@ def main():
     anchor_name = "CONSENSUS_" + anchor_key
     anchor_seq = consensuses[anchor_key]
     write_fa(os.path.join(work, "anchor.fa"), [(anchor_name, anchor_seq)])
-    sh("cat %s/work/anchor.fa %s > %s/work/val_pre.combined.fa"
-       % (out_dir, vf, out_dir))
+    sh("cat %s %s > %s"
+       % (shlex.quote(os.path.join(work, "anchor.fa")), shlex.quote(vf),
+          shlex.quote(os.path.join(work, "val_pre.combined.fa"))))
     val_pre_aln = os.path.join(work, "val_pre.aln.fa")
     mafft(os.path.join(work, "val_pre.combined.fa"), val_pre_aln)
     postprocess_flanks(val_pre_aln, anchor_name)
@@ -553,8 +555,9 @@ def main():
     # --- rebuild consensus from extended element window ---
     vf2 = os.path.join(work, "val_post.flank.fa")
     extract_for_side(bed_ext, genome, "5prime", MAX_FLANK, vf2, work)
-    sh("cat %s/work/anchor.fa %s > %s/work/val_post.combined.fa"
-       % (out_dir, vf2, out_dir))
+    sh("cat %s %s > %s"
+       % (shlex.quote(os.path.join(work, "anchor.fa")), shlex.quote(vf2),
+          shlex.quote(os.path.join(work, "val_post.combined.fa"))))
     val_post_aln = os.path.join(work, "val_post.aln.fa")
     mafft(os.path.join(work, "val_post.combined.fa"), val_post_aln)
     postprocess_flanks(val_post_aln, anchor_name)
