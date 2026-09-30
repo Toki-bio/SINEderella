@@ -227,3 +227,20 @@ folded) - stage 6 NOT yet rerun on ~/tmp/fs_rsi5. Known limit: an extension that
 - 2026-09-30 FIXED (his agreement): stage 5 merges by BEST hit - each candidate links to its best >= 90 %/90 %
   match among ALL candidates, linked groups keep their largest peak. rsi (~/tmp/fs_rsi6): r8 dimer group
   P42 kept + P43, P38; r5h_r6 group P26 + P37, P27-29, P48; 16 kept. Toy PASS.
+
+## 2026-09-30: stage 7 (hierarchy) and stage 8 (singletons) - status
+- fs7_hierarchy.sh: hierarchy.tsv + accepted.fa; report_hierarchy.py draws it in step6 (commit 5823986).
+  rsi final report pipeline (therioserver ~/rhin/rsi_v3, log pipeline.log) adds the accepted candidates
+  with --add and publishes; result goes to Tal rsi_v3/.
+- fs8_singletons.sh FAMILY [CONTROL]: are a family's "single" copies standalone or missed composites?
+  Groups S (singles), B (family copies in composites), A (control singles), <= 1000 each (seed 42).
+  (1) relaxed partner search E <= 1 per flank, >= 20 bp, 300 bp each side; (2) full-length in consensus;
+  (3) TSD with ViewAlign's detector, PORTED EXACTLY (MSA-viewer script.js _findBestTsdInFlanks;
+  gawk port = JS on 300 test pairs, 300/300 identical). His notes: ViewAlign's defaults (4-20 bp, 20 %
+  mismatch) are too relaxed - short motifs count by chance -> the minimum length is calibrated on
+  shuffled pairs (<= 5 % chance), table in tsd_calibration.tsv, TSD_MIN overrides. If a family has TSDs,
+  they mark the element's real ends: the boundary scan moves each end outward (<= 150 bp) - its best of
+  ~300 positions needs its own chance calibration (toy without TSDs gave 75 % "moved out" before that).
+  Toy: B = truncated TA heads, partner 3' 100 %; S = full, no partner, TSD at chance. rsi r3 (control
+  r9) run in progress (~/tmp/fs_rsi6/singletons/r3_58seqs). NOT committed until the rsi run passes.
+- Next agreed task: flank uniqueness over ALL copies - design in docs/FLANK_UNIQUENESS.md.
