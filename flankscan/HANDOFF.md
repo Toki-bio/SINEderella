@@ -207,3 +207,16 @@ piece is r7's real 3' end TAAATAA(A)TAAAAGTT + A run, then 10-30 bp of unrelated
 copies re-assign to it - masked, it equals r7), and its alignment (cand/r7_133seqs__r3_58seqs_P20.aln.fa)
 shows the actual finding: **the r7 consensus stops ~17 bp before the copies' structured tail
 (ACACT|TAAATAAATAAAAGTT(A)n)** - a boundary note for r7, his call.
+
+## 2026-09-30: stage 5 consensus built from flanked copies (systematic end correction)
+His call on the rsi P1 plate: "consensus should be corrected". The element cut (A-tail rule) stopped
+short: 90-100 % of copies continued 28 bp past r1_r3's 3' end (r3's simple-repeat tail
+GTCCTGTTCCCCTTCCCCAATAAAATCT) and 5 bp before its 5' end (GGGCC - every r1-headed candidate; the r1
+consensus itself likely lacks its first 5 bp). fs5 now cuts every copy with FL=100 bp flank (lowercase),
+aligns with --preservecase, takes the majority over the uppercase span and extends each end while
+>= SHARE=0.6 of ALL copies carry the top base (columns < SKIP=0.3 occupied are passed over).
+Tests: toy 71/71 PASS; rsi fs5 rerun (~/tmp/fs_rsi5): P1 431 bp = the hand correction (Tal
+rsi_v2/composites/corrected, same rule in correct_consensus.py); P6/P9/P26/P39/P40/P43 same lengths,
+others within 1-5 bp. Side effect: the fold step now keeps 17 candidates (P34, P10, P12, P44 new; P13
+folded) - stage 6 NOT yet rerun on ~/tmp/fs_rsi5. Known limit: an extension that reaches the flank end
+(P13 3', +100) is not flagged yet - needs a longer flank or an "unresolved" mark.
