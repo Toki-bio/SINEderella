@@ -23,8 +23,8 @@ fi
 echo Reordering bank and making consensus sequences
 mafft --thread $(nproc) --threadtb $(nproc) --threadit $(nproc) --nuc --quiet --retree 0 --reorder $1 \
         | seqkit split2 -s $BnkSz -O ./ > /dev/null  2>&1 \
-                && /usr/bin/rename -f "s/stdin.part/${1%.*}/" stdin.part*.fasta \
-                && /usr/bin/rename -f "s/fasta$/bnk/" *.fasta \
+                && for f in stdin.part*.fasta; do mv -f -- "$f" "${f/stdin.part/${1%.*}}"; done \
+                && for f in *.fasta; do mv -f -- "$f" "${f%fasta}bnk"; done \
         || exit 1
 Secs_HMS "$(($(date +%s) - ${T1}))"; T1=$(date +%s)
 #
