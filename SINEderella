@@ -327,7 +327,7 @@ tool_versions(){
         bedtools)   out="$(bedtools --version 2>&1 || echo "not found")" ;;
         samtools)   out="$(samtools --version 2>&1 || echo "not found")" ;;
         seqkit)     out="$(seqkit version 2>&1 || echo "not found")" ;;
-        trf)        out="$(trf 2>&1 | grep -i -m1 "version" || echo "not found")" ;;
+        trf)        out="$(trf 2>&1 | grep -m1 "Tandem Repeats Finder" || echo "not found")" ;;
         dustmasker) out="$(dustmasker -version 2>&1 || echo "not found")" ;;
         python3)    out="$(python3 --version 2>&1 || echo "not found")" ;;
         *)          out="not found" ;;
