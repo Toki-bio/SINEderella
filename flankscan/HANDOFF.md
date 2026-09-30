@@ -220,3 +220,7 @@ rsi_v2/composites/corrected, same rule in correct_consensus.py); P6/P9/P26/P39/P
 others within 1-5 bp. Side effect: the fold step now keeps 17 candidates (P34, P10, P12, P44 new; P13
 folded) - stage 6 NOT yet rerun on ~/tmp/fs_rsi5. Known limit: an extension that reaches the flank end
 (P13 3', +100) is not flagged yet - needs a longer flank or an "unresolved" mark.
+- 2026-09-30 fold-rule flaw (rsi r8): stage 5 folds a candidate into the first kept one it matches at
+  >= 90 % of both, in peak-size order. P42 (r8+r8) matched P26 (r5h_r6) at 90.6 % and was folded there,
+  although it is 99.0 % identical to P43 (r8+r8, kept). Fix to do: fold into the MOST similar kept
+  candidate, and fold P43-like twins together first.
