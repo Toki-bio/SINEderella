@@ -2306,6 +2306,15 @@ def build_html(run_root: Path,
         alignment_section = build_alignment_section(
             species_code, subfams_for_aln, raw_base=aln_base, aln_dir=aln_dir,
             profiles=aln_profiles, verdicts=aln_verdicts)
+    # Element hierarchy (flankscan stage 7: composites drawn as their parts, to scale); "" without it
+    hierarchy_section = ""
+    try:
+        import report_hierarchy as RH
+        hierarchy_section = RH.section(
+            run_root, species_code, aln_base,
+            subfams_for_aln if species_code else sorted({r[0] for r in stats_rows if r}))
+    except Exception as e:  # the report must not fail over an optional panel
+        sys.stderr.write("WARNING: element hierarchy skipped: %s\n" % e)
     profiles_json = json.dumps(aln_profiles, separators=(",", ":"))
     annotations_json = json.dumps(aln_annotations, separators=(",", ":"))
 
@@ -2423,6 +2432,7 @@ def build_html(run_root: Path,
     <strong>Sections:</strong>
     {'<a href="#alignments">Alignments</a>' if alignment_section else ''}
     <a href="#overview">Overview</a>
+    {'<a href="#hierarchy">Hierarchy</a>' if hierarchy_section else ''}
     <a href="#composition">Composition</a>
     <a href="#divergence">Divergence&thinsp;/&thinsp;Similarity</a>
     <a href="#pca">PCA</a>
@@ -2436,6 +2446,8 @@ def build_html(run_root: Path,
   </nav>
 
   {alignment_section}
+
+  {hierarchy_section}
 
   <section class="card" id="overview">
     <h2>Overview</h2>
