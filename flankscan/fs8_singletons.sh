@@ -86,7 +86,7 @@ fi
 echo "fs8: composite hypotheses for $FAM: ${HYP:-none}" >&2
 
 # TSDs, ViewAlign's detector (MSA-viewer script.js _findBestTsdInFlanks), real and shuffled pairs
-gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_calibration.tsv" -v HYP="$HYP" -v RS="${TSD_RSLACK:-25}" '
+gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_calibration.tsv" -v HYP="$HYP" -v RSLK="${TSD_RSLACK:-25}" '
     function mm(x, y,   i, m, c1, c2) { m = 0
         for (i = 1; i <= length(x); i++) { c1 = substr(x, i, 1); c2 = substr(y, i, 1)
             if (c1 == "N" || c2 == "N") m += 0.5; else if (c1 != c2) m++ }
@@ -98,7 +98,7 @@ gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_cali
             cl = length(up) - L
             for (uo = 0; uo <= (cl < 4 ? cl : 4); uo++) {
                 us = substr(up, cl - uo + 1, L)
-                for (ds = 0; ds <= ((length(down) - L) < RS ? length(down) - L : RS); ds++) {   # 3 side: RS bp slack
+                for (ds = 0; ds <= ((length(down) - L) < RSLK ? length(down) - L : RSLK); ds++) {   # 3 side: RSLK bp slack (not RS: gawk record separator)
                     dq = substr(down, ds + 1, L); dv = mm(us, dq) / L
                     if (dv > 0.20) continue
                     sc = (1 - dv) * sqrt(L) - uo * 0.04 - ds * 0.08 - ds * 0.05
@@ -121,6 +121,9 @@ gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_cali
                 ns++; if (best(upw(S[r], A[r]), dnw(S[q], B[q]), mn)) hs++ }
             print mn, ns, hs, (ns ? sprintf("%.1f", 100 * hs / ns) : "-") > CAL
             if (!MINL && ns && hs / ns <= 0.05) MINL = mn
+            if (mn == 4 && ns > 100 && hs == 0) {        # random pairs always give some 4 bp matches
+                print "fs8: TSD detector found nothing on " ns " shuffled pairs at 4 bp - broken input or parsing, stop" > "/dev/stderr"
+                exit 3 }
         }
         if (!MINL) MINL = 14
         print "chosen_min_len", MINL > CAL
