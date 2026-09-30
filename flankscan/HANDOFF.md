@@ -244,3 +244,12 @@ folded) - stage 6 NOT yet rerun on ~/tmp/fs_rsi5. Known limit: an extension that
   Toy: B = truncated TA heads, partner 3' 100 %; S = full, no partner, TSD at chance. rsi r3 (control
   r9) run in progress (~/tmp/fs_rsi6/singletons/r3_58seqs). NOT committed until the rsi run passes.
 - Next agreed task: flank uniqueness over ALL copies - design in docs/FLANK_UNIQUENESS.md.
+- 2026-09-30 stage 8 first real result (r3, control r9; ~/tmp/fs_rsi6/singletons/r3_58seqs): chance TSD at
+  the unit 22.8 % at ViewAlign's 4 bp minimum -> calibrated minimum 7 bp (2.5 %); scan of ~300 positions needs
+  16 bp. r9 singles: TSD at unit 39.3 % vs 4.6 % chance -> rsi SINEs make TSDs (usable as end markers).
+  r3 in composites: 1.8 % (TSD brackets the whole element, as it should); partner 98 %. r3 singles (529):
+  3.4 % TSD at unit (~chance), relaxed partner 5' 15.5 %, ~25 % TSD 30-50 bp past r3's 3' end (r3's real
+  3' end probably longer). 150 bp scan too short for r1 + 39 + r3 (193 bp) -> added COMPOSITE HYPOTHESIS
+  tests: for every hierarchy.tsv layout containing the family, a +-10 bp window at the predicted element end,
+  own calibrated minimum (21 positions). WIDE env (450 for the rerun). Running on r3, r1, r2, r10 (control
+  r9), log ~/tmp/fs8_all.log. rsi_v3 report published (Tal rsi_v3/); publish_run now copies report_*.py.

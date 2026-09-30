@@ -39,7 +39,7 @@
 #                                         consensus + every stage-5 candidate containing it on top
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
-RELAX_BP=300; MINLEN=20; NEAR_MIN=8; WIDE=150; WIDE_MIN=8   # TSD_MIN (env) fixes the TSD minimum; default calibrated
+RELAX_BP=300; MINLEN=20; NEAR_MIN=8; WIDE=${WIDE:-150}; WIDE_MIN=8   # TSD_MIN (env) fixes the TSD minimum; default calibrated
  PLATE_N=100; PLATE_F=150; MAXG=1000    # copies per group (random, seed 42)
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$OUT"; D=singletons/$FAM; mkdir -p "$D"
@@ -69,8 +69,19 @@ gawk -F'\t' -v OFS='\t' -v D="$D" -v R=$RELAX_BP -v WD=$WIDE '
         print g[w], w, ca[w], cb[w], full, bits[w] > (D "/base.tsv")
     }' "$D/groups.tsv" units.tsv junctions.tsv cons.tsv "$D/win.tmp"
 
+# composite hypotheses from stage 7 (hierarchy.tsv): if a single copy of FAMILY is really one part of a
+# composite whose other part decayed, its TSD sits at a predictable distance beyond the unit:
+#   FAMILY = part 2 -> 5' boundary moved out by part 1 length + gap; FAMILY = part 1 -> 3' out by gap + part 2
+HYP=""
+if [ -s hierarchy.tsv ]; then
+    HYP=$(gawk -F'	' -v F="$FAM" 'BEGIN { sub(/_[0-9]+seqs$/, "", F) }
+        NR > 1 && $12 == F { printf "%s5:%d:%s", (n++ ? "," : ""), $10 - $9 + 1 + $11, $2 }
+        NR > 1 && $8 == F  { printf "%s3:%d:%s", (n++ ? "," : ""), $11 + $14 - $13 + 1, $2 }' hierarchy.tsv)
+fi
+echo "fs8: composite hypotheses for $FAM: ${HYP:-none}" >&2
+
 # TSDs, ViewAlign's detector (MSA-viewer script.js _findBestTsdInFlanks), real and shuffled pairs
-gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_calibration.tsv" '
+gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_calibration.tsv" -v HYP="$HYP" '
     function mm(x, y,   i, m, c1, c2) { m = 0
         for (i = 1; i <= length(x); i++) { c1 = substr(x, i, 1); c2 = substr(y, i, 1)
             if (c1 == "N" || c2 == "N") m += 0.5; else if (c1 != c2) m++ }
@@ -123,6 +134,19 @@ gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_cali
             if (nsc && h / nsc <= 0.05) SCANL = L }
         if (!SCANL) SCANL = 21
         print "chosen_scan_min_len", SCANL > CAL
+        # hypothesis windows: +-10 bp around a predicted boundary = 21 positions; their own minimum,
+        # calibrated on shuffled pairs with the window at 100 bp out on the 5 side
+        nh = (HYP == "" ? 0 : split(HYP, hy, ","))
+        HYPL = 0; nsc = 0
+        for (r = 1; r <= NR && nsc < 500; r++) { q = partner(r); if (q == r || A[r] - 110 < 32) continue; nsc++
+            s = substr(S[r], 1, B[r]) substr(S[q], B[q] + 1); ml = 0
+            for (k = 90; k <= 110; k++) if (best(upw(s, A[r] - k), dnw(s, B[r]), MINL) > ml) ml = TL
+            hmax[nsc] = ml }
+        for (L = MINL; L <= 20 && !HYPL; L++) { h = 0; for (i = 1; i <= nsc; i++) if (hmax[i] >= L) h++
+            print "hyp_min", L, nsc, h, (nsc ? sprintf("%.1f", 100 * h / nsc) : "-") > CAL
+            if (nsc && h / nsc <= 0.05) HYPL = L }
+        if (!HYPL) HYPL = 21
+        print "chosen_hyp_min_len", HYPL > CAL
         for (r = 1; r <= NR; r++) {
             s = S[r]; a = A[r]; b = B[r]
             best(upw(s, a), dnw(s, b), MINL); ul = TL; uts = (TL ? TS : "-"); usc = TSC
@@ -130,7 +154,14 @@ gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_cali
             for (k = 1; k <= WD && a - k > 31; k++) { best(upw(s, a - k), dnw(s, b), SCANL); if (TL && TSC > bsc) { bsc = TSC; b5 = k; b3 = 0; bl = TL; bts = TS } }
             for (k = 1; k <= WD && b + k + 56 <= length(s); k++) { best(upw(s, a), dnw(s, b + k), SCANL); if (TL && TSC > bsc) { bsc = TSC; b5 = 0; b3 = k; bl = TL; bts = TS } }
             if (!bl) { bl = ul }
-            print "real", gr[r], id[r], ul, uts, bl, bts, b5, b3
+            hs = ""
+            for (h = 1; h <= nh; h++) { split(hy[h], hp, ":"); ml = 0
+                for (k = hp[2] - 10; k <= hp[2] + 10; k++) {
+                    if (hp[1] == "5") { if (a - k < 32) continue; x = best(upw(s, a - k), dnw(s, b), HYPL) }
+                    else { if (b + k + 56 > length(s)) continue; x = best(upw(s, a), dnw(s, b + k), HYPL) }
+                    if (x > ml) ml = x }
+                if (ml) hs = hs (hs == "" ? "" : ";") hp[3] ":" ml }
+            print "real", gr[r], id[r], ul, uts, bl, bts, b5, b3, (hs == "" ? "-" : hs)
             q = partner(r)
             if (q != r) { best(upw(s, a), dnw(S[q], B[q]), MINL); print "shuf", gr[r], id[r], TL, "-", "-", "-", "-", "-" }
         } }' "$D/tsdwin.tsv" > "$D/tsd.tsv"
@@ -145,12 +176,12 @@ ssearch36 -m 8 -E 1 -Z 1 -z 11 -T "$T" cons.masked.fa "$D/flanks.fa" 2> /dev/nul
 
 gawk -F'\t' -v OFS='\t' '
     FILENAME == ARGV[1] { h[$1, $2] = $3; dd[$1, $2] = $4; next }
-    FILENAME == ARGV[2] { if ($1 == "real") { t[$3] = $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9 }; next }
+    FILENAME == ARGV[2] { if ($1 == "real") { t[$3] = $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9 OFS $10 }; next }
     { u = (($2, "up") in h); v = (($2, "down") in h)
       print $1, $2, $3, $4, $5, (u ? h[$2, "up"] : "-"), (u ? dd[$2, "up"] : "-"),
             (v ? h[$2, "down"] : "-"), (v ? dd[$2, "down"] : "-"), t[$2], $6 }' \
     "$D/relaxed.tsv" "$D/tsd.tsv" "$D/base.tsv" > "$D/copies.body"
-{ printf "group\twid\tstart\tend\tfull\tup_hit\tup_dist\tdown_hit\tdown_dist\tnear_len\tnear_tsd\twide_len\twide_tsd\toff5\toff3\tbits\n"
+{ printf "group\twid\tstart\tend\tfull\tup_hit\tup_dist\tdown_hit\tdown_dist\tunit_tsd_len\tunit_tsd\tbest_tsd_len\tbest_tsd\toff5\toff3\thypotheses\tbits\n"
   cat "$D/copies.body"; } > "$D/copies.tsv"
 
 # summary per group; offsets histogram of the wide TSDs (10 bp bins)
@@ -164,7 +195,8 @@ gawk -F'\t' -v OFS='\t' -v NM=$NEAR_MIN -v WM=$WIDE_MIN -v D="$D" '
       if ($10 > 0) ne[g]++
       if ($12 > 0 && ($14 > 0 || $15 > 0)) wi[g]++
       o5[g, ++no[g]] = $14; o3[g, no[g]] = $15
-      hb[g, int($14 / 10) * 10, int($15 / 10) * 10]++ }
+      hb[g, int($14 / 10) * 10, int($15 / 10) * 10]++
+      if ($16 != "-") { nx = split($16, hh, ";"); for (x = 1; x <= nx; x++) { split(hh[x], hq, ":"); hyc[g, hq[1]]++; hyn[hq[1]] } } }
     END {
         nm["S"] = "singles of the family"; nm["B"] = "family copies in composites"; nm["A"] = "singles of the control"
         print "group", "what", "copies", "full_pct", "partner5_pct", "partner3_pct", "tsd_at_unit_pct", "tsd_shuffled_pct",
@@ -177,12 +209,14 @@ gawk -F'\t' -v OFS='\t' -v NM=$NEAR_MIN -v WM=$WIDE_MIN -v D="$D" '
                 100 * fu[g] / n[g], 100 * up[g] / n[g], 100 * dn[g] / n[g],
                 100 * ne[g] / n[g], (sn[g] ? 100 * sne[g] / sn[g] : 0), 100 * wi[g] / n[g], "-",
                 med(A5, no[g]), med(A3, no[g]), u, d }
+        print "group", "hypothesis", "copies_with_tsd_there", "pct" > (D "/hypotheses.tsv")
+        for (g in n) for (hname in hyn) printf "%s\t%s\t%d\t%.1f\n", g, hname, hyc[g, hname], 100 * hyc[g, hname] / n[g] > (D "/hypotheses.tsv")
         print "group", "off5_bin", "off3_bin", "copies" > (D "/offsets.tsv")
         for (k in hb) { split(k, q, SUBSEP); print q[1], q[2], q[3], hb[k] > (D "/offsets.tsv") }
     }' "$D/tsd.tsv" "$D/copies.tsv" > "$D/summary.tsv"
 
 # the plate
-gawk -F'\t' '$1 == "S"' "$D/copies.body" | sort -t$'\t' -k16,16gr | head -$PLATE_N | cut -f2 > "$D/plate.ids"
+gawk -F'\t' '$1 == "S"' "$D/copies.body" | sort -t$'\t' -k17,17gr | head -$PLATE_N | cut -f2 > "$D/plate.ids"
 gawk -v F=$PLATE_F 'FILENAME == ARGV[1] { want[$1]; next }
      FILENAME == ARGV[2] { if ($4 == "main" && ($1 in want)) { a[$1] = $10; b[$1] = $11 }; next }
      /^>/ { w = substr($1, 2); next }
