@@ -16,7 +16,10 @@ Design:
   step6 builds a downsampled all-vs-all ssearch36 score file and embeds
   the resulting standalone HTML via <iframe srcdoc>.
 
-Stdlib only (urllib used to fetch plotly.js once and cache).
+Stdlib only (urllib used to fetch plotly.js once and cache), except the
+per-subfamily alignment-composition diagram (--profile-diagrams), which needs
+numpy — imported lazily in build_alignment_section() so the rest of the report
+still builds on a bare-stdlib install if numpy is missing.
 """
 from __future__ import annotations
 
@@ -531,6 +534,330 @@ def fig_pctid_spline_divergence(by_sf: Dict[str, List[float]],
         },
     }
 
+
+DIAGRAM_JS = r"""
+// Alignment-composition diagram + structural-feature track, ported in full
+// this time from SINE_discriminator's site/index.html (drawProfile,
+// buildTrackLegend, FEATON/trackOn, the SHOW chip list) and annotate.py
+// (via report_annotate.py / ANNOTATIONS below), 2026-09-09. Colors, labels,
+// checkboxes and chip formatting are the ORIGINAL's, not a paraphrase --
+// this report should read identically to the site's per-family view.
+const TRACKS = [
+  { k: "pair_id", label: "pairwise identity between copies", color: "var(--t1)", on: true },
+  { k: "cons_id", label: "identity to known consensus", color: "var(--t2)", on: true },
+  { k: "cover", label: "copies present (coverage)", color: "var(--t3)", on: true },
+  { k: "at", label: "A+T fraction", color: "var(--t4)", on: false }
+];
+const BG_LEVEL = 0.25;
+let TOTAL_H = 0, MOTIF_H = 0;
+const FEATCOLOR = {
+  abox: "var(--f1)", bbox: "var(--f2)", trna_region: "var(--f1)",
+  conserved_core: "var(--f4)", simple_repeat: "var(--f5)",
+  tail_repeat: "var(--f6)", internal_dup: "var(--f7)", tsd: "var(--f8)",
+  terminator: "var(--f3)"
+};
+const FEATALPHA = {trna_region: 0.28, terminator: 0.85};
+const FEATLIST = [
+  ["abox", "A box"], ["bbox", "B box"], ["trna_region", "tRNA region"],
+  ["conserved_core", "conserved block"], ["simple_repeat", "simple repeat"],
+  ["tail_repeat", "3' tail repeat"], ["internal_dup", "internal duplication"],
+  ["tsd", "TSD"], ["terminator", "Pol III terminator"],
+  ["abox_p", "A box match profile"], ["bbox_p", "B box match profile"],
+  ["selfsim_p", "similarity to tRNA head"], ["at_heat", "A+T composition"]
+];
+const SHOW = ["cliff", "cons_identity_med", "frac_supported", "elem_len_cv", "frac_full",
+              "tsd_frac", "tsd_len_med", "res_asymmetry", "rank1_excess", "flank_id",
+              "elem_len_med", "cons_bp", "n_copies"];
+
+function pathFor(xs, ys, sx, sy) {
+  let d = "", pen = false;
+  for (let i = 0; i < xs.length; i++) {
+    if (ys[i] === null || ys[i] === undefined) { pen = false; continue; }
+    const X = sx(xs[i]), Y = sy(ys[i]);
+    d += (pen ? "L" : "M") + X.toFixed(1) + " " + Y.toFixed(1) + " ";
+    pen = true;
+  }
+  return d;
+}
+
+function heatRow(xs, vals, sx, y, h, opts) {
+  const {lo, hi, hue, diverge, mid, label, unit} = opts;
+  let out = "";
+  for (let i = 0; i < xs.length - 1; i++) {
+    const v = vals[i];
+    if (v === null || v === undefined) continue;
+    const x0 = sx(xs[i]), x1 = sx(xs[i + 1]);
+    let col, a;
+    if (diverge) {
+      const t = (v - mid) / (v >= mid ? (hi - mid) : (mid - lo));
+      a = Math.min(1, Math.abs(t));
+      col = v >= mid ? "var(--div-hi)" : "var(--div-lo)";
+      if (a < 0.08) { col = "var(--div-mid)"; a = 0.85; }
+    } else {
+      a = Math.min(1, Math.max(0, (v - lo) / (hi - lo)));
+      a = Math.pow(a, opts.gamma || 1);
+      col = hue;
+      if (a <= 0.01) continue;
+    }
+    out += '<rect x="' + x0.toFixed(1) + '" y="' + y + '" width="' +
+           Math.max(0.8, x1 - x0).toFixed(1) + '" height="' + h +
+           '" fill="' + col + '" fill-opacity="' + a.toFixed(2) + '">' +
+           '<title>' + (label || "") + " at position " + xs[i] + ": " +
+           v.toFixed(2) + (unit || "") + '</title></rect>';
+  }
+  return out;
+}
+
+function FEATON(k) {
+  const cb = document.querySelector(".ftr[data-k='" + k + "']");
+  return !cb || cb.checked;
+}
+function trackOn(k) {
+  const cb = document.querySelector(".trk[data-k='" + k + "']");
+  return !cb || cb.checked;
+}
+
+function buildDiagLegend(host) {
+  host.innerHTML =
+    "<div class='diag-legend-group'><span class='diag-legend-title'>Profile tracks</span>" +
+    TRACKS.map(t =>
+      "<label><input type='checkbox' class='trk' data-k='" + t.k + "'" + (t.on ? " checked" : "") +
+      "><span class='sw' style='background:" + t.color + "'></span>" + t.label + "</label>").join("") +
+    "<label style='cursor:default'><span class='sw' style='background:none;" +
+    "border-top:2px dashed var(--warn)'></span>unrelated DNA, 0.25</label></div>" +
+    "<div class='diag-legend-group'><span class='diag-legend-title'>Structural features</span>" +
+    FEATLIST.map(([k, lab]) =>
+      "<label><input type='checkbox' class='ftr' data-k='" + k + "' checked>" +
+      "<span class='swb' style='background:" + (FEATCOLOR[k] ||
+        {abox_p: "var(--f1)", bbox_p: "var(--f2)", selfsim_p: "var(--f3)",
+         at_heat: "linear-gradient(90deg,var(--div-lo),var(--div-mid),var(--div-hi))"}[k] ||
+        "var(--muted)") + "'></span>" + lab + "</label>").join("") + "</div>";
+}
+
+function diagChipsHTML(setName) {
+  const p = PROFILES[setName], m = (p && p._measure) || {};
+  return SHOW.filter(k => k in m).map(k => {
+    let v = m[k];
+    if (v === null || v === undefined) return "";
+    v = (Math.abs(v) >= 100 || Number.isInteger(v)) ? v : v.toFixed(3);
+    return "<span class='diag-chip'>" + k + " <b>" + v + "</b></span>";
+  }).join("");
+}
+
+function drawProfile(setName, host) {
+  const p = PROFILES[setName];
+  if (!p) { host.innerHTML = "<p class='small muted'>No profile for this set.</p>"; return; }
+  const W = 900, H = 190, PADL = 82, PADR = 12, PADT = 12, PADB = 24;
+  const MH = 48;
+  const xs = p.x, L = p.elem_len;
+  const x0 = xs[0], x1 = xs[xs.length - 1];
+  const sx = v => PADL + (v - x0) / (x1 - x0) * (W - PADL - PADR);
+  const sy = v => PADT + (1 - v) * (H - PADT - PADB);
+
+  let s = "<div class='diag-chips'>" + diagChipsHTML(setName) + "</div>" +
+          '<svg viewBox="0 0 ' + W + ' ' + (H + MH) + '" width="100%" role="img" ' +
+          'aria-label="positional profile for ' + setName + '">';
+
+  s += '<rect x="' + sx(0) + '" y="' + PADT + '" width="' + (sx(L - 1) - sx(0)) +
+       '" height="' + (H - PADT - PADB) + '" fill="var(--band)"/>';
+  [0, 0.25, 0.5, 0.75, 1].forEach(g => {
+    s += '<line x1="' + PADL + '" y1="' + sy(g) + '" x2="' + (W - PADR) + '" y2="' + sy(g) +
+         '" stroke="var(--grid)" stroke-width="1"/>' +
+         '<text x="' + (PADL - 6) + '" y="' + (sy(g) + 3.5) + '" text-anchor="end" ' +
+         'font-size="9" fill="var(--muted)" font-family="monospace">' + g.toFixed(2) + '</text>';
+  });
+  s += '<line x1="' + PADL + '" y1="' + sy(BG_LEVEL) + '" x2="' + (W - PADR) + '" y2="' +
+       sy(BG_LEVEL) + '" stroke="var(--warn)" stroke-width="1" stroke-dasharray="4 3"/>';
+  [0, L - 1].forEach(e => {
+    s += '<line x1="' + sx(e) + '" y1="' + PADT + '" x2="' + sx(e) + '" y2="' + (H - PADB) +
+         '" stroke="var(--ink)" stroke-width="1.2"/>';
+  });
+  s += '<text x="' + sx(0) + '" y="' + (H - PADB + 13) + '" font-size="9.5" ' +
+       'fill="var(--ink-2)" font-family="monospace">0</text>' +
+       '<text x="' + sx(L - 1) + '" y="' + (H - PADB + 13) + '" text-anchor="end" font-size="9.5" ' +
+       'fill="var(--ink-2)" font-family="monospace">' + (L - 1) + ' bp</text>' +
+       '<text x="' + PADL + '" y="' + (H - PADB + 13) + '" font-size="9.5" ' +
+       'fill="var(--muted)" font-family="monospace">5&#8242; flank</text>' +
+       '<text x="' + (W - PADR) + '" y="' + (H - PADB + 13) + '" text-anchor="end" font-size="9.5" ' +
+       'fill="var(--muted)" font-family="monospace">3&#8242; flank</text>';
+
+  for (let i = 0; i < xs.length; i += Math.max(1, Math.round(xs.length / 220))) {
+    const xv = xs[i];
+    const parts2 = TRACKS.filter(t => trackOn(t.k))
+      .map(t => p[t.k] && p[t.k][i] !== null && p[t.k][i] !== undefined
+           ? t.label + " " + p[t.k][i].toFixed(3) : null).filter(Boolean);
+    const where = xv < 0 ? (-xv) + " bp into the 5' flank"
+                : xv >= L ? (xv - L + 1) + " bp into the 3' flank"
+                : "element position " + xv;
+    s += '<rect x="' + (sx(xv) - 2).toFixed(1) + '" y="' + PADT + '" width="5" height="' +
+         (H - PADT - PADB) + '" fill="transparent"><title>' + where +
+         String.fromCharCode(10) + parts2.join(String.fromCharCode(10)) +
+         '</title></rect>';
+  }
+
+  TRACKS.forEach(t => {
+    if (!trackOn(t.k)) return;
+    s += '<path d="' + pathFor(xs, p[t.k], sx, sy) + '" fill="none" stroke="' + t.color +
+         '" stroke-width="1.6" stroke-linejoin="round"/>';
+  });
+
+  // ---- mosaic strip -------------------------------------------------------
+  const my0 = H + 6, mh = MH - 22;
+  const mvals = (p.mosaic || []).filter(v => v !== null);
+  const msort = mvals.slice().sort((a, b) => a - b);
+  const q = f => msort.length ? msort[Math.min(msort.length - 1,
+                 Math.max(0, Math.round(f * (msort.length - 1))))] : 0;
+  let mlo = q(0.02), mhi = q(0.98);
+  if (mhi - mlo < 0.05) { mhi = mlo + 0.05; }
+  const pad = (mhi - mlo) * 0.15;
+  mlo -= pad; mhi += pad;
+  const smy = v => my0 + (1 - (v - mlo) / (mhi - mlo)) * mh;
+  s += '<rect x="' + sx(0) + '" y="' + my0 + '" width="' + (sx(L - 1) - sx(0)) +
+       '" height="' + mh + '" fill="var(--band)"/>';
+  s += '<path d="' + pathFor(p.mosaic_x || [], p.mosaic || [], sx, smy) + '" fill="none" ' +
+       'stroke="var(--t5)" stroke-width="1.6"/>';
+  s += '<text x="' + (PADL - 6) + '" y="' + (my0 + 9) + '" text-anchor="end" font-size="9" ' +
+       'fill="var(--muted)" font-family="monospace">' + mhi.toFixed(2) + '</text>' +
+       '<text x="' + (PADL - 6) + '" y="' + (my0 + mh) + '" text-anchor="end" font-size="9" ' +
+       'fill="var(--muted)" font-family="monospace">' + mlo.toFixed(2) + '</text>';
+  s += '<text x="' + PADL + '" y="' + (my0 + mh + 13) + '" font-size="9.5" fill="var(--t5)" ' +
+       'font-family="monospace">mosaicism &mdash; residual after rank-1 fit (high = a copy subset ' +
+       'carries its own block here)</text>';
+
+  // ---- motif score strip: every position scored, not just the best hit ----
+  const MOTIFS = [["abox_p", "A box", "var(--f1)"],
+                  ["bbox_p", "B box", "var(--f2)"],
+                  ["selfsim_p", "tRNA rpt", "var(--f3)"]];
+  const anyMotif = MOTIFS.some(([k]) => p[k] && FEATON(k));
+  let motifH = 0;
+  if (anyMotif) {
+    const y0 = H + MH + 10, mh2 = 46;
+    motifH = mh2 + 22;
+    const RH = 11, GAP2 = 3;
+    let yy = y0;
+    MOTIFS.forEach(([k, lab, col]) => {
+      if (!p[k] || !FEATON(k)) return;
+      s += '<rect x="' + sx(0) + '" y="' + yy + '" width="' + (sx(L - 1) - sx(0)) +
+           '" height="' + RH + '" fill="var(--band)"/>';
+      s += heatRow(p.motif_x || [], p[k], sx, yy, RH, {lo: 0, hi: 5, hue: col, gamma: 2.2,
+                   label: lab + ' match', unit: ' (z vs shuffled consensus)'});
+      s += '<text x="' + (PADL - 6) + '" y="' + (yy + RH - 2) + '" text-anchor="end" ' +
+           'font-size="8.5" fill="var(--ink-2)" font-family="monospace">' + lab + '</text>';
+      yy += RH + GAP2;
+    });
+    if (p.at && FEATON("at_heat")) {
+      const K = 9, sm = [];
+      for (let i = 0; i < p.at.length; i++) {
+        let t = 0, c2 = 0;
+        for (let j = Math.max(0, i - (K >> 1)); j <= Math.min(p.at.length - 1, i + (K >> 1)); j++) {
+          if (p.at[j] !== null && p.at[j] !== undefined) { t += p.at[j]; c2++; }
+        }
+        sm.push(c2 ? t / c2 : null);
+      }
+      s += heatRow(xs, sm, sx, yy, RH, {lo: 0.35, hi: 0.85, mid: 0.62, diverge: true,
+                     label: 'A+T fraction', unit: ' (genomic background 0.62)'});
+      s += '<text x="' + (PADL - 6) + '" y="' + (yy + RH - 2) + '" text-anchor="end" ' +
+           'font-size="8.5" fill="var(--ink-2)" font-family="monospace">A+T</text>';
+      yy += RH + GAP2;
+    }
+    motifH = (yy - y0) + 14;
+    s += '<text x="' + PADL + '" y="' + (yy + 9) + '" font-size="9" ' +
+         'fill="var(--muted)" font-family="monospace">motif rows: darker = higher z vs a ' +
+         'shuffled consensus (faint = chance). A+T: blue GC-rich, orange AT-rich, ' +
+         'grey = background</text>';
+  }
+  MOTIF_H = motifH;
+
+  // ---- structural feature track (from ANNOTATIONS, ported annotate.py) ----
+  const ann = (typeof ANNOTATIONS !== "undefined") ? ANNOTATIONS[setName] : null;
+  if (ann && ann.features && ann.features.length) {
+    const ay0 = H + MH + 4 + MOTIF_H, ah = 8;
+    const spans = ann.features.filter(f => f.start !== undefined && f.end !== undefined)
+                              .filter(f => FEATON(f.type))
+                              .slice().sort((a, b) => a.start - b.start);
+    const CH = 5.5;
+    const lanes = [];
+    spans.forEach(f => {
+      const x0 = sx(f.start);
+      const wpx = Math.max(2.5, sx(f.end) - x0);
+      const lab = f.type.length * CH + 12;
+      f._x = x0; f._w = wpx;
+      f._inside = wpx > lab + 6;
+      f._hangL = !f._inside && (x0 + wpx + lab > W - PADR);
+      f._x0eff = x0 - (f._hangL ? lab : 0);
+      f._x1 = x0 + wpx + (f._inside || f._hangL ? 0 : lab);
+      let ln = 0;
+      while (lanes[ln] !== undefined && lanes[ln] > f._x0eff - 10) ln++;
+      lanes[ln] = f._x1;
+      f._lane = ln;
+    });
+    const nlane = Math.max(1, lanes.length);
+    if (!spans.length && !FEATON("tsd")) { TOTAL_H = H + MH; }
+    spans.forEach(f => {
+      const c = FEATCOLOR[f.type] || "var(--muted)";
+      const x = f._x, w = f._w;
+      const y = ay0 + f._lane * (ah + 3);
+      const op = (f.type === "terminator" && f["class"] === "moderate") ? 0.4
+               : (FEATALPHA[f.type] !== undefined ? FEATALPHA[f.type] : 0.75);
+      s += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + ah +
+           '" rx="2" fill="' + c + '" fill-opacity="' + op + '"><title>' +
+           f.type + (f["class"] ? " (" + f["class"] + ")" : "") + " " + f.start + "-" + f.end +
+           (f.unit ? " (" + f.unit + ")x" + f.units : "") +
+           (f.mismatches !== undefined ? " " + f.seq + ", " + f.mismatches +
+            "/" + f.max_mm + " mismatches" : "") +
+           (f.note ? " &mdash; " + f.note : "") + "</title></rect>";
+      let lx = f._inside ? x + 4 : x + w + 4, anchor = "start";
+      if (f._hangL) { lx = x - 4; anchor = "end"; }
+      s += '<text x="' + lx + '" y="' + (y + ah - 1.2) + '" text-anchor="' + anchor +
+           '" font-size="8.5" fill="' + (f._inside ? "#fff" : "var(--ink-2)") +
+           '" font-family="monospace">' + f.type + "</text>";
+      if (f.type === "internal_dup" && f.partner_start !== undefined) {
+        const px = sx(f.partner_start), pw = Math.max(2.5, sx(f.partner_end) - px);
+        s += '<rect x="' + px + '" y="' + y + '" width="' + pw + '" height="' + ah +
+             '" rx="2" fill="' + c + '" fill-opacity="0.45"/>' +
+             '<line x1="' + (x + w / 2) + '" y1="' + (y + ah / 2) + '" x2="' + (px + pw / 2) +
+             '" y2="' + (y + ah / 2) + '" stroke="' + c + '" stroke-width="1" ' +
+             'stroke-dasharray="2 2"/>';
+      }
+    });
+    const tsd = FEATON("tsd") ? ann.features.find(f => f.type === "tsd") : null;
+    if (tsd) {
+      const y = ay0 + nlane * (ah + 3);
+      [[sx(-12), "5'"], [sx(L - 1 + 2), "3'"]].forEach(([x]) => {
+        s += '<rect x="' + x + '" y="' + y + '" width="' + Math.max(6, sx(10) - sx(0)) +
+             '" height="' + ah + '" rx="2" fill="' + FEATCOLOR.tsd +
+             '" fill-opacity="0.75"><title>TSD in ' + (tsd.frac * 100).toFixed(0) +
+             ' % of copies, median ' + tsd.len_med + ' bp</title></rect>';
+      });
+      s += '<text x="' + (sx(L - 1 + 2) + Math.max(6, sx(10) - sx(0)) + 5) + '" y="' +
+           (y + ah - 1.2) + '" font-size="7.5" fill="var(--ink-2)" font-family="monospace">' +
+           'TSD ' + (tsd.frac * 100).toFixed(0) + ' % of copies, ' + tsd.len_med + ' bp</text>';
+    }
+    const tc = FEATON("terminator") && ann.features.find(f => f.type === "terminator_copies");
+    let extraLane = 0;
+    if (tc) {
+      const y2 = ay0 + (nlane + (tsd ? 1 : 0)) * (ah + 3);
+      extraLane = 1;
+      s += '<rect x="' + sx(L - 1 + 2) + '" y="' + y2 + '" width="' +
+           Math.max(6, sx(14) - sx(0)) + '" height="' + ah + '" rx="2" fill="' +
+           FEATCOLOR.terminator + '" fill-opacity="0.85"/>' +
+           '<text x="' + (sx(L - 1 + 2) - 5) + '" y="' + (y2 + ah - 1.2) +
+           '" text-anchor="end" font-size="8.5" fill="var(--ink-2)" ' +
+           'font-family="monospace">Pol III term: ' +
+           (tc.strong_frac * 100).toFixed(0) + '% strong, ' +
+           (tc.moderate_frac * 100).toFixed(0) + '% moderate, ~' +
+           tc.dist_med + ' bp out</text>';
+    }
+    TOTAL_H = H + MH + 4 + MOTIF_H + (nlane + 1 + extraLane) * (ah + 3) + 6;
+  } else {
+    TOTAL_H = H + MH + MOTIF_H;
+  }
+  s = s.replace('viewBox="0 0 ' + W + ' ' + (H + MH) + '"',
+                'viewBox="0 0 ' + W + ' ' + TOTAL_H + '"');
+  s += "</svg>";
+  host.innerHTML = s;
+}
+"""
 
 REPORT_PLOTS_JS = """
 (function(){
@@ -1053,7 +1380,16 @@ def render_legend(items: List[Tuple[str, str]]) -> str:
 
 CSS = """
 :root { --fg:#222; --bg:#fafafa; --card:#fff; --accent:#4C72B0;
-        --muted:#666; --border:#e2e2e2; }
+        --muted:#666; --border:#e2e2e2;
+        /* Diagram track/feature colors -- exact values from
+           SINE_discriminator's site/index.html :root, so a diagram here reads
+           identically to the site's (light-mode values only; this report has
+           no dark-mode CSS of its own to match against). */
+        --t1:#1baf7a; --t2:#2a78d6; --t3:#eda100; --t4:#4a3aa7; --t5:#e34948;
+        --f1:#2a78d6; --f2:#eb6834; --f3:#1baf7a; --f4:#eda100; --f5:#e87ba4;
+        --f6:#008300; --f7:#4a3aa7; --f8:#e34948;
+        --div-lo:#2a78d6; --div-mid:#b9bcb6; --div-hi:#eb6834;
+        --band:#e9efe9; --grid:#e2e7e0; --warn:#a8501d; --ink-2:#3d4b47; }
 * { box-sizing: border-box; }
 body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
        sans-serif; background: var(--bg); color: var(--fg);
@@ -1117,6 +1453,41 @@ section.card p.intro { color: var(--muted); font-size: 0.9rem;
 .aln-link.green:hover { background: #1e7e34; }
 .small { font-size: 0.8rem; }
 .muted { color: var(--muted); }
+.diag-icon { font-size: 0.75rem; line-height: 1; background: none;
+  border: 1px solid var(--muted); border-radius: 3px; width: 1.5em; height: 1.5em;
+  padding: 0; cursor: pointer; color: inherit; vertical-align: middle; }
+.diag-icon:hover { background: rgba(120,120,120,0.12); }
+.diag-icon.diag-open { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* Diagram modal -- NOT inline in the table cell. A narrow table column
+   (this one sits among 8 others) crushed the SVG to ~300px wide, which made
+   every track and label illegible -- found 2026-09-09 by actually looking at
+   the rendered page, not just checking that an <svg> element existed. The SVG
+   itself scales via viewBox + width:100%, so the fix is giving it a large
+   container, not changing the chart's internals. */
+#diag-modal { display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.75); z-index: 9998;
+  align-items: flex-start; justify-content: center; padding: 4vh 3vw;
+  overflow-y: auto; }
+#diag-modal.active { display: flex; }
+#diag-modal-inner { background: var(--card); border-radius: 8px;
+  padding: 20px 24px; width: min(1100px, 92vw); box-shadow: 0 8px 40px rgba(0,0,0,.5);
+  position: relative; }
+#diag-modal-title { font-size: 1rem; font-weight: 600; margin: 0 32px 10px 0; }
+#diag-modal-close { position: absolute; top: 14px; right: 16px;
+  background: none; border: none; font-size: 1.4rem; line-height: 1;
+  cursor: pointer; color: var(--muted); padding: 4px; }
+#diag-modal-close:hover { color: var(--fg); }
+#diag-modal-msalink { display: inline-block; margin-bottom: 10px; }
+.diag-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-bottom: 10px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 0.76rem; }
+.diag-legend-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.diag-legend-title { font-weight: 600; color: var(--muted); margin-right: 2px; }
+.diag-legend label { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+.diag-legend .sw { display: inline-block; width: 14px; height: 3px; border-radius: 1px; }
+.diag-legend .swb { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.diag-chips { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 6px;
+  font-size: 0.78rem; }
+.diag-chip b { font-weight: 600; margin-right: 3px; }
 /* Highlighted table columns */
 .tbl th.hl { background: #d6e8ff; }
 .tbl td.hl { font-weight: 600; color: #1a3a6e; background: #f4f8ff; }
@@ -1311,26 +1682,290 @@ def flags_table(flags: Dict[str, Dict[str, int]]) -> str:
         col_titles={k: _strip_html(v) for k, v in LEG_FLAGS})
 
 
+VCHIP_CSS = """
+.vchip { display: inline-block; font-size: .78rem; font-weight: 600;
+         padding: 2px 7px; border-radius: 3px; white-space: nowrap; }
+.vchip.v-ok { background: #e2efe9; color: #1f6f5c; }
+.vchip.v-edge { background: #f5eed8; color: #7a5c12; }
+.vchip.v-warn { background: #f6e8de; color: #a8501d; }
+.vchip.v-muted { background: #eceee8; color: #68766f; }
+"""
+
+
+def _vchip(label: str, kind: str, title: str = "") -> str:
+    t = f" title='{html.escape(title, quote=True)}'" if title else ""
+    return f"<span class='vchip v-{kind}'{t}>{html.escape(label)}</span>"
+
+
+def _vcodes(v):
+    return {f["code"] for f in v.get("flags", [])}
+
+
+def status_flanks(v):
+    """Ported from SINE_discriminator's inject_oma_aln_section.py (2026-09-09),
+    unmodified logic, against report_verdict.verdict()'s output."""
+    if not v or v.get("error"):
+        return _vchip("n/a", "muted", v.get("error", "not scored") if v else "")
+    codes = _vcodes(v)
+    if "NO_FLANKS_PRESENT" in codes:
+        return _vchip("No flanks", "muted", "Alignment carries no flank sequence.")
+    if "NOT_ISOLATED" in codes:
+        f = next(x for x in v["flags"] if x["code"] == "NOT_ISOLATED")
+        return _vchip("Satellite / dup", "warn", f.get("text", ""))
+    if "FRAGMENT_OF_LONGER" in codes or "ELEMENT_CONTINUES" in codes:
+        f = next(x for x in v["flags"]
+                 if x["code"] in ("FRAGMENT_OF_LONGER", "ELEMENT_CONTINUES"))
+        return _vchip("Fragment / LINE", "warn", f.get("text", ""))
+    if "SHARED_FLANKS" in codes:
+        f = next(x for x in v["flags"] if x["code"] == "SHARED_FLANKS")
+        return _vchip("Shared flanks", "warn", f.get("text", ""))
+    if "FLANK_ISLANDS" in codes:
+        f = next(x for x in v["flags"] if x["code"] == "FLANK_ISLANDS")
+        return _vchip("Flank islands", "edge", f.get("text", ""))
+    if "FLANKS_UNMEASURED" in codes:
+        return _vchip("Short-flank view", "muted",
+                      "50L/70R publish geometry; no 400 bp decay profile.")
+    fb = v.get("flank_bg")
+    if fb is None:
+        return _vchip("Not measured", "muted")
+    if fb < 0.32:
+        return _vchip("Independent", "ok",
+                      "Flank pairwise identity %.2f vs ~0.25 background." % fb)
+    if fb < 0.42:
+        return _vchip("Borderline", "edge",
+                      "Flank background %.2f — check by eye." % fb)
+    return _vchip("Raised flanks", "warn",
+                  "Flank background %.2f — copies may share context." % fb)
+
+
+def status_element(v):
+    if not v or v.get("error"):
+        return _vchip("n/a", "muted", v.get("error", "not scored") if v else "")
+    codes = _vcodes(v)
+    g = v.get("groups", {}).get("element", 0.0)
+    if "NO_ELEMENT" in codes or g < 0.25:
+        f = next((x for x in v["flags"] if x["code"] == "NO_ELEMENT"), None)
+        return _vchip("No element", "warn", (f or {}).get("text", ""))
+    if "MICROSATELLITE_ELEMENT" in codes:
+        f = next(x for x in v["flags"] if x["code"] == "MICROSATELLITE_ELEMENT")
+        return _vchip("Microsatellite", "warn", f.get("text", ""))
+    if "CONSENSUS_OVEREXTENDED" in codes:
+        f = next(x for x in v["flags"] if x["code"] == "CONSENSUS_OVEREXTENDED")
+        return _vchip("Over-extended", "edge", f.get("text", ""))
+    if "CONSENSUS_UNDEREXTENDED" in codes:
+        f = next(x for x in v["flags"] if x["code"] == "CONSENSUS_UNDEREXTENDED")
+        return _vchip("Under-extended", "edge", f.get("text", ""))
+    if "SMALL_CORE" in codes:
+        f = next(x for x in v["flags"] if x["code"] == "SMALL_CORE")
+        return _vchip("Small core", "edge", f.get("text", ""))
+    if g >= 0.85:
+        return _vchip("Strong", "ok",
+                      "%d/%d copies support the consensus."
+                      % (v.get("n_supported", 0), v.get("n", 0)))
+    if g >= 0.5:
+        return _vchip("Supported", "ok",
+                      "%d/%d copies support the consensus."
+                      % (v.get("n_supported", 0), v.get("n", 0)))
+    return _vchip("Weak", "edge", "Element group score %.2f." % g)
+
+
+def status_overall(v):
+    if not v or v.get("error"):
+        return _vchip("n/a", "muted", v.get("error", "not scored") if v else "")
+    if v.get("deferred"):
+        return _vchip("Deferred", "edge", "Mixture — split before a firm call.")
+    if not v.get("assessable", True):
+        return _vchip("Cannot assess", "muted", "Too little evidence for a score.")
+    s = float(v.get("score", 0))
+    note = "%.0f/100" % s
+    if v.get("capped_by"):
+        note += " (capped: %s)" % ", ".join(v["capped_by"])
+    if s >= 90:
+        return _vchip("SINE", "ok", note)
+    if s >= 75:
+        return _vchip("SINE (caveats)", "ok", note)
+    if s >= 55:
+        return _vchip("Grey zone", "edge", note)
+    return _vchip("Not SINE", "warn", note)
+
+
+def _side_note(side):
+    if not side.get("measured"):
+        return side.get("reason", "not measured")
+    return (
+        "%.0f%% unique; largest shared group %.0f%% (%d copies)"
+        % (100 * side.get("unique_frac", 0),
+           100 * side.get("largest_cluster_frac", 0),
+           side.get("largest_cluster", 0))
+    )
+
+
+def status_flank_context(top, rand):
+    """Per-side flank clustering: rand100 high, top100 medium."""
+    parts = []
+    worst = None
+    for label, r in (("rand", rand), ("top", top)):
+        if not r or r.get("error"):
+            continue
+        sev = r.get("worst_flag")
+        if sev == "high":
+            worst = "high"
+        elif sev == "medium" and worst != "high":
+            worst = "medium"
+        for f in r.get("flags", []):
+            parts.append("%s %s: %s" % (label, f["side"], f["text"]))
+    if not top and not rand:
+        return _vchip("n/a", "muted", "no alignment")
+    if not parts:
+        note = ""
+        if top and top.get("left", {}).get("measured"):
+            note = "Top100 L/R " + _side_note(top["left"]) + "; " + _side_note(top["right"])
+        return _vchip("Independent", "ok", note or "No shared-flank clusters above threshold.")
+    title = " ".join(parts)
+    if worst == "high":
+        return _vchip("Shared context", "warn", title)
+    return _vchip("Subgroup", "edge", title)
+
+
+def compute_verdicts(species_code: str, subfams: List[str], aln_dir: Path) -> Dict[str, dict]:
+    """{sf: (verdict_dict_or_None, flank_scan_top100_or_None, flank_scan_rand100_or_None)}
+    Ported from inject_oma_aln_section.py's score_top100()/scan_flanks(), which
+    scored only the top100 tier for the verdict itself (element/flanks/overall
+    columns) while flank-context looks at both tiers."""
+    try:
+        import report_verdict as V
+        import report_flank_uniqueness as FU
+    except ImportError as exc:
+        LOG.warning("Skipping verdict columns: %s (numpy required)", exc)
+        return {}
+    out = {}
+    for sf in subfams:
+        t100 = aln_dir / f"{species_code}_{sf}_top100.aln.fa"
+        r100 = aln_dir / f"{species_code}_{sf}_rand100.aln.fa"
+        v = None
+        if t100.is_file():
+            try:
+                v = V.verdict(str(t100))
+            except Exception as exc:
+                v = {"error": str(exc)}
+        fu_t = None
+        if t100.is_file():
+            try:
+                fu_t = FU.scan(str(t100))
+            except Exception as exc:
+                fu_t = {"error": str(exc)}
+        fu_r = None
+        if r100.is_file():
+            try:
+                fu_r = FU.scan(str(r100))
+            except Exception as exc:
+                fu_r = {"error": str(exc)}
+        out[sf] = {"verdict": v, "flank_top": fu_t, "flank_rand": fu_r}
+    return out
+
+
+def compute_profiles(species_code: str, subfams: List[str], aln_dir: Path,
+                      max_diagrams: int) -> Dict[str, dict]:
+    """Positional alignment-composition diagram data (report_profile.py, ported
+    from SINE_discriminator's profiles.py/measure_c.py 2026-09-09) for every
+    subfamily x {top100, rand100} pair whose alignment file actually exists on
+    disk. Computed once here at report-build time and embedded as JSON — a
+    static HTML report has no server to compute on click, so "lazy" means only
+    computed for tiers that exist, not deferred past build time; the button
+    itself only renders the (already-embedded) SVG on expand, which is cheap.
+
+    max_diagrams caps total tiers computed (each is one MAFFT-scale numpy pass)
+    so a report with many subfamilies doesn't stall step6 — same pattern as
+    --sineplot-max.
+    """
+    try:
+        import report_profile as RP
+    except ImportError as exc:
+        LOG.warning("Skipping alignment diagrams: %s (numpy required)", exc)
+        return {}
+    out: Dict[str, dict] = {}
+    n = 0
+    for sf in subfams:
+        for tier in ("top100", "rand100"):
+            if n >= max_diagrams:
+                LOG.info("Alignment diagrams: stopped at cap (%d)", max_diagrams)
+                return out
+            fn = aln_dir / f"{species_code}_{sf}_{tier}.aln.fa"
+            if not fn.is_file():
+                continue
+            try:
+                p = RP.profile(str(fn))
+                m = RP.measure(str(fn))
+            except Exception as exc:
+                LOG.warning("Alignment diagram failed for %s/%s: %s", sf, tier, exc)
+                continue
+            if p is None:
+                continue
+            p["_measure"] = m
+            out[f"{sf}_{tier}"] = p
+            n += 1
+    return out
+
+
+def compute_annotations(species_code: str, subfams: List[str], aln_dir: Path,
+                         profiles: Dict[str, dict], max_diagrams: int) -> Dict[str, dict]:
+    """Structural-feature annotations (report_annotate.py, ported from
+    SINE_discriminator's annotate.py 2026-09-09) for the same tiers
+    compute_profiles already found a profile for -- one alignment read each,
+    reusing the already-computed profile for the conserved-block detection."""
+    try:
+        import report_annotate as RA
+    except ImportError as exc:
+        LOG.warning("Skipping structural-feature annotations: %s", exc)
+        return {}
+    out: Dict[str, dict] = {}
+    n = 0
+    for sf in subfams:
+        for tier in ("top100", "rand100"):
+            key = f"{sf}_{tier}"
+            if key not in profiles or n >= max_diagrams:
+                continue
+            fn = aln_dir / f"{species_code}_{sf}_{tier}.aln.fa"
+            if not fn.is_file():
+                continue
+            try:
+                a = RA.annotate(str(fn), profiles[key])
+            except Exception as exc:
+                LOG.warning("Annotation failed for %s/%s: %s", sf, tier, exc)
+                continue
+            if a is None:
+                continue
+            out[key] = a
+            n += 1
+    return out
+
+
 def build_alignment_section(
     species_code: str,
     subfams: List[str],
     msa_url: str = "https://toki-bio.github.io/MSA-viewer/",
     raw_base: Optional[str] = None,
     aln_dir: Optional[Path] = None,
+    profiles: Optional[Dict[str, dict]] = None,
+    verdicts: Optional[Dict[str, dict]] = None,
 ) -> str:
     """Alignment table. With raw_base (http URL): MSA-viewer links. Else: relative paths."""
     use_remote = bool(raw_base and raw_base.startswith("http"))
+    profiles = profiles or {}
+    verdicts = verdicts or {}
 
-    def aln_link(fn: str, title: str, label: str, css: str = "") -> str:
+    def aln_href(fn: str, title: str, remote_fn: Optional[str] = None) -> str:
         if use_remote:
             base = raw_base.rstrip("/") + "/"
             if "alignments" not in base:
                 base = f"{raw_base.rstrip('/')}/{species_code}/alignments/"
-            url = base + fn
-            href = (f"{msa_url}?url={quote(url, safe='')}"
+            url = base + (remote_fn or fn)
+            return (f"{msa_url}?url={quote(url, safe='')}"
                     f"&title={quote(title, safe='')}")
-        else:
-            href = f"alignments/{fn}"
+        return f"alignments/{fn}"
+
+    def aln_link(fn: str, title: str, label: str, css: str = "", remote_fn: Optional[str] = None) -> str:
+        href = aln_href(fn, title, remote_fn)
         cls = "aln-link" + (f" {css}" if css else "")
         return (f'<a class="{cls}" href="{html.escape(href, quote=True)}" '
                 f'target="_blank">{html.escape(label)}</a>')
@@ -1358,11 +1993,51 @@ def build_alignment_section(
         sub_fn = f"{species_code}_{sf}_subfam.aln.fa"
         if aln_dir and not (aln_dir / t100_fn).is_file():
             continue
+        # Some runs' subfamily names already carry the species prefix (this
+        # oma run's do -- its own consensus headers are `>oma_SINE10`, so
+        # step8a's own naming doubles it to `oma_oma_SINE10_...` on disk),
+        # while a raw_base publish typically strips that duplication (verified
+        # against the real published copies: alignments/oma/oma_SINE10_top100
+        # .aln.fa on GitHub, single-prefixed, 2026-09-09). Local disk lookups
+        # must use the actual on-disk (possibly doubled) name; remote links
+        # must use the deduplicated one, or they 404 against a real publish.
+        remote_sf = sf[len(species_code) + 1:] if sf.startswith(f"{species_code}_") else sf
+        t100_remote = f"{species_code}_{remote_sf}_top100.aln.fa"
+        r100_remote = f"{species_code}_{remote_sf}_rand100.aln.fa"
+        sub_remote = f"{species_code}_{remote_sf}_subfam.aln.fa"
+        has_t100 = f"{sf}_top100" in profiles
+        has_r100 = f"{sf}_rand100" in profiles
+
+        def _diag_icon(tier_key: str, tier_label: str, remote_fn: str) -> str:
+            # tiny icon inline with the link it diagrams -- opens the SHARED
+            # full-size modal (#diag-modal), not a per-row box. A per-row div
+            # confined to this table's column width crushed the SVG to ~300px,
+            # illegible (found 2026-09-09 by actually looking at the render).
+            href = aln_href(remote_fn, f"{species_code} {tier_key}", remote_fn=remote_fn)
+            return (f"<button type='button' class='diag-icon' "
+                    f"data-tier='{tier_key}' data-label='{html.escape(sf)} {tier_label}' "
+                    f"data-msa-href='{html.escape(href, quote=True)}' "
+                    f"title='{tier_label} alignment diagram'>&#9656;</button>")
+
+        t100_icon = _diag_icon(f"{sf}_top100", "top100", t100_remote) if has_t100 else ""
+        r100_icon = _diag_icon(f"{sf}_rand100", "rand100", r100_remote) if has_r100 else ""
+        vd = verdicts.get(sf) or {}
+        verdict_cells = (
+            f"<td>{status_flanks(vd.get('verdict'))}</td>"
+            f"<td>{status_flank_context(vd.get('flank_top'), vd.get('flank_rand'))}</td>"
+            f"<td>{status_element(vd.get('verdict'))}</td>"
+            f"<td>{status_overall(vd.get('verdict'))}</td>"
+        ) if vd else (
+            "<td class='small muted'>n/a</td>" * 4
+        )
         rows_html += (
             f"<tr><td><code>{html.escape(sf)}</code></td>"
-            f"<td>{aln_link(t100_fn, f'{species_code} {sf} top100', 'top 100 by score')}</td>"
-            f"<td>{aln_link(r100_fn, f'{species_code} {sf} rand100', '100 random', 'orange')}</td>"
-            f"<td>{aln_link(sub_fn, f'{species_code} {sf} subfam', 'SubFam', 'green')}</td>"
+            f"<td>{aln_link(t100_fn, f'{species_code} {sf} top100', 'top 100 by score', remote_fn=t100_remote)}"
+            f" {t100_icon}</td>"
+            f"<td>{aln_link(r100_fn, f'{species_code} {sf} rand100', '100 random', 'orange', remote_fn=r100_remote)}"
+            f" {r100_icon}</td>"
+            f"<td>{aln_link(sub_fn, f'{species_code} {sf} subfam', 'SubFam', 'green', remote_fn=sub_remote)}</td>"
+            f"{verdict_cells}"
             "</tr>"
         )
     if not rows_html:
@@ -1372,15 +2047,26 @@ def build_alignment_section(
         "<h2>Subfamily alignments</h2>"
         "<p class='intro'>Copies re-extracted with "
         "<strong>50&thinsp;bp upstream + 70&thinsp;bp downstream</strong> "
-        "genomic flanks (strand-aware)."
+        "genomic flanks (strand-aware). The alignment diagram plots per-position "
+        "pairwise identity, coverage, consensus identity, A+T fraction and "
+        "mosaicism across the 5&prime; flank/element/3&prime; flank, plus A "
+        "box/B box/tRNA-head self-similarity motif scores — a track reads flat "
+        "at z&#8776;0 (\"not detected\"), never disappears, on families that "
+        "are not tRNA-derived. The last four columns score the "
+        "<strong>top 100</strong> alignment with <code>report_verdict.py</code> "
+        "(ported from SINE_discriminator's <code>verdict.py</code>) — each cell "
+        "is a coloured label, hover for the measurement behind it."
         + intro_links
         + "</p>"
         "<table class='tbl'>"
         "<thead><tr><th>Subfamily</th>"
-        "<th>Top 100 by bitscore</th>"
-        "<th title='drawn with a fixed random seed, so the same 100 copies come back on every rebuild'>"
+        "<th title='Click &#9656; to open the alignment-composition diagram'>"
+        "Top 100 by bitscore</th>"
+        "<th title='Click &#9656; to open the alignment-composition diagram'>"
         f"100 random copies (seed {html.escape(os.environ.get('RAND_SEED', '42'))})</th>"
-        "<th>SubFam (chunk consensuses)</th></tr></thead>"
+        "<th>SubFam (chunk consensuses)</th>"
+        "<th>Flanks</th><th>Flank context</th><th>Element</th><th>Overall</th>"
+        "</tr></thead>"
         f"<tbody>{rows_html}</tbody>"
         "</table></section>"
     )
@@ -1400,7 +2086,9 @@ def build_html(run_root: Path,
                threads: int,
                tal_species_code: Optional[str] = None,
                aln_base: Optional[str] = None,
-               pages_index: Optional[str] = None) -> None:
+               pages_index: Optional[str] = None,
+               profile_diagrams: bool = True,
+               profile_diagrams_max: int = 200) -> None:
     LOG.info("Building report for %s", run_root)
     s2 = find_step2_out(run_root)
     LOG.info("step2 output: %s", s2)
@@ -1591,6 +2279,8 @@ def build_html(run_root: Path,
     # Alignment section (requires --species-code; links need --aln-base for MSA viewer)
     species_code = tal_species_code
     alignment_section = ""
+    aln_profiles: Dict[str, dict] = {}
+    aln_annotations: Dict[str, dict] = {}
     aln_dir = run_root / "results" / "alignments"
     if not aln_dir.is_dir():
         aln_dir = run_root / "alignments"
@@ -1598,13 +2288,26 @@ def build_html(run_root: Path,
         subfams_for_aln = sorted({r[0] for r in stats_rows if r})
         if aln_dir.is_dir():
             from_disk = sorted({
-                p.name.replace("_top100.aln.fa", "").replace(f"{species_code}_", "")
+                p.name.replace("_top100.aln.fa", "").replace(f"{species_code}_", "", 1)
                 for p in aln_dir.glob(f"{species_code}_*_top100.aln.fa")
             })
             if from_disk:
                 subfams_for_aln = from_disk
+        if profile_diagrams and aln_dir.is_dir():
+            aln_profiles = compute_profiles(
+                species_code, subfams_for_aln, aln_dir, profile_diagrams_max)
+            aln_annotations = compute_annotations(
+                species_code, subfams_for_aln, aln_dir, aln_profiles, profile_diagrams_max)
+        aln_verdicts: Dict[str, dict] = {}
+        if profile_diagrams and aln_dir.is_dir():
+            # gate on the same flag as the diagrams -- both are the optional,
+            # numpy-needing, per-file-read analysis stage
+            aln_verdicts = compute_verdicts(species_code, subfams_for_aln, aln_dir)
         alignment_section = build_alignment_section(
-            species_code, subfams_for_aln, raw_base=aln_base, aln_dir=aln_dir)
+            species_code, subfams_for_aln, raw_base=aln_base, aln_dir=aln_dir,
+            profiles=aln_profiles, verdicts=aln_verdicts)
+    profiles_json = json.dumps(aln_profiles, separators=(",", ":"))
+    annotations_json = json.dumps(aln_annotations, separators=(",", ":"))
 
     # SINEplot panel HTML
     if sineplot_html:
@@ -1693,11 +2396,20 @@ def build_html(run_root: Path,
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SINEderella report &mdash; {html.escape(title)}</title>
-<style>{CSS}</style>
+<style>{CSS}{VCHIP_CSS}</style>
 {plotly_tag}
 </head><body>
 <div id="lightbox" onclick="this.classList.remove('active')">
   <img id="lightbox-img" src="" alt="">
+</div>
+<div id="diag-modal">
+  <div id="diag-modal-inner">
+    <button type="button" id="diag-modal-close" title="Close" aria-label="Close">&times;</button>
+    <p id="diag-modal-title"></p>
+    <a id="diag-modal-msalink" class="aln-link" target="_blank" rel="noopener" hidden></a>
+    <div id="diag-modal-legend" class="diag-legend"></div>
+    <div id="diag-modal-body"></div>
+  </div>
 </div>
 {cross_nav}
 <header>
@@ -1826,6 +2538,61 @@ def build_html(run_root: Path,
   }});
 }})();
 </script>
+<script>
+// Deliberately a SEPARATE <script> tag from the block above: fig_init calls
+// Plotly.newPlot, and if the Plotly CDN is unreachable (blocked host, offline,
+// or just a slow load race) that throws and aborts every remaining statement
+// in ITS OWN script block -- which silently killed the diagram toggle below
+// when both lived in one block (found 2026-09-09, diagrams did not expand on
+// a published Artifact because cdn.plot.ly is not on its script allowlist).
+// Splitting the block means a Plotly failure can never take this out too.
+var PROFILES = {profiles_json};
+var ANNOTATIONS = {annotations_json};
+{DIAGRAM_JS}
+(function(){{
+  // Every diag-icon opens the SAME full-size modal (#diag-modal), sized to
+  // min(1100px, 92vw) -- not a per-row box confined to a table column, which
+  // is what made the chart illegible.
+  var modal = document.getElementById('diag-modal');
+  var body = document.getElementById('diag-modal-body');
+  var title = document.getElementById('diag-modal-title');
+  var msalink = document.getElementById('diag-modal-msalink');
+  var legend = document.getElementById('diag-modal-legend');
+  var closeBtn = document.getElementById('diag-modal-close');
+  var legendBuilt = false;
+  var currentTier = null;
+  function closeModal(){{ modal.classList.remove('active'); body.innerHTML = ''; currentTier = null; }}
+  if (closeBtn) closeBtn.addEventListener('click', closeModal);
+  if (modal) modal.addEventListener('click', function(e){{
+    if (e.target === modal) closeModal();
+  }});
+  document.addEventListener('keydown', function(e){{
+    if (e.key === 'Escape' && modal.classList.contains('active')) closeModal();
+  }});
+  document.querySelectorAll('.diag-icon').forEach(function(btn){{
+    btn.addEventListener('click', function(){{
+      if (!legendBuilt) {{
+        buildDiagLegend(legend);
+        legend.addEventListener('change', function(e){{
+          if (e.target.matches('.trk,.ftr') && currentTier) drawProfile(currentTier, body);
+        }});
+        legendBuilt = true;
+      }}
+      title.textContent = btn.dataset.label;
+      if (btn.dataset.msaHref) {{
+        msalink.href = btn.dataset.msaHref;
+        msalink.textContent = 'open in MSA-viewer ↗';
+        msalink.hidden = false;
+      }} else {{
+        msalink.hidden = true;
+      }}
+      currentTier = btn.dataset.tier;
+      modal.classList.add('active');
+      drawProfile(currentTier, body);
+    }});
+  }});
+}})();
+</script>
 </body></html>
 """
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1867,6 +2634,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--sineplot-max", type=int, default=400,
                     help="Max copies per subfamily fed to SINEplot "
                          "(default: 400).")
+    ap.add_argument("--profile-diagrams", dest="profile_diagrams",
+                    action="store_true", default=True,
+                    help="Per-subfamily alignment-composition diagram, "
+                         "top100/rand100 toggle (default on; needs numpy).")
+    ap.add_argument("--no-profile-diagrams", dest="profile_diagrams",
+                    action="store_false",
+                    help="Skip the alignment-composition diagrams.")
+    ap.add_argument("--profile-diagrams-max", type=int, default=200,
+                    help="Max subfamily x tier diagrams computed per report "
+                         "(default: 200).")
     ap.add_argument("--threads", type=int,
                     default=int(os.environ.get("THREADS",
                                                os.cpu_count() or 1)),
@@ -1906,7 +2683,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                threads=args.threads,
                tal_species_code=species,
                aln_base=args.aln_base,
-               pages_index=pages_index)
+               pages_index=pages_index,
+               profile_diagrams=args.profile_diagrams,
+               profile_diagrams_max=args.profile_diagrams_max)
     return 0
 
 
