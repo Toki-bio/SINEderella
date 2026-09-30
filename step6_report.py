@@ -2309,6 +2309,9 @@ def build_html(run_root: Path,
     # Element hierarchy (flankscan stage 7: composites drawn as their parts, to scale); "" without it
     hierarchy_section = ""
     try:
+        _here = os.path.dirname(os.path.abspath(__file__))       # publish runs step6 from elsewhere
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
         import report_hierarchy as RH
         hierarchy_section = RH.section(
             run_root, species_code, aln_base,
