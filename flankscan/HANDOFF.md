@@ -253,3 +253,9 @@ folded) - stage 6 NOT yet rerun on ~/tmp/fs_rsi5. Known limit: an extension that
   tests: for every hierarchy.tsv layout containing the family, a +-10 bp window at the predicted element end,
   own calibrated minimum (21 positions). WIDE env (450 for the rerun). Running on r3, r1, r2, r10 (control
   r9), log ~/tmp/fs8_all.log. rsi_v3 report published (Tal rsi_v3/); publish_run now copies report_*.py.
+- 2026-09-30 his note: the 5' end of a SINE is sharp, the 3' end is not (simple-motif tails) -> TSD search
+  asymmetric: 5' copy <= 4 bp from the unit start (ViewAlign), 3' copy up to TSD_RSLACK=25 bp past the
+  estimated 3' end (was 3); calibration uses the same rule; the 3' distance is kept per TSD (SEQ@bp).
+  First complete family with the hypothesis test: r2 - composite members carry the TSD at the r1+r2 (P39)
+  predicted end in 42.7 % (r9 singles at the same offset 3.4 % = chance); r2 has only 3 singles -> r2 never
+  occurs alone. r3, r1, r10 still running (old code, slack 3) - rerun with the slack after they finish.

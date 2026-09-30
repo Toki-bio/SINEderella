@@ -19,6 +19,11 @@
 #    TSD 4-20 bp, <= 20 % mismatch (N = half), the 5' copy ending <= 4 bp from the left boundary and
 #    the 3' copy starting <= 3 bp from the right boundary, score (1 - div) * sqrt(len)
 #    - 0.04 * upstream offset - 0.13 * downstream start; best pair per copy.
+#    One change (his note, 2026-09-30): a SINE's 5' end is sharp (the head starts at a fixed base) but
+#    its 3' end is not (tails of simple motifs vary in length, so "unit + own tail" is only an estimate).
+#    The 5' copy keeps ViewAlign's <= 4 bp; the 3' copy may start up to TSD_RSLACK (default 25) bp past
+#    the estimated 3' end instead of 3, same per-bp penalty; the calibration below uses the same rule.
+#    The distance found is kept with each TSD (unit_tsd = SEQ@bp) to tune the slack per family.
 #    If a family makes TSDs, the TSD pair shows where the insertion really starts and ends:
 #      unit: the TSD search at the unit's own ends (its start; its end after its own tail);
 #      scan: the left boundary moved outward 1 bp at a time up to WIDE bp (right boundary fixed), and
@@ -81,7 +86,7 @@ fi
 echo "fs8: composite hypotheses for $FAM: ${HYP:-none}" >&2
 
 # TSDs, ViewAlign's detector (MSA-viewer script.js _findBestTsdInFlanks), real and shuffled pairs
-gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_calibration.tsv" -v HYP="$HYP" '
+gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_calibration.tsv" -v HYP="$HYP" -v RS="${TSD_RSLACK:-25}" '
     function mm(x, y,   i, m, c1, c2) { m = 0
         for (i = 1; i <= length(x); i++) { c1 = substr(x, i, 1); c2 = substr(y, i, 1)
             if (c1 == "N" || c2 == "N") m += 0.5; else if (c1 != c2) m++ }
@@ -93,11 +98,11 @@ gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_cali
             cl = length(up) - L
             for (uo = 0; uo <= (cl < 4 ? cl : 4); uo++) {
                 us = substr(up, cl - uo + 1, L)
-                for (ds = 0; ds <= ((length(down) - L) < 3 ? length(down) - L : 3); ds++) {
+                for (ds = 0; ds <= ((length(down) - L) < RS ? length(down) - L : RS); ds++) {   # 3 side: RS bp slack
                     dq = substr(down, ds + 1, L); dv = mm(us, dq) / L
                     if (dv > 0.20) continue
                     sc = (1 - dv) * sqrt(L) - uo * 0.04 - ds * 0.08 - ds * 0.05
-                    if (sc > TSC || (sc == TSC && L > TL)) { TSC = sc; TL = L; TS = us; TD = dv }
+                    if (sc > TSC || (sc == TSC && L > TL)) { TSC = sc; TL = L; TS = us; TD = dv; TDS = ds }
                 } } }
         return TL }
     function upw(s, l) { return substr(s, (l - 30 > 1 ? l - 30 : 1), (l - 30 > 1 ? 30 : l - 1)) }   # 30 before l
@@ -149,7 +154,7 @@ gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_cali
         print "chosen_hyp_min_len", HYPL > CAL
         for (r = 1; r <= NR; r++) {
             s = S[r]; a = A[r]; b = B[r]
-            best(upw(s, a), dnw(s, b), MINL); ul = TL; uts = (TL ? TS : "-"); usc = TSC
+            best(upw(s, a), dnw(s, b), MINL); ul = TL; uts = (TL ? TS "@" TDS : "-"); usc = TSC   # @ = bp past the 3 end
             bl = 0; bsc = usc; b5 = 0; b3 = 0; bts = uts                  # scan: left outward, then right outward
             for (k = 1; k <= WD && a - k > 31; k++) { best(upw(s, a - k), dnw(s, b), SCANL); if (TL && TSC > bsc) { bsc = TSC; b5 = k; b3 = 0; bl = TL; bts = TS } }
             for (k = 1; k <= WD && b + k + 56 <= length(s); k++) { best(upw(s, a), dnw(s, b + k), SCANL); if (TL && TSC > bsc) { bsc = TSC; b5 = 0; b3 = k; bl = TL; bts = TS } }
