@@ -35,6 +35,29 @@ the duplication we look for. Every approach must ignore genome-repetitive sequen
 mask where present, TRF / dust (flankscan stage 2 already masks flank tandem repeats), and/or k-mers that
 are frequent genome-wide.
 
+## What counts as a shared flank (definition, 2026-09-30)
+
+A copy duplicated together with its neighbourhood (segmental duplication, array unit, carried by another
+element) has flanks identical to its twin's **from the junction with the SINE outward, colinear**. Two flanks
+that merely contain the same LINE fragment match somewhere inside the flank, at unrelated offsets. So:
+
+**shared flank = similarity that starts within a few bp of the junction in BOTH copies, runs outward in the
+same order, over >= ~50 bp** (thresholds to be set on the benchmark). This separates duplication from the
+repeat problem by definition, and it points to a cheap test: only the first ~100 bp next to each junction
+need comparing (a junction-anchored k-mer or hash of the proximal flank).
+
+## Ground truth: exhaustive alignment on a subset, not the `[array]` mark
+
+`[array]` means >= 3 copies within 50 kb on one contig - proximity, not shared flanks - so it cannot be the
+truth. Truth comes from exhaustive pairwise flank alignment (ssearch36) on a manageable subset (~2 000
+copies: the array-marked and satellite-classed copies of the positive cases below plus random single copies
+of clean monomers), scored with the definition above. Exact and slow, which is fine on a subset; the fast
+approaches are then scored against it, and run on the full families for time and memory.
+
+Marked copies available in the published plates (Tal `<sp>/alignments/<sp>_MEG-*_top100.aln.fa`, rows
+with `[array]`; coordinates in the row names): rsi MEG-TR 73 of 102, tbr MEG-RS 17, ttr MEG-RS 11, nle
+MEG-RS 7, nle MEG-TR 6, rsi MEG-RS 1; flankscan stage 2 satellite class: tbr MEG-RS 137 copies.
+
 ## Candidate approaches (CD-HIT excluded: global-identity greedy clustering, wrong question)
 
 | | approach | idea | expected strength | expected weakness |
