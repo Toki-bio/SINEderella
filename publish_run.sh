@@ -84,6 +84,9 @@ if [[ -f "$RUN_ROOT/step6_report.py" ]] && ! cmp -s "$SINEDERELLA_BIN/step6_repo
     cp -f "$RUN_ROOT/step6_report.py" "$RUN_ROOT/step6_report.py.prev"
 fi
 cp -f "$SINEDERELLA_BIN/step6_report.py" "$RUN_ROOT/"
+# its helper modules too (report_hierarchy, report_profile, report_flank_uniqueness, ...): step6 runs from
+# the run dir, and a helper it cannot import silently drops its panel (rsi_v3: no hierarchy section)
+cp -f "$SINEDERELLA_BIN"/report_*.py "$RUN_ROOT/" 2>/dev/null || true
 mkdir -p "$RUN_ROOT/results"
 OUT_HTML="$RUN_ROOT/results/report.html"
 
