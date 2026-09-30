@@ -39,7 +39,7 @@
 #      OUT/singletons/FAMILY/tsd_calibration.tsv
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
-FL=${FL:-250}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-25}; RELAX_BP=300; MINLEN=20
+FL=${FL:-250}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-25}; RELAX_BP=300; MINLEN=20
 cd "$OUT"; D=singletons/$FAM; rm -rf "$D"; mkdir -p "$D"
 
 # groups, NALN each at most (seed 42)
@@ -60,15 +60,21 @@ gawk -F'\t' -v OFS='\t' -v D="$D" -v FL=$FL -v R=$RELAX_BP '
     /^>/ { w = substr($1, 2); next }
     (w in g) && (w in ms) {
         s = toupper($0); a = ms[w]; b = me[w] + tl[w]              # windows are in copy orientation
-        l0 = (a - FL > 1 ? a - FL : 1)
-        print ">" w > (D "/" g[w] ".fa")
-        print tolower(substr(s, l0, a - l0)) substr(s, a, b - a + 1) tolower(substr(s, b + 1, FL)) > (D "/" g[w] ".fa")
+        print g[w], w, a, b > (D "/unit.tsv")                     # the unit (+ own tail) in the window
         u0 = (a - R > 1 ? a - R : 1)
         print ">" w "|up" > (D "/flanks.fa");   print substr(s, u0, a - u0) > (D "/flanks.fa")
         print ">" w "|down" > (D "/flanks.fa"); print substr(s, b + 1, R) > (D "/flanks.fa")
         print g[w], w, (ca[w] <= 15 && cb[w] >= tailst[fam[w]] - 1 - 15) ? 1 : 0 > (D "/base.tsv")
     }' "$D/groups.tsv" units.tsv junctions.tsv cons.tsv "$D/win.tmp"
-rm -f "$D/win.tmp"
+
+# one group's copies with fl bp flanks (lowercase), the unit uppercase
+extract() {   # extract GROUP FL
+    gawk -v G="$1" -v FL="$2" 'FILENAME == ARGV[1] { if ($1 == G) { a[$2] = $3; b[$2] = $4 }; next }
+        /^>/ { w = substr($1, 2); next }
+        (w in a) { s = toupper($0); l0 = (a[w] - FL > 1 ? a[w] - FL : 1)
+                   print ">" w; print tolower(substr(s, l0, a[w] - l0)) substr(s, a[w], b[w] - a[w] + 1) tolower(substr(s, b[w] + 1, FL)) }' \
+        "$D/unit.tsv" "$D/win.tmp"
+}
 
 # relaxed partner search, E per flank
 ssearch36 -m 8 -E 1 -Z 1 -z 11 -T "$T" cons.masked.fa "$D/flanks.fa" 2> /dev/null \
@@ -81,67 +87,107 @@ ssearch36 -m 8 -E 1 -Z 1 -z 11 -T "$T" cons.masked.fa "$D/flanks.fa" 2> /dev/nul
 REF=$(seqkit grep -p "$FAM" cons.masked.fa 2> /dev/null | seqkit seq -s -w 0 | tr -d 'N')
 : > "$D/ends.tsv"; : > "$D/tsd.tsv"; : > "$D/tsd_calibration.tsv"
 for G in S B A; do
-    [ -s "$D/$G.fa" ] || continue
-    { printf ">REF_%s\n%s\n" "$FAM" "$REF"; cat "$D/$G.fa"; } > "$D/$G.in.fa"
-    mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" "$D/$G.in.fa" 2> /dev/null \
-        | seqkit seq -w 0 > "$D/$G.aln.fa"
-    gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v CAL="$D/tsd_calibration.tsv" -v ENDS="$D/ends.tsv" '
-        /^>/ { n++; h[n] = substr($1, 2); next } { s[n] = $0 }
-        function isb(c) { c = toupper(c); return c ~ /^[ACGTN]$/ }
-        # ---- ViewAlign _findBestTsdInFlanks (ported; 3 side slack RSLK) ----
-        function mm(x, y,   i, m, c1, c2) { m = 0
-            for (i = 1; i <= length(x); i++) { c1 = substr(x, i, 1); c2 = substr(y, i, 1)
-                if (c1 == "N" || c2 == "N") m += 0.5; else if (c1 != c2) m++ }
-            return m }
-        function best(up, down, mn,   L, cl, uo, us, ds, dq, dv, sc) {      # sets TL TS TDS
-            TL = 0; TSC = -1e9
-            for (L = mn; L <= 20; L++) {
-                if (length(up) < L || length(down) < L) continue
-                cl = length(up) - L
-                for (uo = 0; uo <= (cl < 4 ? cl : 4); uo++) {
-                    us = substr(up, cl - uo + 1, L)
-                    for (ds = 0; ds <= ((length(down) - L) < RSLK ? length(down) - L : RSLK); ds++) {
-                        dq = substr(down, ds + 1, L); dv = mm(us, dq) / L
-                        if (dv > 0.20) continue
-                        sc = (1 - dv) * sqrt(L) - uo * 0.04 - ds * 0.08 - ds * 0.05
-                        if (sc > TSC || (sc == TSC && L > TL)) { TSC = sc; TL = L; TS = us; TDS = ds } } } }
-            return TL }
-        END {
-            L = length(s[1]); nc = n - 1                               # row 1 = consensus, not scored
-            # ---- ViewAlign _columnConservationScores + auto-mode ends ----
-            minc = int(nc * 0.35 + 0.999); if (minc < 3) minc = 3
-            for (x = 1; x <= L; x++) { delete k; v = 0; top = 0
-                for (i = 2; i <= n; i++) { c = toupper(substr(s[i], x, 1)); if (c ~ /^[ACGT]$/) { k[c]++; v++ } }
-                for (c in k) if (k[c] > top) top = k[c]
-                sc[x] = (v >= minc) ? (top / v) * (v / nc) : 0 }
-            W = int(L / 24); if (W < 8) W = 8; if (W > 16) W = 16
-            thr = (nc < 8) ? 0.68 : 0.58; left = 0; right = 0
-            for (st = 1; st + W - 1 <= L && !left; st++) { m = 0; for (x = st; x < st + W; x++) m += sc[x]; if (m / W >= thr) left = st }
-            for (st = L - W + 1; st >= 1 && !right; st--) { m = 0; for (x = st; x < st + W; x++) m += sc[x]; if (m / W >= thr) right = st + W - 1 }
-            if (!left || right < left) { print G, nc, L, "-", "-", "-", "-", "-", "-" >> ENDS; exit }
-            for (kk = 0; kk < W - 1 && left < right && sc[left] < thr; kk++) left++
-            for (kk = 0; kk < W - 1 && right > left && sc[right] < thr; kk++) right--
-            # per copy: 30 bases before the 5 end, 56 from the 3 end + 1; bp between each end and the unit
-            for (i = 2; i <= n; i++) {
-                up[i] = ""; for (x = left - 1; x >= 1 && length(up[i]) < 30; x--) { c = substr(s[i], x, 1); if (isb(c)) up[i] = toupper(c) up[i] }
-                dn[i] = ""; for (x = right + 1; x <= L && length(dn[i]) < 56; x++) { c = substr(s[i], x, 1); if (isb(c)) dn[i] = dn[i] toupper(c) }
-                o5 = 0; seen = 0; for (x = left; x <= L && !seen; x++) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o5++ }
-                o3 = 0; seen = 0; for (x = right; x >= 1 && !seen; x--) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o3++ }
-                O5[i - 1] = o5; O3[i - 1] = o3 }
-            # chance: shuffled pairs (5 side of copy i, 3 side of copy i + 1)
-            MINL = 0
-            for (mn = 4; mn <= 14; mn++) { hs = 0; ns = 0
-                for (i = 2; i <= n; i++) { j = (i < n) ? i + 1 : 2; if (j == i) continue; ns++; if (best(up[i], dn[j], mn)) hs++ }
-                print G, mn, ns, hs, (ns ? sprintf("%.1f", 100 * hs / ns) : "-") >> CAL
-                if (mn == 4 && ns > 50 && hs == 0) { print "fs8: TSD detector found nothing on shuffled pairs - broken, stop" > "/dev/stderr"; exit 3 }
-                if (!MINL && ns && hs / ns <= 0.05) { MINL = mn; SHUF = 100 * hs / ns } }
-            if (!MINL) { MINL = 14; SHUF = 0 }
-            print G, "chosen_min_len", MINL >> CAL
-            for (i = 2; i <= n; i++) { best(up[i], dn[i], MINL)
-                print G, h[i], TL, (TL ? TS : "-"), (TL ? TDS : "-"), O5[i - 1], O3[i - 1] }
-            asort(O5); asort(O3)
-            print G, nc, L, left, right, O5[int((nc + 1) / 2)], O3[int((nc + 1) / 2)], MINL, sprintf("%.1f", SHUF) >> ENDS
-        }' "$D/$G.aln.fa" >> "$D/tsd.tsv"
+    grep -q "^$G	" "$D/unit.tsv" || continue
+    FLC=$FL
+    while :; do                              # extend the flank while an end sits close to the flank end
+        rm -f "$D/$G".*.tmp "$D/$G.plate.aln.fa" "$D/$G.proposed.fa"
+        { printf ">REF_%s\n%s\n" "$FAM" "$REF"; extract "$G" "$FLC"; } > "$D/$G.in.fa"
+        mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" "$D/$G.in.fa" 2> /dev/null \
+            | seqkit seq -w 0 > "$D/$G.aln.fa"
+        gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v CAL="$D/$G.cal.tmp" -v ENDS="$D/$G.ends.tmp" -v PLATE="$D/$G.plate.aln.fa" -v PROP="$D/$G.proposed.fa" -v FLC=$FLC -v FLD=$FLD '
+            /^>/ { n++; h[n] = substr($1, 2); next } { s[n] = $0 }
+            function isb(c) { c = toupper(c); return c ~ /^[ACGTN]$/ }
+            # ---- ViewAlign _findBestTsdInFlanks (ported; 3 side slack RSLK) ----
+            function mm(x, y,   i, m, c1, c2) { m = 0
+                for (i = 1; i <= length(x); i++) { c1 = substr(x, i, 1); c2 = substr(y, i, 1)
+                    if (c1 == "N" || c2 == "N") m += 0.5; else if (c1 != c2) m++ }
+                return m }
+            function best(up, down, mn,   L, cl, uo, us, ds, dq, dv, sc) {      # sets TL TS TDS
+                TL = 0; TSC = -1e9
+                for (L = mn; L <= 20; L++) {
+                    if (length(up) < L || length(down) < L) continue
+                    cl = length(up) - L
+                    for (uo = 0; uo <= (cl < 4 ? cl : 4); uo++) {
+                        us = substr(up, cl - uo + 1, L)
+                        for (ds = 0; ds <= ((length(down) - L) < RSLK ? length(down) - L : RSLK); ds++) {
+                            dq = substr(down, ds + 1, L); dv = mm(us, dq) / L
+                            if (dv > 0.20) continue
+                            sc = (1 - dv) * sqrt(L) - uo * 0.04 - ds * 0.08 - ds * 0.05
+                            if (sc > TSC || (sc == TSC && L > TL)) { TSC = sc; TL = L; TS = us; TDS = ds } } } }
+                return TL }
+            END {
+                L = length(s[1]); nc = n - 1                               # row 1 = consensus, not scored
+                # ---- ViewAlign _columnConservationScores + auto-mode ends ----
+                minc = int(nc * 0.35 + 0.999); if (minc < 3) minc = 3
+                for (x = 1; x <= L; x++) { delete k; v = 0; top = 0
+                    for (i = 2; i <= n; i++) { c = toupper(substr(s[i], x, 1)); if (c ~ /^[ACGT]$/) { k[c]++; v++ } }
+                    for (c in k) if (k[c] > top) top = k[c]
+                    sc[x] = (v >= minc) ? (top / v) * (v / nc) : 0 }
+                W = int(L / 24); if (W < 8) W = 8; if (W > 16) W = 16
+                thr = (nc < 8) ? 0.68 : 0.58; left = 0; right = 0
+                for (st = 1; st + W - 1 <= L && !left; st++) { m = 0; for (x = st; x < st + W; x++) m += sc[x]; if (m / W >= thr) left = st }
+                for (st = L - W + 1; st >= 1 && !right; st--) { m = 0; for (x = st; x < st + W; x++) m += sc[x]; if (m / W >= thr) right = st + W - 1 }
+                if (!left || right < left) { print G, nc, L, "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", FLC >> ENDS; exit }
+                for (kk = 0; kk < W - 1 && left < right && sc[left] < thr; kk++) left++
+                for (kk = 0; kk < W - 1 && right > left && sc[right] < thr; kk++) right--
+                # per copy: 30 bases before the 5 end, 56 from the 3 end + 1; bp between each end and the unit
+                for (i = 2; i <= n; i++) {
+                    up[i] = ""; for (x = left - 1; x >= 1 && length(up[i]) < 30; x--) { c = substr(s[i], x, 1); if (isb(c)) up[i] = toupper(c) up[i] }
+                    dn[i] = ""; for (x = right + 1; x <= L && length(dn[i]) < 56; x++) { c = substr(s[i], x, 1); if (isb(c)) dn[i] = dn[i] toupper(c) }
+                    o5 = 0; seen = 0; for (x = left; x <= L && !seen; x++) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o5++ }
+                    o3 = 0; seen = 0; for (x = right; x >= 1 && !seen; x--) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o3++ }
+                    O5[i - 1] = o5; O3[i - 1] = o3 }
+                # chance: shuffled pairs (5 side of copy i, 3 side of copy i + 1)
+                MINL = 0
+                for (mn = 4; mn <= 14; mn++) { hs = 0; ns = 0
+                    for (i = 2; i <= n; i++) { j = (i < n) ? i + 1 : 2; if (j == i) continue; ns++; if (best(up[i], dn[j], mn)) hs++ }
+                    print G, mn, ns, hs, (ns ? sprintf("%.1f", 100 * hs / ns) : "-") >> CAL
+                    if (mn == 4 && ns > 50 && hs == 0) { print "fs8: TSD detector found nothing on shuffled pairs - broken, stop" > "/dev/stderr"; exit 3 }
+                    if (!MINL && ns && hs / ns <= 0.05) { MINL = mn; SHUF = 100 * hs / ns } }
+                if (!MINL) { MINL = 14; SHUF = 0 }
+                print G, "chosen_min_len", MINL >> CAL
+                for (i = 2; i <= n; i++) { best(up[i], dn[i], MINL)
+                    print G, h[i], TL, (TL ? TS : "-"), (TL ? TDS : "-"), O5[i - 1], O3[i - 1] }
+                # column majority (all copies with a base): for the carrying test and the proposed consensus
+                for (x = 1; x <= L; x++) { delete k; v = 0; top = 0; tb = "-"
+                    for (i = 2; i <= n; i++) { c = toupper(substr(s[i], x, 1)); if (c ~ /^[ACGT]$/) { k[c]++; v++ } }
+                    for (c in k) if (k[c] > top) { top = k[c]; tb = c }
+                    maj[x] = tb; cov[x] = v / nc }
+                # per copy: flank bases beyond each end (is the flank long enough?), and whether the copy carries
+                # the stretch between its unit and a moved end (identity to the column majority >= 0.6)
+                c5 = 0; c3 = 0; n5 = 0; n3 = 0
+                for (i = 2; i <= n; i++) {
+                    r5 = 0; for (x = 1; x < left; x++) if (isb(substr(s[i], x, 1))) r5++
+                    r3 = 0; for (x = right + 1; x <= L; x++) if (isb(substr(s[i], x, 1))) r3++
+                    R5[i - 1] = r5; R3[i - 1] = r3
+                    m = 0; t = 0; for (x = left; x <= L; x++) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) break; if (c ~ /[acgt]/) { t++; if (toupper(c) == maj[x]) m++ } }
+                    if (t >= 10) { n5++; if (m / t >= 0.6) c5++ }
+                    m = 0; t = 0; for (x = right; x >= 1; x--) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) break; if (c ~ /[acgt]/) { t++; if (toupper(c) == maj[x]) m++ } }
+                    if (t >= 10) { n3++; if (m / t >= 0.6) c3++ } }
+                asort(R5); asort(R3)
+                # the plate: element columns as aligned, flanks packed (FLD bases, no gap columns)
+                pc = ""; for (x = left; x <= right; x++) pc = pc (cov[x] >= 0.5 ? maj[x] : "-")
+                pad = sprintf("%*s", FLD, ""); gsub(/ /, "-", pad)
+                print ">" h[1] > PLATE; print pad substr(s[1], left, right - left + 1) pad > PLATE
+                print ">proposed_" G > PLATE; print pad pc pad > PLATE
+                for (i = 2; i <= n; i++) {
+                    u = ""; for (x = left - 1; x >= 1 && length(u) < FLD; x--) { c = substr(s[i], x, 1); if (isb(c)) u = c u }
+                    d = ""; for (x = right + 1; x <= L && length(d) < FLD; x++) { c = substr(s[i], x, 1); if (isb(c)) d = d c }
+                    print ">" h[i] > PLATE; print substr(pad, 1, FLD - length(u)) u substr(s[i], left, right - left + 1) d substr(pad, 1, FLD - length(d)) > PLATE }
+                gsub(/-/, "", pc); print ">proposed_" G > PROP; print pc > PROP
+                asort(O5); asort(O3)
+                print G, nc, L, left, right, O5[int((nc + 1) / 2)], O3[int((nc + 1) / 2)], MINL, sprintf("%.1f", SHUF),
+                      R5[int((nc + 1) / 2)], R3[int((nc + 1) / 2)], (n5 ? sprintf("%.0f", 100 * c5 / n5) : "-"),
+                      (n3 ? sprintf("%.0f", 100 * c3 / n3) : "-"), FLC >> ENDS
+            }' "$D/$G.aln.fa" > "$D/$G.tsd.tmp"
+        R5=$(cut -f10 "$D/$G.ends.tmp"); R3=$(cut -f11 "$D/$G.ends.tmp")
+        if [[ "$R5" =~ ^[0-9]+$ && "$R3" =~ ^[0-9]+$ ]] && (( (R5 < 60 || R3 < 60) && FLC < 1000 )); then
+            FLC=$(( FLC * 2 > 1000 ? 1000 : FLC * 2 )); echo "fs8: $FAM group $G: an end within 60 bp of the flank end - flank $FLC" >&2; continue
+        fi
+        break
+    done
+    cat "$D/$G.ends.tmp" >> "$D/ends.tsv"; cat "$D/$G.cal.tmp" >> "$D/tsd_calibration.tsv"; cat "$D/$G.tsd.tmp" >> "$D/tsd.tsv"
+    rm -f "$D/$G".*.tmp
 done
 
 # per copy table and per group summary
@@ -152,14 +198,14 @@ gawk -F'\t' -v OFS='\t' '
     "$D/relaxed.tsv" "$D/tsd.tsv" "$D/base.tsv" > "$D/copies.body"
 { printf "group\twid\tfull\tup_hit\tdown_hit\ttsd_len\ttsd\tslack3\toff5\toff3\n"; cat "$D/copies.body"; } > "$D/copies.tsv"
 gawk -F'\t' -v OFS='\t' '
-    FILENAME == ARGV[1] { e5[$1] = $6; e3[$1] = $7; ml[$1] = $8; sh[$1] = $9; next }
+    FILENAME == ARGV[1] { e5[$1] = $6; e3[$1] = $7; ml[$1] = $8; sh[$1] = $9; k5[$1] = $12; k3[$1] = $13; fl[$1] = $14; next }
     FNR == 1 { next }
     { g = $1; n[g]++; fu[g] += $3; if ($4 != "-") u[g]++; if ($5 != "-") d[g]++; if ($6 > 0) t[g]++ }
     END { nm["S"] = "singles of the family"; nm["B"] = "family copies in composites"; nm["A"] = "singles of the control"
           print "group", "what", "copies", "full_pct", "partner5_pct", "partner3_pct", "tsd_pct", "tsd_shuffled_pct", "tsd_min_len",
-                "median_bp_5end_before_unit", "median_bp_3end_after_unit"
-          for (g in n) printf "%s\t%s\t%d\t%.1f\t%.1f\t%.1f\t%.1f\t%s\t%s\t%s\t%s\n", g, nm[g], n[g], 100 * fu[g] / n[g],
-                100 * u[g] / n[g], 100 * d[g] / n[g], 100 * t[g] / n[g], sh[g], ml[g], e5[g], e3[g] }' \
+                "median_bp_5end_before_unit", "median_bp_3end_after_unit", "carry5_pct", "carry3_pct", "flank_bp"
+          for (g in n) printf "%s\t%s\t%d\t%.1f\t%.1f\t%.1f\t%.1f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", g, nm[g], n[g], 100 * fu[g] / n[g],
+                100 * u[g] / n[g], 100 * d[g] / n[g], 100 * t[g] / n[g], sh[g], ml[g], e5[g], e3[g], k5[g], k3[g], fl[g] }' \
     "$D/ends.tsv" "$D/copies.tsv" > "$D/summary.tsv"
-rm -f "$D/copies.body" "$D"/*.in.fa
+rm -f "$D/copies.body" "$D"/*.in.fa "$D/win.tmp"
 echo "fs8: $FAM -> $OUT/$D/summary.tsv" >&2
