@@ -273,3 +273,17 @@ folded) - stage 6 NOT yet rerun on ~/tmp/fs_rsi5. Known limit: an extension that
   one boundary per alignment follows a 1/3 subgroup. TODO: report per copy whether it carries the
   extension (identity to the column majority between unit and end), so an extension is read as
   "carried by x % of copies".
+
+## 2026-09-30: stage 6b end check (his call: P12 "bad in flanks")
+P12 (r3 1-144 + r3 3-201, 153 copies, "accept" 88 %) was the middle of a longer chain: its 250 bp flanks match
+the bank at the junction (5': r1/r2-type head in 57-59 of 60 copies, 3': r3 in 41 of 60); copies dispersed
+(9 contigs, none within 10 kb) - not an array, not a duplicated neighbourhood. Cause: stages 3-5 pair every copy
+with its nearest neighbour per side, so a chain of >= 3 units (r1 + r3 + r3) is found as separate pairs, and
+stage 6 counts full units only. fs6b_ends.sh: per kept candidate and side, FL=250 bp flank of the copies it was
+built from vs the bank (E <= 1e-3, hit >= 40 bp within 30 bp of the junction); open when >= 50 % of copies.
+fs7: an accepted candidate with an open end gets verdict "open", leaves accepted.fa, is drawn with a dashed
+continuation box (report_hierarchy.py). Toy: 3 candidates, 0 open. rsi (~/tmp/fs_rsi6): 7 of 16 open -
+P12 (5' r2/r1, 3' r3), P6, P9, P10 (5' r2), P21, P39, P40 (3' r3); closed: P1, P26, P2, P34, P18, P20, P33,
+P41, P42. accepted.fa is now 5 (P1, P26, P2, P34, P18). TODO: build the chain candidate for an open end
+(extend each copy's element over the flank unit hit, align, consensus, re-run stage 6) - recursive for chains of
+3+; then rebuild rsi_v3 (its bank still contains P12).

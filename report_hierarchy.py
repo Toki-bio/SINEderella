@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 PALETTE = ["#3b6ea5", "#7a5aa6", "#2f8a6d", "#b0643a", "#b08a22", "#5e7d3a", "#8a4f6e",
            "#35798a", "#4f6a8f", "#9c5b5b", "#6b7280", "#8a7a3a"]
-PX, X0, ROWH, BARH = 1.5, 190, 52, 20
+PX, X0, ROWH, BARH = 1.5, 230, 52, 20
 
 
 def _plate(fam, code, aln_base, sfnames):
@@ -53,7 +53,7 @@ def section(run_root, species_code=None, aln_base=None, subfamilies=()):
         lab = html.escape(name)
         if link:
             lab = '<a href="%s" target="_blank">%s</a>' % (html.escape(link), lab)
-        chip = "#2f7d4f" if r["verdict"] == "accept" else "#a8631a"
+        chip = "#2f7d4f" if r["verdict"] == "accept" else ("#a23b3b" if r["verdict"] == "open" else "#a8631a")
         s.append('<text x="0" y="%d" font-size="12.5" font-weight="600" fill="#222">%s</text>' % (y + 13, lab))
         s.append('<text x="0" y="%d" font-size="10.5" fill="%s">%s &#183; %s copies &#183; %s%% full &#183; %s bp</text>'
                  % (y + 27, chip, html.escape(r["verdict"]), r["copies"], r["pct_full"], r["cons_len"]))
@@ -62,6 +62,11 @@ def section(run_root, species_code=None, aln_base=None, subfamilies=()):
         if int(r["gap"]) > 0:
             segs.append((None, int(r["gap"]), 0))
         segs.append((r["part2"], int(r["part2_start"]), int(r["part2_end"])))
+        op5 = r.get("open5_unit", "-"); op3 = r.get("open3_unit", "-")
+        if op5 not in ("-", ""):        # the element continues into a known unit beyond this end (stage 6b)
+            s.append('<rect x="%.1f" y="%d" width="36" height="%d" rx="2" fill="none" stroke="#a23b3b" stroke-dasharray="4 3">'
+                     '<title>continues into %s at the 5 end</title></rect><text x="%.1f" y="%d" font-size="10" fill="#a23b3b" '
+                     'text-anchor="middle">%s?</text>' % (x - 40, y, BARH, html.escape(op5), x - 22, y + 14, html.escape(op5)))
         for fam, a, b in segs:
             if fam is None:
                 w = a * PX
@@ -77,12 +82,17 @@ def section(run_root, species_code=None, aln_base=None, subfamilies=()):
                 rect += '<text x="%.1f" y="%d" font-size="10.5" font-weight="600" fill="#fff" text-anchor="middle">%s</text>' % (x + w / 2, y + 14, html.escape(txt))
             s.append('<a href="%s" target="_blank">%s</a>' % (html.escape(plink), rect) if plink else rect)
             x += w
+        if op3 not in ("-", ""):
+            s.append('<rect x="%.1f" y="%d" width="36" height="%d" rx="2" fill="none" stroke="#a23b3b" stroke-dasharray="4 3">'
+                     '<title>continues into %s at the 3 end</title></rect><text x="%.1f" y="%d" font-size="10" fill="#a23b3b" '
+                     'text-anchor="middle">%s?</text>' % (x + 4, y, BARH, html.escape(op3), x + 22, y + 14, html.escape(op3)))
         y += ROWH
     s.append("</svg>")
     return ("<section class='card' id='hierarchy'><h2>Element hierarchy</h2>"
             "<p class='intro'>Elements built from two consensus units, found by flankscan from the junctions "
             "of the assigned copies: each part drawn to scale at its positions in its own consensus, grey = "
             "sequence neither unit covers (linker or middle). <b>accept</b> = at least 70 % of the layout's "
-            "copies read as one full unit when the element is added to the bank. The element name opens its "
+            "copies read as one full unit when the element is added to the bank; <b>open</b> = the element "
+            "continues into a known unit beyond an end (dashed box), so it is the middle of a longer chain. The element name opens its "
             "own plate, each part the plate of that family. Source: <code>flankscan/hierarchy.tsv</code>.</p>"
             "<div style='overflow-x:auto'>" + "\n".join(s) + "</div></section>")

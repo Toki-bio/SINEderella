@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fs_all.sh RUN_DIR OUT_DIR [THREADS=16] [MINK=50] [FLANK=1000] [PARTNERS.fa]
 # (PARTNERS.fa: optional partner library for stage 3, from fs0_partnerlib.sh)
-# All seven flankscan stages on one SINEderella run, timed; writes OUT_DIR/DONE (or FAILED) at the end.
+# All flankscan stages (1-7, 6b) on one SINEderella run, timed; writes OUT_DIR/DONE (or FAILED) at the end.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN=${1:?RUN_DIR}; OUT=${2:?OUT_DIR}; T=${3:-16}; MINK=${4:-50}; F=${5:-1000}; PART=${6:-}
@@ -14,5 +14,6 @@ step fs3 bash "$HERE/fs3_partners.sh"  "$OUT" "$RUN/consensuses.clean.fa" "$T" $
 step fs4 bash "$HERE/fs4_junctions.sh" "$OUT" "$RUN" "$MINK"
 step fs5 bash "$HERE/fs5_build.sh"     "$OUT" "$RUN" 60 "$MINK" "$T"
 step fs6 bash "$HERE/fs6_reassign.sh"  "$OUT" "$RUN" "$T"
+step fs6b bash "$HERE/fs6b_ends.sh"    "$OUT" "$RUN" "$T"
 step fs7 bash "$HERE/fs7_hierarchy.sh" "$OUT"
 touch "$OUT/DONE"
