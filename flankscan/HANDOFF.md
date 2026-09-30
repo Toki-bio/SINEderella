@@ -259,3 +259,17 @@ folded) - stage 6 NOT yet rerun on ~/tmp/fs_rsi5. Known limit: an extension that
   First complete family with the hypothesis test: r2 - composite members carry the TSD at the r1+r2 (P39)
   predicted end in 42.7 % (r9 singles at the same offset 3.4 % = chance); r2 has only 3 singles -> r2 never
   occurs alone. r3, r1, r10 still running (old code, slack 3) - rerun with the slack after they finish.
+- 2026-09-30 stage 8 REWRITTEN the ViewAlign way (his question "are you using proper logic?" - no, the
+  per-copy boundary scan was brute force): per group one alignment (250 bp flanks, consensus row 1), ends
+  ONCE from column conservation (ViewAlign auto mode ported), one TSD search per copy at those ends,
+  3' slack 25, min length calibrated on shuffled pairs. 7 min for 4 families (was hours).
+  Controls validate it: r9 singles end at the unit, TSD 19-42 % vs 3.5-5 % chance; composite members'
+  ends move out to the partner by themselves (r3 5' +197 = r1+linker; r1 3' +225; r2 +192/+223; r10 3' +232).
+  Singles: r3 ends at the unit (3' +23 bp), TSD 7.5 % vs 3 % (r9 19.5 %); r1 at the unit, TSD 15.5 % vs 3.5 %
+  (r9 30.5 %), 56 % full, relaxed partner 3' 30 %; r2 only 3 copies, composites; r10 singles 3' +217 like
+  the composites, partner 3' 82 % -> r10 + group B element. Alignments Tal rsi_v3/singletons/.
+  LIMIT found on the toy: 20/62 toy singles are planted after_line copies (shared upstream LINE end);
+  with MAFFT packing the random flanks into the same columns the 5' end moved 223 bp for ALL copies -
+  one boundary per alignment follows a 1/3 subgroup. TODO: report per copy whether it carries the
+  extension (identity to the column majority between unit and end), so an extension is read as
+  "carried by x % of copies".

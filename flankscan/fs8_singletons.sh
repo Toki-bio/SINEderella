@@ -2,240 +2,164 @@
 # fs8_singletons.sh OUT_DIR FAMILY [CONTROL_FAMILY] [THREADS=8]
 #
 # Stage 8 of flankscan: are the "single" copies of a family (stage 4: no bank consensus within 200 bp)
-# real standalone insertions, or composites whose partner the strict search missed, or longer elements?
+# real standalone insertions, or parts of composites whose other part decayed, or longer elements?
 # For a family that is mostly part of composites (rsi r3: 98 %) its few singles decide whether it
 # exists as a monomer.
 #
-# Groups (each measurement is run on all three, so every number has its reference):
+# The same three groups are measured, so every number has its reference:
 #   S = single copies of FAMILY
-#   B = FAMILY copies inside a composite (a partner was found: what a composite looks like)
-#   A = single copies of CONTROL_FAMILY (a clean monomer: what standalone insertions look like)
-# 1) Relaxed partner search: every bank consensus (masked, stage 3) against RELAX_BP of 5' and of 3'
-#    flank (next to the copy and its own tail), ssearch36 E <= 1 per flank (-Z 1), >= 20 bp.
-# 2) Completeness: where the copy starts / ends in its own consensus (full = within 15 bp of both
-#    ends, the 3' end measured before the tail).
-# 3) Target-site duplications as END MARKERS, detected exactly as ViewAlign does (MSA-viewer script.js
-#    _findBestTsdInFlanks): 30 bases before the left boundary, 30 + 20 + 6 after the right boundary,
-#    TSD 4-20 bp, <= 20 % mismatch (N = half), the 5' copy ending <= 4 bp from the left boundary and
-#    the 3' copy starting <= 3 bp from the right boundary, score (1 - div) * sqrt(len)
-#    - 0.04 * upstream offset - 0.13 * downstream start; best pair per copy.
-#    One change (his note, 2026-09-30): a SINE's 5' end is sharp (the head starts at a fixed base) but
-#    its 3' end is not (tails of simple motifs vary in length, so "unit + own tail" is only an estimate).
-#    The 5' copy keeps ViewAlign's <= 4 bp; the 3' copy may start up to TSD_RSLACK (default 25) bp past
-#    the estimated 3' end instead of 3, same per-bp penalty; the calibration below uses the same rule.
-#    The distance found is kept with each TSD (unit_tsd = SEQ@bp) to tune the slack per family.
-#    If a family makes TSDs, the TSD pair shows where the insertion really starts and ends:
-#      unit: the TSD search at the unit's own ends (its start; its end after its own tail);
-#      scan: the left boundary moved outward 1 bp at a time up to WIDE bp (right boundary fixed), and
-#            the right boundary likewise; the boundary with the best score is where the insertion ends
-#            (off5 / off3 = bp beyond the unit; 0 = the unit is the whole insertion).
-#    ViewAlign's defaults are too relaxed (a 4 bp minimum calls short chance motifs): the minimum length
-#    is calibrated on shuffled pairs (5' side of one copy with the 3' side of the next in its group) as
-#    the smallest at which <= 5 % of them still give a TSD (tsd_calibration.tsv; TSD_MIN=n overrides).
-#    Only when a family's TSDs are well above the shuffled rate are the offsets read as element ends.
+#   B = FAMILY copies inside a composite (what a composite looks like)
+#   A = single copies of CONTROL_FAMILY, a clean monomer (what standalone insertions look like)
+# Each group: up to NALN copies (random, seed 42).
 #
-# Out: OUT/singletons/FAMILY/copies.tsv   group wid start end full up_hit up_dist down_hit down_dist
-#                                         near_len near_tsd wide_len wide_tsd off5 off3 bits
-#      OUT/singletons/FAMILY/summary.tsv  per group: copies, full %, relaxed partner 5'/3' %, near TSD %
-#                                         (and shuffled %), wide TSD % (and shuffled %), median off5/off3,
-#                                         partners found
-#      OUT/singletons/FAMILY/offsets.tsv  group off5 off3 count - where the wide TSDs put the element ends
-#      OUT/singletons/FAMILY/plate.aln.fa the best single copies, flanks packed lowercase, FAMILY's
-#                                         consensus + every stage-5 candidate containing it on top
+# Per group, the way ViewAlign does it (MSA-viewer script.js, TSD finder, auto mode):
+#   1) the copies with FL bp of flank (lowercase; the unit and its own tail uppercase) are aligned, the
+#      family consensus as the first row (shown, not scored);
+#   2) the element's ends are found ONCE, from the alignment: column conservation (top-base share x
+#      coverage, columns with < 35 % of copies ignored), the first / last window of W columns whose mean
+#      reaches the threshold, trimmed inward to a conserved column (_findSineBoundaryColumns, auto).
+#      If the singles are really a composite with a decayed head, the copies stay conserved upstream of
+#      the unit and the 5' boundary moves there by itself - no per-copy boundary search;
+#   3) one TSD search per copy at those ends (_findBestTsdInFlanks, ported exactly: 30 bases before the
+#      5' end, 56 after the 3' end, TSD 4-20 bp, <= 20 % mismatch, the 5' copy <= 4 bp from the end).
+#      His two corrections: the 3' end of a SINE is fuzzy (simple-motif tails), so the 3' copy may start
+#      up to TSD_RSLACK (25) bp past the 3' end instead of 3; and the default minimum (4 bp) counts chance
+#      motifs, so the minimum is calibrated: the smallest length found in <= 5 % of shuffled pairs
+#      (5' side of one copy with the 3' side of the next, same ends).
+# Plus, per copy: a relaxed partner search (every bank consensus vs RELAX_BP of each flank, E <= 1 per
+# flank, >= 20 bp) and completeness (starts / ends within 15 bp of its consensus ends).
+#
+# Out: OUT/singletons/FAMILY/<group>.aln.fa  the group alignment (consensus row 1), to look at
+#      OUT/singletons/FAMILY/ends.tsv        group copies columns left right, median bp from the 5' end to
+#                                            the unit start (positive = the element starts that far
+#                                            upstream of the unit) and from the unit end to the 3' end
+#      OUT/singletons/FAMILY/copies.tsv      group wid full up_hit down_hit tsd_len tsd slack3 off5 off3
+#      OUT/singletons/FAMILY/summary.tsv     per group: copies, full %, partner 5' / 3' %, TSD %, shuffled %,
+#                                            5' / 3' end offsets
+#      OUT/singletons/FAMILY/tsd_calibration.tsv
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
-RELAX_BP=300; MINLEN=20; NEAR_MIN=8; WIDE=${WIDE:-150}; WIDE_MIN=8   # TSD_MIN (env) fixes the TSD minimum; default calibrated
- PLATE_N=100; PLATE_F=150; MAXG=${MAXG:-1000}    # copies per group (random, seed 42); WIDE=0 turns the blind scan off
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$OUT"; D=singletons/$FAM; mkdir -p "$D"
+FL=${FL:-250}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-25}; RELAX_BP=300; MINLEN=20
+cd "$OUT"; D=singletons/$FAM; rm -rf "$D"; mkdir -p "$D"
 
+# groups, NALN each at most (seed 42)
 gawk -F'\t' -v OFS='\t' -v F="$FAM" -v C="$CTRL" 'NR > 1 {
         if ($3 == F && $4 == "single") print "S", $1
         else if ($3 == F && ($4 == "composite" || $4 == "homodimer")) print "B", $1
-        else if (C != "" && $3 == C && $4 == "single") print "A", $1 }' copies.tsv   | gawk -F'	' -v M=$MAXG 'BEGIN { srand(42) } { print rand() "	" $0 }' | sort -t$'	' -k1,1g   | gawk -F'	' -v OFS='	' -v M=$MAXG '++n[$2] <= M { print $2, $3 }' > "$D/groups.tsv"   # <= MAXG per group, seed 42
+        else if (C != "" && $3 == C && $4 == "single") print "A", $1 }' copies.tsv \
+  | gawk 'BEGIN { srand(42) } { print rand() "\t" $0 }' | sort -t$'\t' -k1,1g \
+  | gawk -F'\t' -v OFS='\t' -v M=$NALN '++n[$2] <= M { print $2, $3 }' > "$D/groups.tsv"
 
+# per copy: the unit (+ own tail) with FL bp flanks, the flanks for the partner search, completeness
 seqkit seq -w 0 windows.fa > "$D/win.tmp"
-# per copy: the unit and its own tail in window coordinates, flanks for the relaxed search, the
-# 5' and 3' TSD windows (written once, reused for the real pairs and the shuffled pairs)
-gawk -F'\t' -v OFS='\t' -v D="$D" -v R=$RELAX_BP -v WD=$WIDE '
+gawk -F'\t' -v OFS='\t' -v D="$D" -v FL=$FL -v R=$RELAX_BP '
     FILENAME == ARGV[1] { g[$2] = $1; next }
-    FILENAME == ARGV[2] { if ($4 == "main" && ($1 in g)) { ms[$1] = $10; me[$1] = $11; mst[$1] = $6
-                                 ca[$1] = $7; cb[$1] = $8; bits[$1] = $12; fam[$1] = $2 }; next }
+    FILENAME == ARGV[2] { if ($4 == "main" && ($1 in g)) { ms[$1] = $10; me[$1] = $11; ca[$1] = $7; cb[$1] = $8; fam[$1] = $2 }; next }
     FILENAME == ARGV[3] { if (FNR > 1 && $3 == 3 && ($1 in g)) tl[$1] = ($24 == "." ? 0 : $24 + 0); next }
     FILENAME == ARGV[4] { tailst[$1] = $3; next }
     /^>/ { w = substr($1, 2); next }
     (w in g) && (w in ms) {
         s = toupper($0); a = ms[w]; b = me[w] + tl[w]              # windows are in copy orientation
+        l0 = (a - FL > 1 ? a - FL : 1)
+        print ">" w > (D "/" g[w] ".fa")
+        print tolower(substr(s, l0, a - l0)) substr(s, a, b - a + 1) tolower(substr(s, b + 1, FL)) > (D "/" g[w] ".fa")
         u0 = (a - R > 1 ? a - R : 1)
         print ">" w "|up" > (D "/flanks.fa");   print substr(s, u0, a - u0) > (D "/flanks.fa")
         print ">" w "|down" > (D "/flanks.fa"); print substr(s, b + 1, R) > (D "/flanks.fa")
-        print g[w], w, a, b, s > (D "/tsdwin.tsv")          # unit start, end (with tail), window
-        full = (ca[w] <= 15 && cb[w] >= tailst[fam[w]] - 1 - 15) ? 1 : 0
-        print g[w], w, ca[w], cb[w], full, bits[w] > (D "/base.tsv")
+        print g[w], w, (ca[w] <= 15 && cb[w] >= tailst[fam[w]] - 1 - 15) ? 1 : 0 > (D "/base.tsv")
     }' "$D/groups.tsv" units.tsv junctions.tsv cons.tsv "$D/win.tmp"
-
-# composite hypotheses from stage 7 (hierarchy.tsv): if a single copy of FAMILY is really one part of a
-# composite whose other part decayed, its TSD sits at a predictable distance beyond the unit:
-#   FAMILY = part 2 -> 5' boundary moved out by part 1 length + gap; FAMILY = part 1 -> 3' out by gap + part 2
-HYP=""
-if [ -s hierarchy.tsv ]; then
-    HYP=$(gawk -F'	' -v F="$FAM" 'BEGIN { sub(/_[0-9]+seqs$/, "", F) }
-        NR > 1 && $12 == F { printf "%s5:%d:%s", (n++ ? "," : ""), $10 - $9 + 1 + $11, $2 }
-        NR > 1 && $8 == F  { printf "%s3:%d:%s", (n++ ? "," : ""), $11 + $14 - $13 + 1, $2 }' hierarchy.tsv)
-fi
-echo "fs8: composite hypotheses for $FAM: ${HYP:-none}" >&2
-
-# TSDs, ViewAlign's detector (MSA-viewer script.js _findBestTsdInFlanks), real and shuffled pairs
-gawk -F'\t' -v OFS='\t' -v WD=$WIDE -v FIXED="${TSD_MIN:-0}" -v CAL="$D/tsd_calibration.tsv" -v HYP="$HYP" -v RSLK="${TSD_RSLACK:-25}" '
-    function mm(x, y,   i, m, c1, c2) { m = 0
-        for (i = 1; i <= length(x); i++) { c1 = substr(x, i, 1); c2 = substr(y, i, 1)
-            if (c1 == "N" || c2 == "N") m += 0.5; else if (c1 != c2) m++ }
-        return m }
-    function best(up, down, mn,   L, cl, uo, us, ds, dq, dv, sc) {  # sets TL TS TD TSC; 0 if none
-        TL = 0; TSC = -1e9
-        for (L = mn; L <= 20; L++) {
-            if (length(up) < L || length(down) < L) continue
-            cl = length(up) - L
-            for (uo = 0; uo <= (cl < 4 ? cl : 4); uo++) {
-                us = substr(up, cl - uo + 1, L)
-                for (ds = 0; ds <= ((length(down) - L) < RSLK ? length(down) - L : RSLK); ds++) {   # 3 side: RSLK bp slack (not RS: gawk record separator)
-                    dq = substr(down, ds + 1, L); dv = mm(us, dq) / L
-                    if (dv > 0.20) continue
-                    sc = (1 - dv) * sqrt(L) - uo * 0.04 - ds * 0.08 - ds * 0.05
-                    if (sc > TSC || (sc == TSC && L > TL)) { TSC = sc; TL = L; TS = us; TD = dv; TDS = ds }
-                } } }
-        return TL }
-    function upw(s, l) { return substr(s, (l - 30 > 1 ? l - 30 : 1), (l - 30 > 1 ? 30 : l - 1)) }   # 30 before l
-    function dnw(s, r) { return substr(s, r + 1, 56) }                                             # from r + 1
-    { gr[NR] = $1; id[NR] = $2; A[NR] = $3 + 0; B[NR] = $4 + 0; S[NR] = $5 }
-    function partner(r,   q) { q = r + 1; while (q <= NR && gr[q] != gr[r]) q++
-                                if (q > NR) { q = 1; while (q < r && gr[q] != gr[r]) q++ }
-                                return q }
-    END {
-        # the ViewAlign defaults (4-20 bp, <= 20 % mismatch) call short motifs by chance; the minimum
-        # length is calibrated here: the smallest at which <= 5 % of shuffled pairs still give a TSD
-        MINL = (FIXED > 0 ? FIXED : 0)
-        for (mn = 4; mn <= 14; mn++) {
-            ns = 0; hs = 0
-            for (r = 1; r <= NR; r++) { q = partner(r); if (q == r) continue
-                ns++; if (best(upw(S[r], A[r]), dnw(S[q], B[q]), mn)) hs++ }
-            print mn, ns, hs, (ns ? sprintf("%.1f", 100 * hs / ns) : "-") > CAL
-            if (!MINL && ns && hs / ns <= 0.05) MINL = mn
-            if (mn == 4 && ns > 100 && hs == 0) {        # random pairs always give some 4 bp matches
-                print "fs8: TSD detector found nothing on " ns " shuffled pairs at 4 bp - broken input or parsing, stop" > "/dev/stderr"
-                exit 3 }
-        }
-        if (!MINL) MINL = 14
-        print "chosen_min_len", MINL > CAL
-        # the scan keeps the best of up to 2 x WD boundaries, so chance finds something almost every
-        # time at the single-position minimum: its minimum is calibrated the same way, on the scan
-        # itself run on shuffled pairs (up to 200), as the smallest length found in <= 5 % of them
-        SCANL = 0; nsc = 0
-        for (r = 1; r <= NR && nsc < 200; r++) { q = partner(r); if (q == r) continue; nsc++
-            s = S[r] substr(S[q], B[q] + 1); a = A[r]; b = length(S[r]) - (length(S[r]) - B[r])   # 3 side from copy q
-            s = substr(S[r], 1, B[r]) substr(S[q], B[q] + 1); b = B[r]; ml = 0
-            for (k = 0; k <= WD && a - k > 31; k++) { if (best(upw(s, a - k), dnw(s, b), MINL) > ml) ml = TL }
-            for (k = 1; k <= WD && b + k + 56 <= length(s); k++) { if (best(upw(s, a), dnw(s, b + k), MINL) > ml) ml = TL }
-            smax[nsc] = ml }
-        for (L = MINL; L <= 20 && !SCANL; L++) { h = 0; for (i = 1; i <= nsc; i++) if (smax[i] >= L) h++
-            print "scan_min", L, nsc, h, (nsc ? sprintf("%.1f", 100 * h / nsc) : "-") > CAL
-            if (nsc && h / nsc <= 0.05) SCANL = L }
-        if (!SCANL) SCANL = 21
-        print "chosen_scan_min_len", SCANL > CAL
-        # hypothesis windows: +-10 bp around a predicted boundary = 21 positions; their own minimum,
-        # calibrated on shuffled pairs with the window at 100 bp out on the 5 side
-        nh = (HYP == "" ? 0 : split(HYP, hy, ","))
-        HYPL = 0; nsc = 0
-        for (r = 1; r <= NR && nsc < 500; r++) { q = partner(r); if (q == r || A[r] - 110 < 32) continue; nsc++
-            s = substr(S[r], 1, B[r]) substr(S[q], B[q] + 1); ml = 0
-            for (k = 90; k <= 110; k++) if (best(upw(s, A[r] - k), dnw(s, B[r]), MINL) > ml) ml = TL
-            hmax[nsc] = ml }
-        for (L = MINL; L <= 20 && !HYPL; L++) { h = 0; for (i = 1; i <= nsc; i++) if (hmax[i] >= L) h++
-            print "hyp_min", L, nsc, h, (nsc ? sprintf("%.1f", 100 * h / nsc) : "-") > CAL
-            if (nsc && h / nsc <= 0.05) HYPL = L }
-        if (!HYPL) HYPL = 21
-        print "chosen_hyp_min_len", HYPL > CAL
-        for (r = 1; r <= NR; r++) {
-            s = S[r]; a = A[r]; b = B[r]
-            best(upw(s, a), dnw(s, b), MINL); ul = TL; uts = (TL ? TS "@" TDS : "-"); usc = TSC   # @ = bp past the 3 end
-            bl = 0; bsc = usc; b5 = 0; b3 = 0; bts = uts                  # scan: left outward, then right outward
-            for (k = 1; k <= WD && a - k > 31; k++) { best(upw(s, a - k), dnw(s, b), SCANL); if (TL && TSC > bsc) { bsc = TSC; b5 = k; b3 = 0; bl = TL; bts = TS } }
-            for (k = 1; k <= WD && b + k + 56 <= length(s); k++) { best(upw(s, a), dnw(s, b + k), SCANL); if (TL && TSC > bsc) { bsc = TSC; b5 = 0; b3 = k; bl = TL; bts = TS } }
-            if (!bl) { bl = ul }
-            hs = ""
-            for (h = 1; h <= nh; h++) { split(hy[h], hp, ":"); ml = 0
-                for (k = hp[2] - 10; k <= hp[2] + 10; k++) {
-                    if (hp[1] == "5") { if (a - k < 32) continue; x = best(upw(s, a - k), dnw(s, b), HYPL) }
-                    else { if (b + k + 56 > length(s)) continue; x = best(upw(s, a), dnw(s, b + k), HYPL) }
-                    if (x > ml) ml = x }
-                if (ml) hs = hs (hs == "" ? "" : ";") hp[3] ":" ml }
-            print "real", gr[r], id[r], ul, uts, bl, bts, b5, b3, (hs == "" ? "-" : hs)
-            q = partner(r)
-            if (q != r) { best(upw(s, a), dnw(S[q], B[q]), MINL); print "shuf", gr[r], id[r], TL, "-", "-", "-", "-", "-" }
-        } }' "$D/tsdwin.tsv" > "$D/tsd.tsv"
+rm -f "$D/win.tmp"
 
 # relaxed partner search, E per flank
 ssearch36 -m 8 -E 1 -Z 1 -z 11 -T "$T" cons.masked.fa "$D/flanks.fa" 2> /dev/null \
-  | gawk -F'\t' -v OFS='\t' -v M=$MINLEN -v R=$RELAX_BP '
+  | gawk -F'\t' -v OFS='\t' -v M=$MINLEN '
       { lo = ($9 < $10 ? $9 : $10); hi = ($9 < $10 ? $10 : $9); if (hi - lo + 1 < M) next
-        split($2, p, "|"); d = (p[2] == "up") ? R - hi : lo - 1
-        if (!($2 in be) || $11 < be[$2]) { be[$2] = $11; bd[$2] = d; bq[$2] = $1 } }
-      END { for (k in be) { split(k, p, "|"); print p[1], p[2], bq[k], bd[k] } }' > "$D/relaxed.tsv"
+        if (!($2 in be) || $11 < be[$2]) { be[$2] = $11; bq[$2] = $1 } }
+      END { for (k in be) { split(k, p, "|"); print p[1], p[2], bq[k] } }' > "$D/relaxed.tsv"
 
+# per group: align, ends from conservation, one TSD search per copy
+REF=$(seqkit grep -p "$FAM" cons.masked.fa 2> /dev/null | seqkit seq -s -w 0 | tr -d 'N')
+: > "$D/ends.tsv"; : > "$D/tsd.tsv"; : > "$D/tsd_calibration.tsv"
+for G in S B A; do
+    [ -s "$D/$G.fa" ] || continue
+    { printf ">REF_%s\n%s\n" "$FAM" "$REF"; cat "$D/$G.fa"; } > "$D/$G.in.fa"
+    mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" "$D/$G.in.fa" 2> /dev/null \
+        | seqkit seq -w 0 > "$D/$G.aln.fa"
+    gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v CAL="$D/tsd_calibration.tsv" -v ENDS="$D/ends.tsv" '
+        /^>/ { n++; h[n] = substr($1, 2); next } { s[n] = $0 }
+        function isb(c) { c = toupper(c); return c ~ /^[ACGTN]$/ }
+        # ---- ViewAlign _findBestTsdInFlanks (ported; 3 side slack RSLK) ----
+        function mm(x, y,   i, m, c1, c2) { m = 0
+            for (i = 1; i <= length(x); i++) { c1 = substr(x, i, 1); c2 = substr(y, i, 1)
+                if (c1 == "N" || c2 == "N") m += 0.5; else if (c1 != c2) m++ }
+            return m }
+        function best(up, down, mn,   L, cl, uo, us, ds, dq, dv, sc) {      # sets TL TS TDS
+            TL = 0; TSC = -1e9
+            for (L = mn; L <= 20; L++) {
+                if (length(up) < L || length(down) < L) continue
+                cl = length(up) - L
+                for (uo = 0; uo <= (cl < 4 ? cl : 4); uo++) {
+                    us = substr(up, cl - uo + 1, L)
+                    for (ds = 0; ds <= ((length(down) - L) < RSLK ? length(down) - L : RSLK); ds++) {
+                        dq = substr(down, ds + 1, L); dv = mm(us, dq) / L
+                        if (dv > 0.20) continue
+                        sc = (1 - dv) * sqrt(L) - uo * 0.04 - ds * 0.08 - ds * 0.05
+                        if (sc > TSC || (sc == TSC && L > TL)) { TSC = sc; TL = L; TS = us; TDS = ds } } } }
+            return TL }
+        END {
+            L = length(s[1]); nc = n - 1                               # row 1 = consensus, not scored
+            # ---- ViewAlign _columnConservationScores + auto-mode ends ----
+            minc = int(nc * 0.35 + 0.999); if (minc < 3) minc = 3
+            for (x = 1; x <= L; x++) { delete k; v = 0; top = 0
+                for (i = 2; i <= n; i++) { c = toupper(substr(s[i], x, 1)); if (c ~ /^[ACGT]$/) { k[c]++; v++ } }
+                for (c in k) if (k[c] > top) top = k[c]
+                sc[x] = (v >= minc) ? (top / v) * (v / nc) : 0 }
+            W = int(L / 24); if (W < 8) W = 8; if (W > 16) W = 16
+            thr = (nc < 8) ? 0.68 : 0.58; left = 0; right = 0
+            for (st = 1; st + W - 1 <= L && !left; st++) { m = 0; for (x = st; x < st + W; x++) m += sc[x]; if (m / W >= thr) left = st }
+            for (st = L - W + 1; st >= 1 && !right; st--) { m = 0; for (x = st; x < st + W; x++) m += sc[x]; if (m / W >= thr) right = st + W - 1 }
+            if (!left || right < left) { print G, nc, L, "-", "-", "-", "-", "-", "-" >> ENDS; exit }
+            for (kk = 0; kk < W - 1 && left < right && sc[left] < thr; kk++) left++
+            for (kk = 0; kk < W - 1 && right > left && sc[right] < thr; kk++) right--
+            # per copy: 30 bases before the 5 end, 56 from the 3 end + 1; bp between each end and the unit
+            for (i = 2; i <= n; i++) {
+                up[i] = ""; for (x = left - 1; x >= 1 && length(up[i]) < 30; x--) { c = substr(s[i], x, 1); if (isb(c)) up[i] = toupper(c) up[i] }
+                dn[i] = ""; for (x = right + 1; x <= L && length(dn[i]) < 56; x++) { c = substr(s[i], x, 1); if (isb(c)) dn[i] = dn[i] toupper(c) }
+                o5 = 0; seen = 0; for (x = left; x <= L && !seen; x++) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o5++ }
+                o3 = 0; seen = 0; for (x = right; x >= 1 && !seen; x--) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o3++ }
+                O5[i - 1] = o5; O3[i - 1] = o3 }
+            # chance: shuffled pairs (5 side of copy i, 3 side of copy i + 1)
+            MINL = 0
+            for (mn = 4; mn <= 14; mn++) { hs = 0; ns = 0
+                for (i = 2; i <= n; i++) { j = (i < n) ? i + 1 : 2; if (j == i) continue; ns++; if (best(up[i], dn[j], mn)) hs++ }
+                print G, mn, ns, hs, (ns ? sprintf("%.1f", 100 * hs / ns) : "-") >> CAL
+                if (mn == 4 && ns > 50 && hs == 0) { print "fs8: TSD detector found nothing on shuffled pairs - broken, stop" > "/dev/stderr"; exit 3 }
+                if (!MINL && ns && hs / ns <= 0.05) { MINL = mn; SHUF = 100 * hs / ns } }
+            if (!MINL) { MINL = 14; SHUF = 0 }
+            print G, "chosen_min_len", MINL >> CAL
+            for (i = 2; i <= n; i++) { best(up[i], dn[i], MINL)
+                print G, h[i], TL, (TL ? TS : "-"), (TL ? TDS : "-"), O5[i - 1], O3[i - 1] }
+            asort(O5); asort(O3)
+            print G, nc, L, left, right, O5[int((nc + 1) / 2)], O3[int((nc + 1) / 2)], MINL, sprintf("%.1f", SHUF) >> ENDS
+        }' "$D/$G.aln.fa" >> "$D/tsd.tsv"
+done
+
+# per copy table and per group summary
 gawk -F'\t' -v OFS='\t' '
-    FILENAME == ARGV[1] { h[$1, $2] = $3; dd[$1, $2] = $4; next }
-    FILENAME == ARGV[2] { if ($1 == "real") { t[$3] = $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9 OFS $10 }; next }
-    { u = (($2, "up") in h); v = (($2, "down") in h)
-      print $1, $2, $3, $4, $5, (u ? h[$2, "up"] : "-"), (u ? dd[$2, "up"] : "-"),
-            (v ? h[$2, "down"] : "-"), (v ? dd[$2, "down"] : "-"), t[$2], $6 }' \
+    FILENAME == ARGV[1] { h[$1, $2] = $3; next }
+    FILENAME == ARGV[2] { t[$2] = $3 OFS $4 OFS $5 OFS $6 OFS $7; next }
+    ($2 in t) { print $1, $2, $3, (($2, "up") in h ? h[$2, "up"] : "-"), (($2, "down") in h ? h[$2, "down"] : "-"), t[$2] }' \
     "$D/relaxed.tsv" "$D/tsd.tsv" "$D/base.tsv" > "$D/copies.body"
-{ printf "group\twid\tstart\tend\tfull\tup_hit\tup_dist\tdown_hit\tdown_dist\tunit_tsd_len\tunit_tsd\tbest_tsd_len\tbest_tsd\toff5\toff3\thypotheses\tbits\n"
-  cat "$D/copies.body"; } > "$D/copies.tsv"
-
-# summary per group; offsets histogram of the wide TSDs (10 bp bins)
-gawk -F'\t' -v OFS='\t' -v NM=$NEAR_MIN -v WM=$WIDE_MIN -v D="$D" '
-    function med(arr, n,   i, j, t) { for (i = 2; i <= n; i++) { t = arr[i]; for (j = i - 1; j >= 1 && arr[j] > t; j--) arr[j + 1] = arr[j]; arr[j + 1] = t }
-                                    return n ? arr[int((n + 1) / 2)] : "-" }
-    FILENAME == ARGV[1] { if ($1 == "shuf") { sn[$2]++; if ($4 > 0) sne[$2]++ }; next }
+{ printf "group\twid\tfull\tup_hit\tdown_hit\ttsd_len\ttsd\tslack3\toff5\toff3\n"; cat "$D/copies.body"; } > "$D/copies.tsv"
+gawk -F'\t' -v OFS='\t' '
+    FILENAME == ARGV[1] { e5[$1] = $6; e3[$1] = $7; ml[$1] = $8; sh[$1] = $9; next }
     FNR == 1 { next }
-    { g = $1; n[g]++; fu[g] += $5
-      if ($6 != "-") { up[g]++; tu[g, $6]++ }; if ($8 != "-") { dn[g]++; td[g, $8]++ }
-      if ($10 > 0) ne[g]++
-      if ($12 > 0 && ($14 > 0 || $15 > 0)) wi[g]++
-      o5[g, ++no[g]] = $14; o3[g, no[g]] = $15
-      hb[g, int($14 / 10) * 10, int($15 / 10) * 10]++
-      if ($16 != "-") { nx = split($16, hh, ";"); for (x = 1; x <= nx; x++) { split(hh[x], hq, ":"); hyc[g, hq[1]]++; hyn[hq[1]] } } }
-    END {
-        nm["S"] = "singles of the family"; nm["B"] = "family copies in composites"; nm["A"] = "singles of the control"
-        print "group", "what", "copies", "full_pct", "partner5_pct", "partner3_pct", "tsd_at_unit_pct", "tsd_shuffled_pct",
-              "tsd_moved_out_pct", "-", "median_off5", "median_off3", "partners5", "partners3"
-        for (g in n) {
-            u = ""; for (k in tu) { split(k, q, SUBSEP); if (q[1] == g) u = u q[2] ":" tu[k] " " }
-            d = ""; for (k in td) { split(k, q, SUBSEP); if (q[1] == g) d = d q[2] ":" td[k] " " }
-            delete A5; delete A3; for (i = 1; i <= no[g]; i++) { A5[i] = o5[g, i]; A3[i] = o3[g, i] }
-            printf "%s\t%s\t%d\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%.1f\t%s\t%s\t%s\t%s\n", g, nm[g], n[g],
-                100 * fu[g] / n[g], 100 * up[g] / n[g], 100 * dn[g] / n[g],
-                100 * ne[g] / n[g], (sn[g] ? 100 * sne[g] / sn[g] : 0), 100 * wi[g] / n[g], "-",
-                med(A5, no[g]), med(A3, no[g]), u, d }
-        print "group", "hypothesis", "copies_with_tsd_there", "pct" > (D "/hypotheses.tsv")
-        for (g in n) for (hname in hyn) printf "%s\t%s\t%d\t%.1f\n", g, hname, hyc[g, hname], 100 * hyc[g, hname] / n[g] > (D "/hypotheses.tsv")
-        print "group", "off5_bin", "off3_bin", "copies" > (D "/offsets.tsv")
-        for (k in hb) { split(k, q, SUBSEP); print q[1], q[2], q[3], hb[k] > (D "/offsets.tsv") }
-    }' "$D/tsd.tsv" "$D/copies.tsv" > "$D/summary.tsv"
-
-# the plate
-gawk -F'\t' '$1 == "S"' "$D/copies.body" | sort -t$'\t' -k17,17gr | head -$PLATE_N | cut -f2 > "$D/plate.ids"
-gawk -v F=$PLATE_F 'FILENAME == ARGV[1] { want[$1]; next }
-     FILENAME == ARGV[2] { if ($4 == "main" && ($1 in want)) { a[$1] = $10; b[$1] = $11 }; next }
-     /^>/ { w = substr($1, 2); next }
-     (w in a) { s = $0; lo = (a[w] - F > 1 ? a[w] - F : 1)
-                print ">" w; print tolower(substr(s, lo, a[w] - lo)) toupper(substr(s, a[w], b[w] - a[w] + 1)) tolower(substr(s, b[w] + 1, F)) }' \
-     "$D/plate.ids" units.tsv "$D/win.tmp" > "$D/plate.copies.fa"
-{ seqkit grep -p "$FAM" cons.masked.fa 2> /dev/null
-  if [ -s candidates.fa ]; then seqkit grep -r -p "(^|__)${FAM}(__|_P)" candidates.fa 2> /dev/null || true; fi; } > "$D/plate.cons.fa"
-if [ -f "$HERE/../tools/compare_cons.py" ]; then
-    python3 "$HERE/../tools/compare_cons.py" <(printf ">none\nN\n"; cat "$D/plate.copies.fa") "$D/plate.aln.fa" "$D/plate.cons.fa" > /dev/null 2>&1 \
-        || echo "fs8: plate alignment failed" >&2
-fi
-rm -f "$D/win.tmp" "$D/copies.body"
-echo "fs8: $FAM singletons -> $OUT/$D/summary.tsv" >&2
+    { g = $1; n[g]++; fu[g] += $3; if ($4 != "-") u[g]++; if ($5 != "-") d[g]++; if ($6 > 0) t[g]++ }
+    END { nm["S"] = "singles of the family"; nm["B"] = "family copies in composites"; nm["A"] = "singles of the control"
+          print "group", "what", "copies", "full_pct", "partner5_pct", "partner3_pct", "tsd_pct", "tsd_shuffled_pct", "tsd_min_len",
+                "median_bp_5end_before_unit", "median_bp_3end_after_unit"
+          for (g in n) printf "%s\t%s\t%d\t%.1f\t%.1f\t%.1f\t%.1f\t%s\t%s\t%s\t%s\n", g, nm[g], n[g], 100 * fu[g] / n[g],
+                100 * u[g] / n[g], 100 * d[g] / n[g], 100 * t[g] / n[g], sh[g], ml[g], e5[g], e3[g] }' \
+    "$D/ends.tsv" "$D/copies.tsv" > "$D/summary.tsv"
+rm -f "$D/copies.body" "$D"/*.in.fa
+echo "fs8: $FAM -> $OUT/$D/summary.tsv" >&2
