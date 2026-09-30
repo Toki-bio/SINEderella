@@ -45,7 +45,7 @@
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
 RELAX_BP=300; MINLEN=20; NEAR_MIN=8; WIDE=${WIDE:-150}; WIDE_MIN=8   # TSD_MIN (env) fixes the TSD minimum; default calibrated
- PLATE_N=100; PLATE_F=150; MAXG=1000    # copies per group (random, seed 42)
+ PLATE_N=100; PLATE_F=150; MAXG=${MAXG:-1000}    # copies per group (random, seed 42); WIDE=0 turns the blind scan off
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$OUT"; D=singletons/$FAM; mkdir -p "$D"
 
