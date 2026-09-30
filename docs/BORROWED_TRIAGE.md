@@ -165,3 +165,16 @@ DROP 12, IMPLEMENT 1 (contained-consensus report), DECIDE 4.
 - D4 mask consensus A tails in assignment: **NO** - many SINEs have other types of repeat ends.
 - D5 TE-protein negative check: **NO**.
 - Implement items 1-9 (hygiene / reproducibility): **YES**, delegated to GLM (aider), checked by Claude.
+
+## 9. Implemented 2026-09-30 (merge 5a71e37; GLM via aider in a worktree, checked by Claude)
+
+Items 1-9 done: sanitize_fasta stops on duplicate names, uppercases, rejects bytes outside
+ACGTUNRYKMSWBDHV-, logs skipped empty records, reads .gz; `tool_versions` in manifest.txt; step2 temp
+dirs under the run dir (`STEP2_TMP_BASE`, default $PWD); step1 stops when extracted != merged intervals;
+13 Python shell calls quoted with shlex.quote. GLM also removed a line in step4_diagnostic.py that used an
+undefined name (`subfamily_assignments`) - a real NameError in compute_position_weights.
+Also: SubFam no longer calls `rename` (bash `mv` loops, same renames): therioserver has no Perl rename
+any more, so every new run failed at SubFam. Test: full SINEderella on the toy genome, soft-masked and
+gzipped, no `rename` on PATH -> exit 0, 7 SubFam banks, 253/255 assigned, no temp left.
+Not done: the installed copy on therioserver (~/SINEderella) is not updated; the SubFam GitHub repo still
+has `/usr/bin/rename`.
