@@ -20,8 +20,9 @@
 #    over the element, then extended into the flanks while >= SHARE of the copies agree (details at
 #    the step). The element cut alone can stop short of the copies' real end.
 # 4) Candidates that are the same element twice (one ssearch36 alignment, >= 90 % identity,
-#    covering >= 90 % of BOTH) are kept once: the one from the larger peak. Stage 6 counts the
-#    copies of a folded candidate for the kept one.
+#    covering >= 90 % of BOTH) are kept once. Each candidate links to its BEST such match among all
+#    candidates; linked candidates form a group, which keeps the one from the largest peak. Stage 6
+#    counts the copies of a folded candidate for the kept one.
 #
 # Out: OUT/candidates.fa       the kept candidate consensuses (name = U__D_Pn, Pn = the peak id)
 #      OUT/candidates.tsv      name peak type upstream downstream n_peak mirrors elements n_used
@@ -163,7 +164,7 @@ while IFS=$'\t' read -r P TY U D NP MIR; do
     rm -f "cand/$NAME.mafft" cand/n.tmp
 done < cand/peaks_used.tsv
 
-# 4) the same element built twice -> keep the larger peak's (built.tsv is in peak-size order)
+# 4) the same element built twice -> merged by best hit into groups; each group keeps its largest peak
 while read -r N; do cat "cand/$N.fa"; done < <(cut -f1 cand/built.tsv) > cand/all.fa
 ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> /dev/null > cand/self.m8 || true
 gawk -F'\t' -v OFS='\t' '
@@ -171,10 +172,22 @@ gawk -F'\t' -v OFS='\t' '
     # m8: pid, q_s q_e ($7 $8), s_s s_e ($9 $10). Same element = the alignment covers >= 90 % of
     # BOTH: a shorter candidate contained in a longer one is a different element (r3 with its
     # internal repeat inside r1 + 39 bp + r3; r10 + r6 part inside r10 + 105 bp + group B)
-    $1 != $2 { if ($3 >= 90 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2]) same[$1, $2] = same[$2, $1] = 1 }
-    END { for (i = 1; i <= n; i++) { st[ord[i]] = "kept"
-              for (j = 1; j < i; j++) if (st[ord[j]] == "kept" && same[ord[i], ord[j]]) { st[ord[i]] = "same_as:" ord[j]; break } }
-          for (i = 1; i <= n; i++) print ord[i], st[ord[i]] }' cand/built.tsv cand/self.m8 > cand/status.tsv
+    # Merge by BEST hit, not first hit: every candidate links to the one candidate it matches best
+    # (highest identity among all pairs that pass), linked candidates form one group, and the group
+    # keeps the candidate from the largest peak. First-hit in peak order merged rsi P42 (r8 + r8) into
+    # P26 (r5h_r6, 90.6 %) although it is 99.0 % identical to P43 (r8 + r8, a smaller peak).
+    $1 != $2 { if ($3 >= 90 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2]) {
+                   if ($3 > pid[$1, $2]) pid[$1, $2] = pid[$2, $1] = $3 } }
+    function root(x) { while (up[x] != x) x = up[x]; return x }
+    END {
+        for (i = 1; i <= n; i++) { rank[ord[i]] = i; up[ord[i]] = ord[i] }
+        for (i = 1; i <= n; i++) {                      # best partner of each candidate
+            a = ord[i]; bb = ""; bv = 0
+            for (j = 1; j <= n; j++) { b = ord[j]; if (b != a && ((a, b) in pid) && pid[a, b] > bv) { bv = pid[a, b]; bb = b } }
+            if (bb != "") { ra = root(a); rb = root(bb); if (ra != rb) { if (rank[ra] < rank[rb]) up[rb] = ra; else up[ra] = rb } }
+        }
+        for (i = 1; i <= n; i++) { r = root(ord[i]); print ord[i], (r == ord[i] ? "kept" : "same_as:" r) }
+    }' cand/built.tsv cand/self.m8 > cand/status.tsv
 { printf "$HDR"; paste cand/built.tsv <(cut -f2 cand/status.tsv); } > candidates.tsv
 gawk -F'\t' 'NR > 1 && $14 == "kept" { print $1 }' candidates.tsv | while read -r N; do cat "cand/$N.fa"; done > candidates.fa
 rm -f cand/all.fa cand/self.m8 cand/built.tsv cand/status.tsv

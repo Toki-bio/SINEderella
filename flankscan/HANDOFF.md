@@ -224,3 +224,6 @@ folded) - stage 6 NOT yet rerun on ~/tmp/fs_rsi5. Known limit: an extension that
   >= 90 % of both, in peak-size order. P42 (r8+r8) matched P26 (r5h_r6) at 90.6 % and was folded there,
   although it is 99.0 % identical to P43 (r8+r8, kept). Fix to do: fold into the MOST similar kept
   candidate, and fold P43-like twins together first.
+- 2026-09-30 FIXED (his agreement): stage 5 merges by BEST hit - each candidate links to its best >= 90 %/90 %
+  match among ALL candidates, linked groups keep their largest peak. rsi (~/tmp/fs_rsi6): r8 dimer group
+  P42 kept + P43, P38; r5h_r6 group P26 + P37, P27-29, P48; 16 kept. Toy PASS.
