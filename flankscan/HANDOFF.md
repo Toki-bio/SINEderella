@@ -324,3 +324,11 @@ internal repeat (REFINEMENT §11 point 4). C2 (r1 + r2[106-146] + r3, 15 %) chec
 - fs_rsi9 (newest code, 954 s): 14 elements, 6 accepted: r1_r3_P1 89.7 %, r5_r6_P26 87.3, r1_r3_P2 84.5, r5_r3_P34 86.6,
   r10_r8_P18 86.1, chain r1+31+r2+r3 (C1, 57 copies) 89.8 %. Open/check: P9, P10, P21, P25, P41, C2 (30.2 %), P20, P33.
   NOTE: the r3 internal repeat is no longer part of the chain (old builder gave r3:3-176 + r3:130-201); check why (GLM task E).
+
+## 2026-10-01 (later): why P9/P10/P25 were never chained, GLM task E rejected
+- fs_rsi9: P9, P10, P25 had open 5' ends (78 / 100 / 85 % of copies continue into r1) but were listed in chains.skip.
+  Cause: ends are checked on the 60 best copies of a candidate only, and 35 / 38 / 44 of them carry the r1 hit, while
+  stage 6c demanded MINK = 50 copies. Fix (3f47720): chain minimum is MINKC = 25 (fs_all.sh, fs6c default). Rerun: ~/tmp/fs_rsi10.
+- GLM task E (tools/cand_ends.py on branch glm-uniq-cpg-leak) PASSED its own check but is NOT usable: on the rsi_v5 candidate
+  plates it reports every end "closed" (consensus end column 101 = the flank boundary of the plate, 1 column beyond),
+  while stage 6b finds P9/P10/P25 open. Not merged; stage 6b/6c ends.tsv is the end evidence.
