@@ -107,38 +107,56 @@ fs_build_cons() {
 }
 
 # fs_fold LIST STATUS - the same element built twice -> merged by best hit into groups; each group keeps the
-# first of the list (the list is in rank order: largest peak first). LIST: name TAB cons_len, cand/NAME.fa must
+# first of the list (the list is in rank order: largest peak first). LIST: name TAB cons_len [TAB key], cand/NAME.fa must
 # exist for each; STATUS (out): name TAB kept | same_as:ROOT
+# Rules: (1) same element = the alignment of the two consensuses covers >= 90 % of BOTH, identity >= 90 %; a shorter
+# candidate contained in a longer one is a different element (r3 with its internal repeat inside r1 + 39 bp + r3).
+# (2) the part of one candidate that the other does not cover (>= XMIN = 40 bp) must not be a known unit: when it hits
+# the bank (cons.masked.fa, >= 40 bp, E <= 1e-3) the candidates differ (the four-unit rsi chain, 632 bp, carries a
+# 49 bp repeat of r3 that the three-unit chain, 583 bp, lacks; routes that differ only in flank-extended ends fold).
+# (3) key (3rd list column, optional): homodimers carry "H:<family>" and merge only with homodimers of the same family -
+# a tandem of one unit is its own element and is never absorbed by a composite of other units (rsi r8 + r8 into r5 + r6).
+# Merge by BEST hit, not first hit: every candidate links to the one candidate it matches best (highest identity among
+# the pairs that pass), linked candidates form one group, the group keeps the candidate from the largest peak.
 fs_fold() {
-    local LIST=$1 STATUS=$2
-cut -f1 "$LIST" | while read -r N; do cat "cand/$N.fa"; done > cand/all.fa
-ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> /dev/null > cand/self.m8 || true
-gawk -F'\t' -v OFS='\t' '
-    FILENAME == ARGV[1] { L[$1] = $2; K[$1] = $3; ord[++n] = $1; next } # list: name cons_len [key]
-    # m8: pid, q_s q_e ($7 $8), s_s s_e ($9 $10). Same element = the alignment covers >= 90 % of
-    # BOTH: a shorter candidate contained in a longer one is a different element (r3 with its
-    # internal repeat inside r1 + 39 bp + r3; r10 + r6 part inside r10 + 105 bp + group B)
-    # Merge by BEST hit, not first hit: every candidate links to the one candidate it matches best
-    # (highest identity among all pairs that pass), linked candidates form one group, and the group
-    # keeps the candidate from the largest peak. First-hit in peak order merged rsi P42 (r8 + r8) into
-    # P26 (r5h_r6, 90.6 %) although it is 99.0 % identical to P43 (r8 + r8, a smaller peak).
-    # lengths must also be within 30 bp: a chain of four units that contains the three-unit chain (632 vs 583 bp, rsi; 8 % apart is not 'the same') is a longer
-    # element, not the same one
-    # key (3rd list column, optional): homodimers carry "H:<family>" and merge only with homodimers of the same family -
-    # a tandem of one unit is its own element and is never absorbed by a composite of other units (rsi r8 + r8 into r5 + r6)
-    $1 != $2 && K[$1] == K[$2] && (L[$1] > L[$2] ? L[$1] - L[$2] : L[$2] - L[$1]) <= 30 { if ($3 >= 90 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2]) {
-                   if ($3 > pid[$1, $2]) pid[$1, $2] = pid[$2, $1] = $3 } }
-    function root(x) { while (up[x] != x) x = up[x]; return x }
-    END {
-        for (i = 1; i <= n; i++) { rank[ord[i]] = i; up[ord[i]] = ord[i] }
-        for (i = 1; i <= n; i++) {                      # best partner of each candidate
-            a = ord[i]; bb = ""; bv = 0
-            for (j = 1; j <= n; j++) { b = ord[j]; if (b != a && ((a, b) in pid) && pid[a, b] > bv) { bv = pid[a, b]; bb = b } }
-            if (bb != "") { ra = root(a); rb = root(bb); if (ra != rb) { if (rank[ra] < rank[rb]) up[rb] = ra; else up[ra] = rb } }
-        }
-        for (i = 1; i <= n; i++) { r = root(ord[i]); print ord[i], (r == ord[i] ? "kept" : "same_as:" r) }
-    }' "$LIST" cand/self.m8 > "$STATUS"
-    rm -f cand/all.fa cand/self.m8
+    local LIST=$1 STATUS=$2 XMIN=${XMIN:-40}
+    cut -f1 "$LIST" | while read -r N; do cat "cand/$N.fa"; done > cand/all.fa
+    ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> /dev/null > cand/self.m8 || true
+    # pairs that pass rules 1 and 3, with the uncovered stretches (name start end) of both candidates
+    gawk -F'	' -v OFS='	' -v XMIN=$XMIN '
+        FILENAME == ARGV[1] { L[$1] = $2; K[$1] = $3; next }
+        $1 != $2 && K[$1] == K[$2] && $3 >= 90 && $9 < $10 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2] {
+            print $1, $2, $3, ($7 - 1 >= XMIN ? $1 ":1-" $7 - 1 : "-"), (L[$1] - $8 >= XMIN ? $1 ":" $8 + 1 "-" L[$1] : "-"),
+                  ($9 - 1 >= XMIN ? $2 ":1-" $9 - 1 : "-"), (L[$2] - $10 >= XMIN ? $2 ":" $10 + 1 "-" L[$2] : "-") }' "$LIST" cand/self.m8 > cand/fold.pairs
+    # rule 2: an uncovered stretch that is a known unit separates the candidates
+    : > cand/fold.block
+    while IFS=$'	' read -r A B PID X1 X2 X3 X4; do
+        for X in "$X1" "$X2" "$X3" "$X4"; do
+            [[ "$X" == - ]] && continue
+            N=${X%%:*}; R=${X#*:}; S=${R%-*}; E=${R#*-}
+            gawk -v S=$S -v E=$E '!/^>/ { print ">x
+" substr($0, S, E - S + 1) }' "cand/$N.fa" > cand/fold.x.fa
+            if [[ -n $(ssearch36 -m 8 -E 1e-3 -Z 1000 cand/fold.x.fa cons.masked.fa 2> /dev/null | gawk -F'	' '$4 >= 40 { print "hit"; exit }') ]]; then
+                printf "%s	%s
+" "$A" "$B" >> cand/fold.block; break
+            fi
+        done
+    done < <(gawk -F'	' '$4 != "-" || $5 != "-" || $6 != "-" || $7 != "-"' cand/fold.pairs)
+    gawk -F'	' -v OFS='	' '
+        FILENAME == ARGV[1] { ord[++n] = $1; next }
+        FILENAME == ARGV[2] { bl[$1, $2] = bl[$2, $1] = 1; next }
+        { if (!(($1, $2) in bl) && $3 > pid[$1, $2]) pid[$1, $2] = pid[$2, $1] = $3 }
+        function root(x) { while (up[x] != x) x = up[x]; return x }
+        END {
+            for (i = 1; i <= n; i++) { rank[ord[i]] = i; up[ord[i]] = ord[i] }
+            for (i = 1; i <= n; i++) {                      # best partner of each candidate
+                a = ord[i]; bb = ""; bv = 0
+                for (j = 1; j <= n; j++) { b = ord[j]; if (b != a && ((a, b) in pid) && pid[a, b] > bv) { bv = pid[a, b]; bb = b } }
+                if (bb != "") { ra = root(a); rb = root(bb); if (ra != rb) { if (rank[ra] < rank[rb]) up[rb] = ra; else up[ra] = rb } }
+            }
+            for (i = 1; i <= n; i++) { r = root(ord[i]); print ord[i], (r == ord[i] ? "kept" : "same_as:" r) }
+        }' "$LIST" cand/fold.block cand/fold.pairs > "$STATUS"
+    rm -f cand/all.fa cand/self.m8 cand/fold.pairs cand/fold.block cand/fold.x.fa
 }
 
 # fs_endcheck NAME - are the ends of candidate NAME closed? The copies it was built from (cand/NAME.bed) with
