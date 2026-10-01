@@ -336,3 +336,8 @@ internal repeat (REFINEMENT §11 point 4). C2 (r1 + r2[106-146] + r3, 15 %) chec
   step3 table (rsi_peel, 16 246 LEAK copies) it prints divergence 0.00 for every copy and runner_bs/best_bs ratios that do not
   match col 10 (best 675 / runner 1346, ratio 0.9132). The column semantics are misread. Needs a real example for D3 (open).
 - GLM task C (CPG divergence test, docs/CPG_DIVERGENCE_TEST.md, tools/cpg_div) merged to main (numbers filled by Claude from summary.tsv).
+
+## 2026-10-01 (evening): stage 9, flank twins (fs9_twins.sh, fs9_dupregion.sh)
+Implemented and validated, see docs/FLANK_UNIQUENESS.md "Results of the first implementation". Test: flankscan/tests/test_fs9.sh (toy, ~1 min).
+rsi twin share 0.3-2.5 % per family. Not wired into fs_all.sh / plates / verdict yet; threshold sweep and the scale test (tbr VES 621 128 copies) pending.
+Also today: fs fold homodimer rule (fs_rsi11 rerun), MINKC=25.

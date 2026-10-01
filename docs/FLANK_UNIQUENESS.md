@@ -1,6 +1,6 @@
 # Flank uniqueness over ALL copies of a family (design, 2026-09-30)
 
-Status: **design, not implemented.** Agreed with Toki 2026-09-30: document first, then build a benchmark,
+Status: **implemented 2026-10-01 as flankscan stage 9 (fs9_twins.sh, fs9_dupregion.sh), see the Results section at the end; not yet wired into fs_all.sh or the plates.** Earlier status: design only. Agreed with Toki 2026-09-30: document first, then build a benchmark,
 then implement and compare several approaches on real data before choosing one.
 
 ## Why the plates are not enough (his caveats, 2026-09-30)
@@ -169,3 +169,35 @@ The question "is this family made of independent insertions" is answered by clas
 
 Where to put the line between "independent insertion" and "twin": identity floor 85 % over 50 bp is a first guess. Old duplicates (> 15 % divergent flanks) are
 missed by design; do you want a second tier (70-85 %, class "possible old duplicate") reported separately?
+
+
+---
+
+## Results of the first implementation (2026-10-01)
+
+Code: `flankscan/fs9_twins.sh` (twins, two tiers, arrays, untestable), `flankscan/fs9_dupregion.sh` (class R), toy generator
+`flankscan/tests/make_toy_flank.py`, test `flankscan/tests/test_fs9.sh`. Run: `fs9_twins.sh GENOME.fa COPIES.bed OUT` (for a genome over 300 Mb give
+`KCOUNT`, a jellyfish dump of canonical 20-mers above 20: `jellyfish count -m 20 -s 8G -t 64 -C`, `jellyfish dump -c -L 21`).
+
+**Toy (all planted):** 300 unique copies, 40 hot-spot copies in a masked LINE-like repeat, 10 (TA)n flanks, 4 contig-end copies: none called a twin
+(contig-end copies are "untestable"); the 10-unit tandem array is called `array`, not twin; shuffled copies give no twin. Segmental duplications carrying a copy,
+same contig, cross contig and inverted: found as tier 1 down to 85 % identity (6 of 6), as tier 2 at 78 %; the 73 % one is missed (about the limit of the
+spaced seed plus a 1 % indel rate). Two copies inserted independently into a duplicated region are not twins and are flagged `dup-region` by fs9_dupregion
+(2 of 2); no unique or hot-spot copy is flagged; the duplicated-region flag also finds the twin copies with >= 85 % identity (12 of 16).
+
+**Exact reference on real data (rsi r9, 6 988 copies):** all-pairs ssearch36 of the proximal flanks (same masking, start <= 21 bp from the junction in both
+copies, >= 50 bp, >= 70 %) on a sample of 1 438 copies (all 130 copies in an fs9 pair plus 1 400 random). At copy level the two agree on 50 of 52 flagged copies
+(2 only in the reference, 2 only in fs9). At pair level fs9 finds 81 of the reference's 101 pairs; the missing pairs are inside groups of three or more
+copies whose pairs are all present through another member (flank partly masked: fewer than 50 unmasked bases). The alignments of the first flagged pairs
+were read: cross-contig, 95-99 % identical, 68-98 bp from the junction, ordinary unique sequence (not a repeat).
+
+**Twin share per rsi family (tier 1 + tier 2 of all copies, shuffled-free):** r9 0.9 %, r1 0.4 %, r10 2.5 % (twin2 0.5 %), r8 1.5 %, r6 0.9 %, r5 0.6 %,
+r7 0.8 %, r3 0.8 %, r2 0.4 %, MEG-RL 0.3 %, MEG-RS 7 % (2 of 28 copies). Run time: all families in under 4 minutes on the therioserver (genome 20-mer
+count 1.5 minutes). Class R on r9: 1 of 6 988 copies has a 200 bp flank mapped elsewhere at >= 85 % (most twin flanks are shared over less than 100 bp).
+
+**Reading:** the rsi families are made of independent insertions: 0.3-2.5 % of the copies have a twin, mostly one-sided (the duplication breakpoint lies in the
+flank of the copy). The numbers move with the thresholds; the range over the thresholds is still to be reported (step 7 of the plan).
+
+**Not done yet:** plate marks `[twin]` / `[dup-region]` and the verdict line (the stage is not wired into fs_all.sh or the publish step); the threshold sweep;
+the real positives of other species (tbr MEG-RS satellite, nle MEG-TR, ttr MEG-RS); scale test on 600 000 copies (the pair step is awk and sort; memory
+untested); a gapped confirmation (an indel inside the 80 bp cuts the segment).
