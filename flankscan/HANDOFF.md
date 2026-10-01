@@ -368,3 +368,6 @@ Traced on the r7 singles of fs_rsi6 (S.aln.fa, 200 copies) and on his top100 pla
 Change: fs8 TSD_RSLACK default 25 -> 45, 3' window RSLK+31 bases (56 at 25). The shuffled calibration uses the same window, so chance is controlled.
 Slack 45 vs 25 (excess points, min 12; singles): r5 +48 vs +28, r6 +57 vs +32, r7 +49 vs +13, r8 +63 vs +53; controls (r9-like A groups) +24..+39 vs +20..+34.
 Rerun of fs8 for all rsi families on fs_rsi14: ~/tmp/fs8_rsi14_{a,b}.log.
+
+fs8 final (raw-flank method, 3' slack 45; fs_rsi14, singles with a TSD at the calibrated minimum, real vs shuffled): r9 control 35.5 vs 4; r8 64.5 vs 4.5; r7 63.0 vs 5; r6 58.5 vs 0; r5 53.0 vs 0; r3 28.5 vs 4 (was 7: now partly standalone); r1 15.5 vs 4.9; r10 3.5 vs 4 (none). Inside composites: r10 64.7, r3 72, r8 61, r5 59.5. Tables: Tal rsi_v6/stage8_tsd/.
+Open: per-copy end rule (last base inside the conserved block) is not built; rsi_v6 report plates not rebuilt with these numbers.
