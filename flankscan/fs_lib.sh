@@ -84,3 +84,37 @@ gawk -F'\t' -v OFS='\t' '
     }' "$LIST" cand/self.m8 > "$STATUS"
     rm -f cand/all.fa cand/self.m8
 }
+
+# fs_endcheck NAME - are the ends of candidate NAME closed? The copies it was built from (cand/NAME.bed) with
+# EFL bp of flank beyond each end (strand-aware), searched against the bank (cons.masked.fa, ssearch36
+# E <= 1e-3); a copy's end is OPEN when its best hit lies within NEAR (100) bp of the junction (a linker of up to that length is allowed, rsi r1 + r3 has 39 bp) and is >= MINLEN bp.
+# Out: cand/ends/NAME.h5, .h3 (one row per open copy: bed name, unit, cons start, cons end, flank lo, flank hi,
+# bits; flank coordinates 1 = farthest from the element, EFL = next to it for 5', 1 = next to it for 3') and,
+# on stdout, the ends.tsv row: name side5_share side5_unit side5_second side3_share side3_unit side3_second open
+fs_endcheck() {
+    local N=$1 EFL=${EFL:-250} NEAR=${NEAR:-100} MINLEN=${MINLEN:-40} OPENFRAC=${OPENFRAC:-0.5} S NC G="$RUN/genome.clean.fa"
+    local B=cand/$N.bed; mkdir -p cand/ends
+    gawk -F'\t' -v OFS='\t' '{ print $1, $2, $3, $4, 0, $6 }' "$B" > "cand/ends/$N.b6"
+    bedtools flank -i "cand/ends/$N.b6" -g "$G.fai" -l $EFL -r 0 -s | bedtools getfasta -fi "$G" -bed - -s -nameOnly 2> /dev/null \
+        | seqkit seq -w 0 | sed '/^>/s/([+-])$//' > "cand/ends/$N.f5.fa"
+    bedtools flank -i "cand/ends/$N.b6" -g "$G.fai" -l 0 -r $EFL -s | bedtools getfasta -fi "$G" -bed - -s -nameOnly 2> /dev/null \
+        | seqkit seq -w 0 | sed '/^>/s/([+-])$//' > "cand/ends/$N.f3.fa"
+    NC=$(wc -l < "$B")
+    for S in 5 3; do
+        ssearch36 -m 8 -E 1e-3 -Z 1000 -z 11 -T "$T" cons.masked.fa "cand/ends/$N.f$S.fa" 2> /dev/null \
+        | gawk -F'\t' -v S=$S -v FL=$EFL -v NEAR=$NEAR -v ML=$MINLEN -v OFS='\t' '
+            { lo = ($9 < $10 ? $9 : $10); hi = ($9 < $10 ? $10 : $9); if (hi - lo + 1 < ML) next
+              near = (S == 5) ? (FL - hi <= NEAR) : (lo <= NEAR + 1)
+              if (!near) next
+              if (!($2 in be) || $12 > be[$2]) { be[$2] = $12; bu[$2] = $1; qs[$2] = ($7 < $8 ? $7 : $8); qe[$2] = ($7 < $8 ? $8 : $7); fl[$2] = lo; fh[$2] = hi } }
+            END { for (k in bu) print k, bu[k], qs[k], qe[k], fl[k], fh[k], be[k] }' > "cand/ends/$N.h$S"
+    done
+    for S in 5 3; do
+        gawk -F'\t' -v NC=$NC 'BEGIN { OFS = "\t" } { c[$2]++; n++ }
+            END { t = ""; tn = 0; s2 = ""; sn = 0
+                  for (u in c) { if (c[u] > tn) { s2 = t; sn = tn; t = u; tn = c[u] } else if (c[u] > sn) { s2 = u; sn = c[u] } }
+                  printf "%.2f\t%s\t%s\n", (NC ? n / NC : 0), (t == "" ? "-" : t), (s2 == "" ? "-" : s2 ":" sn) }' "cand/ends/$N.h$S" > "cand/ends/$N.s$S"
+    done
+    paste <(printf "%s\n" "$N") "cand/ends/$N.s5" "cand/ends/$N.s3" \
+    | gawk -F'\t' -v OFS='\t' -v F=$OPENFRAC '{ o = ($2 >= F ? "5" : "") ($5 >= F ? "3" : ""); print $1, $2, $3, $4, $5, $6, $7, (o == "" ? "-" : o) }'
+}
