@@ -255,7 +255,21 @@ def pick_canonical(a: str, b: str) -> tuple[str, str, str]:
     return ob.seq, "+", f"direct; keep B (tail score {fb:.1f})"
 
 
-def find_rc_clusters(cons: dict[str, str], min_id: float) -> list[list[str]]:
+def find_rc_clusters(
+    cons: dict[str, str],
+    min_id: float,
+    min_len_ratio: float = 0.9,
+    direct_min_id: float = 98.0,
+) -> list[list[str]]:
+    """Clusters of consensuses that are the same sequence written twice.
+
+    A pair is merged only when (1) the lengths are within min_len_ratio (a shorter variant is never an alias of a
+    longer one: rsi r9, 105 bp, is the 5' part of r7, 154 bp, and MEG-RS, 135 bp, of MEG-RL, 207 bp, and both are
+    separate monomer SINEs), and (2) it is a reverse-complement pair at >= min_id, or a same-orientation pair at
+    >= direct_min_id (near-identical duplicates). Same-orientation consensuses at 80-90 % are different families or
+    subfamilies, not aliases. identity() compares position by position (no alignment), so a lower threshold also
+    merges unrelated sequences that happen to share a start.
+    """
     names = sorted(cons)
     parent = {n: n for n in names}
 
@@ -274,7 +288,11 @@ def find_rc_clusters(cons: dict[str, str], min_id: float) -> list[list[str]]:
         sa = cons[a]
         for b in names[i + 1 :]:
             sb = cons[b]
-            if max(identity(sa, sb), identity(sa, rc(sb))) >= min_id:
+            la, lb = len(ungap(sa)), len(ungap(sb))
+            if not la or not lb or min(la, lb) / max(la, lb) < min_len_ratio:
+                continue
+            id_d, id_r = identity(sa, sb), identity(sa, rc(sb))
+            if (id_r > id_d + 1 and id_r >= min_id) or (id_d >= max(min_id, direct_min_id)):
                 union(a, b)
     groups: dict[str, list[str]] = {}
     for n in names:

@@ -45,6 +45,8 @@ def main() -> int:
     ap.add_argument("-o", "--output", type=Path, required=True)
     ap.add_argument("--aliases", type=Path, default=None)
     ap.add_argument("--min-id", type=float, default=80.0)
+    ap.add_argument("--min-len-ratio", type=float, default=0.9, help="shorter/longer length needed to merge (default 0.9)")
+    ap.add_argument("--direct-min-id", type=float, default=98.0, help="identity needed to merge a same-orientation pair (default 98)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -53,7 +55,7 @@ def main() -> int:
         print("ERROR: empty input", file=sys.stderr)
         return 1
 
-    clusters = find_rc_clusters(cons, args.min_id)
+    clusters = find_rc_clusters(cons, args.min_id, args.min_len_ratio, args.direct_min_id)
     drop: set[str] = set()
     alias_rows: list[tuple] = []
     out = dict(cons)

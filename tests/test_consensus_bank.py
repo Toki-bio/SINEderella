@@ -91,5 +91,27 @@ class TestCanonicalizeScript(unittest.TestCase):
             self.assertEqual(len(merged), 1)
 
 
+class TestNoShorterVariantMerge(unittest.TestCase):
+    """rsi r9 (105 bp) is the 5' part of r7 (154 bp) and MEG-RS (135 bp) of MEG-RL (207 bp): both separate SINEs."""
+
+    R7 = ("GGGCGGCCGGTTAGCTCAGTTGGTTAGAGCGCGGTGCTCTTAACAACAAGGTTGCCGGTTCGATCCCCACATGGGCCACTGTGAGCTGCGCCCTCCACAACTAGATTGAAACAACTACTTGACTTGGAGCTGATGGGTCCTGGAAAAACACACT")
+    R9 = ("GGGTGGCCGGTTAGCTCAGTTGGTTAGAGCGTGGTGCTAATAACACCAAGGTTGCCGGTTCGATCCCCGCATGGGCCACTGTGAGCTGCGCCCTCCTTAAAAAAA")
+    R4 = "CCGGATGGCTCAGTTGGTTGGAGCGCGTGCTCTCAACCACAAGGTTGCCAGTTCGATTCCTCGACTCCCGCAAGGGATGGTGGGCTGTGCCCCCTGCAACTAGCAACGGCAACTGGACCTGGAGCTGAGCTGCGCCCTCCACAA"
+    R2 = "CCGGATGGCTCAGTTGGTTGGAGCGCGGGCTCTCAACCACAAGGTTGCCAGTTCAATTCCTCGACTCCCGCAAGGGATGGTGGGCAGCGCCCCCTGCAACTAAAATTGAACACGGCACCTTGAGCTGAGCTGCCGCTGAGCTCCGG"
+
+    def test_shorter_variant_not_merged(self):
+        from consensus_bank_lib import find_rc_clusters
+        self.assertEqual(find_rc_clusters({"r7": self.R7, "r9": self.R9}, 80.0), [])
+
+    def test_same_length_direct_pair_at_83_percent_not_merged(self):
+        from consensus_bank_lib import find_rc_clusters
+        self.assertEqual(find_rc_clusters({"r2": self.R2, "r4": self.R4}, 80.0), [])
+
+    def test_rc_pair_and_exact_duplicate_still_merge(self):
+        from consensus_bank_lib import find_rc_clusters
+        self.assertEqual(find_rc_clusters({"a": self.R7, "b": rc(self.R7)}, 80.0), [["a", "b"]])
+        self.assertEqual(find_rc_clusters({"a": self.R7, "b": self.R7}, 80.0), [["a", "b"]])
+
+
 if __name__ == "__main__":
     unittest.main()
