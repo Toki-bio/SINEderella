@@ -42,7 +42,7 @@
 #                                            the enrichment curve: a minimum chosen only to silence the shuffled pairs hides short real TSDs)
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
-FL=${FL:-100}; FULLFL=${FULLFL:-400}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-45}; RELAX_BP=300; MINLEN=20
+FL=${FL:-100}; FULLFL=${FULLFL:-400}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-45}; ETRIM=${ENDTRIM:-0}; RELAX_BP=300; MINLEN=20
 cd "$OUT"; D=singletons/$FAM; rm -rf "$D"; mkdir -p "$D"
 
 # groups, NALN each at most (seed 42)
@@ -98,7 +98,7 @@ for G in S B A; do
         extract "$G" "$FULLFL" | seqkit seq -w 0 > "$D/$G.full.fa"       # the same copies with long raw flanks (not aligned)
         mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" "$D/$G.in.fa" 2> /dev/null \
             | seqkit seq -w 0 > "$D/$G.aln.fa"
-        gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v CAL="$D/$G.cal.tmp" -v ENDS="$D/$G.ends.tmp" -v PLATE="$D/$G.plate.aln.fa" -v PROP="$D/$G.proposed.fa" -v FLC=$FLC -v FLD=$FLD -v FULL="$D/$G.full.fa" '
+        gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v ETRIM=$ETRIM -v CAL="$D/$G.cal.tmp" -v ENDS="$D/$G.ends.tmp" -v PLATE="$D/$G.plate.aln.fa" -v PROP="$D/$G.proposed.fa" -v FLC=$FLC -v FLD=$FLD -v FULL="$D/$G.full.fa" '
             BEGIN { while ((getline ln < FULL) > 0) { if (ln ~ /^>/) fk = substr(ln, 2); else FS_[fk] = ln } }
             /^>/ { n++; h[n] = substr($1, 2); next } { s[n] = $0 }
             function isb(c) { c = toupper(c); return c ~ /^[ACGTN]$/ }
@@ -126,7 +126,7 @@ for G in S B A; do
                 minc = int(nc * 0.35 + 0.999); if (minc < 3) minc = 3
                 for (x = 1; x <= L; x++) { delete k; v = 0; top = 0
                     for (i = 2; i <= n; i++) { c = toupper(substr(s[i], x, 1)); if (c ~ /^[ACGT]$/) { k[c]++; v++ } }
-                    for (c in k) if (k[c] > top) top = k[c]
+                    for (c in k) if (k[c] > top) { top = k[c]; mj[x] = c }
                     sc[x] = (v >= minc) ? (top / v) * (v / nc) : 0 }
                 W = int(L / 24); if (W < 8) W = 8; if (W > 16) W = 16
                 thr = (nc < 8) ? 0.68 : 0.58; left = 0; right = 0
@@ -142,6 +142,15 @@ for G in S B A; do
                     a5 = 0; for (x = 1; x <= L; x++) { c = substr(s[i], x, 1); if (c ~ /[A-Z]/) break; if (c ~ /[a-z]/) a5++ }
                     off[i] = f5 - a5; nb5[i] = 0; for (x = 1; x < left; x++) if (substr(s[i], x, 1) != "-") nb5[i]++
                     mb3[i] = 0; for (x = 1; x <= right; x++) if (substr(s[i], x, 1) != "-") mb3[i]++
+                    if (ETRIM) {       # per-copy ends: the last / first base that agrees with the column majority and sits in a stretch of >= 6 agreeing of 8 bases
+                        for (x = right; x > left; x--) { if (toupper(substr(s[i], x, 1)) != mj[x]) continue
+                            mt = 0; tt = 0; for (y = x; y > left && tt < 8; y--) { d = toupper(substr(s[i], y, 1)); if (d ~ /^[ACGT]$/) { tt++; if (d == mj[y]) mt++ } }
+                            if (tt >= 6 && mt >= 6) break }
+                        mb3[i] = 0; for (y = 1; y <= x; y++) if (substr(s[i], y, 1) != "-") mb3[i]++
+                        for (x = left; x < right; x++) { if (toupper(substr(s[i], x, 1)) != mj[x]) continue
+                            mt = 0; tt = 0; for (y = x; y < right && tt < 8; y++) { d = toupper(substr(s[i], y, 1)); if (d ~ /^[ACGT]$/) { tt++; if (d == mj[y]) mt++ } }
+                            if (tt >= 6 && mt >= 6) break }
+                        nb5[i] = 0; for (y = 1; y < x; y++) if (substr(s[i], y, 1) != "-") nb5[i]++ }
                     p5 = off[i] + nb5[i]; up[i] = toupper(substr(fr, (p5 > 30 ? p5 - 29 : 1), (p5 > 30 ? 30 : p5)))
                     dn[i] = toupper(substr(fr, off[i] + mb3[i] + 1, RSLK + 31))
                     o5 = 0; seen = 0; for (x = left; x <= L && !seen; x++) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o5++ }

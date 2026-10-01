@@ -371,3 +371,5 @@ Rerun of fs8 for all rsi families on fs_rsi14: ~/tmp/fs8_rsi14_{a,b}.log.
 
 fs8 final (raw-flank method, 3' slack 45; fs_rsi14, singles with a TSD at the calibrated minimum, real vs shuffled): r9 control 35.5 vs 4; r8 64.5 vs 4.5; r7 63.0 vs 5; r6 58.5 vs 0; r5 53.0 vs 0; r3 28.5 vs 4 (was 7: now partly standalone); r1 15.5 vs 4.9; r10 3.5 vs 4 (none). Inside composites: r10 64.7, r3 72, r8 61, r5 59.5. Tables: Tal rsi_v6/stage8_tsd/.
 Open: per-copy end rule (last base inside the conserved block) is not built; rsi_v6 report plates not rebuilt with these numbers.
+Per-copy end trim (fs8 ENDTRIM=1: each copy's ends at its last/first base agreeing with the column majority): tested on S groups, TSD with min 14 excess points vs default: r7 54.5 vs 56.0, r8 58.5 vs 60.0, r5 49.0 vs 44.5, r6 30.5 vs 51.0. No gain, r6 clearly worse -> left OFF (default 0), kept as an option.
+Bank cleaning (consensuses.clean.aliases.tsv in the rsi_v6 run): r9_15seqs -> r7_133seqs (89.5 % direct), r4_32seqs -> r2_3seqs (83.3 %), MEG-RS -> MEG-RL (97 %); that is why the report has no plates for r9, r4, MEG-RS.
