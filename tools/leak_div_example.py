@@ -260,11 +260,10 @@ def report(path, result, top):
         if result["identity_rows"] == 0:
             print("NOTE: %s provides no alignment identity (and no alignment" % path)
             print("length) for the best and runner-up hits - saying so and falling")
-            print("back to the columns that do exist (the scores): divergence proxy =")
         else:
             print("NOTE: %d of the LEAK rows carry no alignment identity - for those,"
                   % fallback_rows)
-            print("falling back to the columns that do exist (the scores): divergence proxy =")
+        print("back to the columns that do exist (the scores): divergence proxy =")
         print("1 - bitscore / consensus self bitscore, with each consensus's self")
         print("bitscore recovered from its copies as sim_bitscore / sim_ratio (cols")
         print("11-12; %d subfamilies here). True divergence (1 - identity) would need"
