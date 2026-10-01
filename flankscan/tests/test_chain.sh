@@ -12,10 +12,8 @@ chk() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; fails=$((fails+1
 K() { gawk -F'\t' "NR>1 && ($1)" "$O/candidates.tsv" | wc -l; }
 chk "chain: stage 4 finds the pairs TD-TE and TE-TF (>= 50 copies each)" \
     "[ \$(gawk -F'\t' 'NR>1 && \$6>=50 && ((\$1==\"TD\"&&\$3==\"TE\")||(\$1==\"TE\"&&\$3==\"TD\")||(\$1==\"TE\"&&\$3==\"TF\")||(\$1==\"TF\"&&\$3==\"TE\"))' $O/peaks.tsv | wc -l) -ge 2 ]"
-chk "chain: each pair candidate has an OPEN end into the third unit (stage 6b)" \
-    "[ \$(gawk -F'\t' 'NR>1 && \$1 ~ /^TD__TE/ && \$8 ~ /3/ && \$6==\"TF\"' $O/ends.tsv | wc -l) -ge 1 ] && [ \$(gawk -F'\t' 'NR>1 && \$1 ~ /^TE__TF/ && \$8 ~ /5/ && \$3==\"TD\"' $O/ends.tsv | wc -l) -ge 1 ]"
-chk "chain: the pair candidates are extended (status extended:...)" \
-    "[ \$(K '\$14 ~ /^extended:/') -ge 2 ]"
+chk "chain: a pair candidate has an OPEN end into the third unit (stage 6b)"     "[ \$(gawk -F'	' 'NR>1 && ((\$1 ~ /^TD__TE/ && \$8 ~ /3/ && \$6==\"TF\") || (\$1 ~ /^TE__TF/ && \$8 ~ /5/ && \$3==\"TD\"))' $O/ends.tsv | wc -l) -ge 1 ]"
+chk "chain: an open pair candidate is extended (status extended:...), the other pair merges into the chain"     "[ \$(K '\$14 ~ /^extended:/') -ge 1 ] && [ \$(K '\$14 ~ /^same_as:/') -ge 1 ]"
 chk "chain: exactly one chain candidate is kept (both routes fold into one)" "[ \$(K '\$3==\"chain\" && \$14==\"kept\"') -eq 1 ]"
 chk "chain: its consensus = the planted TD + linker + TE + linker + TF (best hit >= 95 % id, >= 95 % length)"     "PL=\$(seqkit fx2tab -n -l $T/planted.fa | cut -f2); ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 $T/planted.fa $O/candidates.fa 2> /dev/null | sort -t\$'	' -k12,12gr | head -1 | gawk -F'	' -v PL=\$PL '{ exit !(\$3 >= 95 && (\$8 - \$7 + 1) >= 0.95 * PL) }'"
 chk "chain: hierarchy lists ONE element of three units TD, TE, TF with the two linkers" \

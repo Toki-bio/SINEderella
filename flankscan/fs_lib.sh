@@ -3,35 +3,41 @@
 # Sourced; expects OUT_DIR as the working directory and the variables RUN, T, FL, SHARE, SKIP (and NEAR,
 # MINLEN for the end check) from the caller.
 
-# fs_build_cons NAME - candidate NAME from cand/NAME.bed: the copies with FL bp flanks (lowercase), aligned
-# (MAFFT L-INS-i), consensus over the element extended into the flanks while >= SHARE of the copies agree.
-# Out: cand/NAME.aln.fa (consensus as row 1), cand/NAME.fa
+# fs_build_cons NAME - candidate NAME from cand/NAME.bed. The copies are cut with FLW (300) bp of genomic flank
+# (clamped at contig ends; flank lowercase, element uppercase) and aligned (MAFFT L-INS-i). Consensus:
+#   1) over the element columns (first..last column where >= half the copies have an UPPERCASE base): the
+#      majority base wherever >= half the copies have a base; then walked outward through the flank COLUMNS while
+#      >= SHARE of all copies agree (a column occupied by < SKIP of the copies is passed over);
+#   2) then each end is extended through the PROXIMAL FLANK: the TAILW (60) bases each copy has beyond that
+#      column are taken degapped and aligned on their own (a short MAFFT job), and the consensus is walked along
+#      those columns while >= TSHARE (0.4) of all copies carry the same base (looser than SHARE: the copies
+#      differ in how many A they carry before the terminator, so no base reaches 60 % there). The columns of the big alignment are
+#      unreliable in a flank (a poly-A of varying length, indels, 1-3 extra A before the terminator), a small
+#      alignment of the proximal flank is not: it takes the consensus through the polyadenylation signal, the
+#      terminator and the A tail (rsi chain C5: ...CCCCAATAAAATCTT + A).
+# Out: cand/NAME.fa (the consensus), cand/NAME.aln.fa = the PLATE: consensus as row 1, then every copy as
+#   [FLD (100) bp of flank, degapped, packed against the element, lowercase] [extension columns] [element
+#   columns as aligned] [extension columns] [FLD bp of flank]; a flank shorter than FLD (contig end) is padded
+#   with "-". No gap columns in the flanks.
 fs_build_cons() {
-    local NAME=$1
-    # every copy with FL bp of genomic flank (clamped at contig ends), in the copy orientation:
-    # flanks lowercase, element uppercase - the consensus is taken over the element and then extended
-    # into the flanks as far as the copies keep agreeing (the element cut can stop short, e.g. inside a
-    # simple-repeat tail that the A-tail rule does not follow: rsi r1_r3 lost 28 bp at its 3' end)
-    gawk -F'\t' -v OFS='\t' -v F=$FL 'FNR == NR { len[$1] = $2; next }
+    local NAME=$1 FLW=${FLW:-300} FLD=${FLD:-100} TAILW=${TAILW:-60} TSHARE=${TSHARE:-0.4} P="cand/$1"
+    # every copy with FLW bp of genomic flank (clamped at contig ends), in the copy orientation
+    gawk -F'\t' -v OFS='\t' -v F=$FLW 'FNR == NR { len[$1] = $2; next }
         { ws = $2 - F; if (ws < 0) ws = 0; we = $3 + F; if (we > len[$1]) we = len[$1]
           l = $2 - ws; r = we - $3; if ($6 == "-") { t = l; l = r; r = t }   # 5 flank first in copy orientation
           print $1, ws, we, $1 ":" $2 "-" $3 "(" $6 ")|" l "|" r, 0, $6 }' \
-        "$RUN/genome.clean.fa.fai" "cand/$NAME.bed" > cand/win.bed
+        "$RUN/genome.clean.fa.fai" "$P.bed" > cand/win.bed
     bedtools getfasta -fi "$RUN/genome.clean.fa" -bed cand/win.bed -s -nameOnly | seqkit seq -w 0 \
     | gawk '/^>/ { h = substr($0, 2); sub(/\([+-]\)$/, "", h); split(h, p, "|"); l = p[2]; r = p[3]
                    print ">" p[1]; next }
             { L = length($0); print tolower(substr($0, 1, l)) toupper(substr($0, l + 1, L - l - r)) tolower(substr($0, L - r + 1)) }' \
-        > "cand/$NAME.copies.fa"
+        > "$P.copies.fa"
     mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" \
-        "cand/$NAME.copies.fa" > "cand/$NAME.mafft" 2> /dev/null
-    # consensus: the element span = first..last column where >= half the copies have an UPPERCASE base;
-    # inside it the majority base of every column where >= half the copies have a base (as before);
-    # outside it, walk outward: a column with < SKIP of the copies occupied is passed over, a column
-    # whose top base is carried by >= SHARE of ALL copies extends the consensus, the first other column
-    # stops the walk. The alignment is written with the consensus (gapped) as row 1.
-    gawk -v NAME="$NAME" -v ALN="cand/$NAME.aln.fa" -v SHARE=$SHARE -v SKIP=$SKIP '
+        "$P.copies.fa" > "$P.mafft" 2> /dev/null
+    # pass A: the element columns and the column walk; the proximal flank of every copy goes to its own alignment
+    gawk -v SHARE=$SHARE -v SKIP=$SKIP -v TAILW=$TAILW -v ST="$P.state" -v RF="$P.right.fa" -v LF="$P.left.fa" '
         /^>/ { n++; h[n] = $0; next } { s[n] = s[n] $0 }
-        function top(x,   i, b, occ) {                   # sets TB (top base), TC (its count), OC (occupied)
+        function top(x,   i, b, occ) {
             delete k; occ = 0; TB = "-"; TC = 0
             for (i = 1; i <= n; i++) { b = toupper(substr(s[i], x, 1)); if (b != "-") { k[b]++; occ++ } }
             for (b in k) if (k[b] > TC || (k[b] == TC && b < TB)) { TC = k[b]; TB = b }
@@ -46,12 +52,58 @@ fs_build_cons() {
             for (x = a; x <= z; x++) { top(x); if (OC >= n / 2) g[x] = TB }
             for (x = a - 1; x >= 1; x--) { top(x); if (OC < SKIP * n) continue; if (TC >= SHARE * n) g[x] = TB; else break }
             for (x = z + 1; x <= L; x++) { top(x); if (OC < SKIP * n) continue; if (TC >= SHARE * n) g[x] = TB; else break }
-            gcons = ""; cons = ""
-            for (x = 1; x <= L; x++) { gcons = gcons g[x]; if (g[x] != "-") cons = cons g[x] }
-            print ">" NAME > ALN; print gcons > ALN
-            for (i = 1; i <= n; i++) { print h[i] > ALN; print s[i] > ALN }
-            print ">" NAME; print cons
-        }' "cand/$NAME.mafft" > "cand/$NAME.fa"
+            a2 = 0; z2 = 0; for (x = 1; x <= L; x++) if (g[x] != "-") { if (!a2) a2 = x; z2 = x }
+            gc = ""; for (x = a2; x <= z2; x++) gc = gc g[x]
+            print n "\t" gc > ST                                                # state: copies, gapped core consensus
+            for (i = 1; i <= n; i++) { lf = ""; rf = ""
+                for (x = 1; x < a2; x++) { c = substr(s[i], x, 1); if (c != "-") lf = lf c }
+                for (x = z2 + 1; x <= L; x++) { c = substr(s[i], x, 1); if (c != "-") rf = rf c }
+                print i "\t" substr(s[i], a2, z2 - a2 + 1) "\t" lf "\t" rf > ST ".copies"
+                if (length(rf) > 0) { print ">" i > RF; print substr(rf, 1, TAILW) > RF }
+                if (length(lf) > 0) { print ">" i > LF; print substr(lf, (length(lf) > TAILW ? length(lf) - TAILW + 1 : 1)) > LF } }
+            close(ST); close(ST ".copies"); close(RF); close(LF)
+        }' "$P.mafft"
+    : > "$P.right.aln"; : > "$P.left.aln"
+    if [[ -s "$P.right.fa" ]]; then mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --quiet --thread "$T" "$P.right.fa" > "$P.right.aln" 2> /dev/null; fi
+    if [[ -s "$P.left.fa" ]]; then mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --quiet --thread "$T" "$P.left.fa" > "$P.left.aln" 2> /dev/null; fi
+    # pass B: extend through the proximal-flank alignments, pack the plate
+    gawk -v NAME="$NAME" -v ALN="$P.aln.fa" -v SHARE=$TSHARE -v TAILA=${TAILA:-15} -v FLD=$FLD -v RAF="$P.right.aln" -v LAF="$P.left.aln" '
+        function dashes(m,   d) { d = sprintf("%*s", m, ""); gsub(/ /, "-", d); return d }
+        function readaln(file, arr,   l, id) { while ((getline l < file) > 0) { if (l ~ /^>/) id = substr(l, 2); else arr[id] = arr[id] toupper(l) }; close(file) }
+        FILENAME == ARGV[1] { n = $1; gc = $2; next }
+        FILENAME == ARGV[2] { elem[$1] = $2; Lf[$1] = $3; Rf[$1] = $4; next }
+        END {
+            readaln(RAF, RA); readaln(LAF, LA)
+            e3 = ""; c3 = 0; run = 0; pend = ""; Lr = 0; for (id in RA) { Lr = length(RA[id]); break }
+            for (x = 1; x <= Lr; x++) { delete kc; tc = 0; tb = ""
+                oc = 0; for (id in RA) { b = substr(RA[id], x, 1); if (b != "-") { kc[b]++; oc++ } }
+                if (oc < 0.5 * n) { pend = pend "-"; continue }          # sparse column (leading gaps of the local alignment): kept as a gap
+                for (b in kc) if (kc[b] > tc || (kc[b] == tc && b < tb)) { tc = kc[b]; tb = b }
+                if (tc >= SHARE * n) { e3 = e3 pend tb; pend = ""; c3 = length(e3); run = (tb == "A") ? run + 1 : 0; if (run >= TAILA) break } else break }
+            e5 = ""; c5 = 0; pend = ""; Ll = 0; for (id in LA) { Ll = length(LA[id]); break }
+            for (x = Ll; x >= 1; x--) { delete kc; tc = 0; tb = ""
+                oc = 0; for (id in LA) { b = substr(LA[id], x, 1); if (b != "-") { kc[b]++; oc++ } }
+                if (oc < 0.5 * n) { pend = "-" pend; continue }
+                for (b in kc) if (kc[b] > tc || (kc[b] == tc && b < tb)) { tc = kc[b]; tb = b }
+                if (tc >= SHARE * n) { e5 = tb pend e5; pend = ""; c5 = length(e5) } else break }
+            cons = gc; gsub(/-/, "", cons); ec5 = e5; gsub(/-/, "", ec5); ec3 = e3; gsub(/-/, "", ec3)
+            print ">" NAME > ALN; print dashes(FLD) e5 gc e3 dashes(FLD) > ALN
+            for (i = 1; i <= n; i++) {
+                x3 = (i in RA) ? substr(RA[i], 1, c3) : dashes(c3)
+                u3 = x3; gsub(/-/, "", u3)
+                rr = substr(Rf[i], length(u3) + 1)
+                fl3 = (length(rr) >= FLD) ? substr(rr, 1, FLD) : rr dashes(FLD - length(rr))
+                x5 = (c5 == 0) ? "" : ((i in LA) ? substr(LA[i], length(LA[i]) - c5 + 1) : dashes(c5))
+                u5 = x5; gsub(/-/, "", u5)
+                lr = substr(Lf[i], 1, length(Lf[i]) - length(u5))
+                fl5 = (length(lr) >= FLD) ? substr(lr, length(lr) - FLD + 1) : dashes(FLD - length(lr)) lr
+                print ">" i > ALN; print tolower(fl5) toupper(x5) elem[i] toupper(x3) tolower(fl3) > ALN }
+            print ">" NAME; print ec5 cons ec3
+        }' "$P.state" "$P.state.copies" > "$P.fa"
+    # the plate rows carry the copy names of the alignment (pass B only knows indices)
+    gawk 'FILENAME == ARGV[1] { if (/^>/) { n++; nm[n] = $0 }; next }
+          /^>/ && FNR > 1 { k++; print nm[k]; next } { print }' "$P.copies.fa" "$P.aln.fa" > "$P.aln.tmp" && mv "$P.aln.tmp" "$P.aln.fa"
+    rm -f "$P.mafft" "$P.state" "$P.state.copies" "$P.right.fa" "$P.left.fa" "$P.right.aln" "$P.left.aln"
 }
 
 # fs_fold LIST STATUS - the same element built twice -> merged by best hit into groups; each group keeps the
