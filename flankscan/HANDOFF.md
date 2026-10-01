@@ -341,3 +341,5 @@ internal repeat (REFINEMENT §11 point 4). C2 (r1 + r2[106-146] + r3, 15 %) chec
 Implemented and validated, see docs/FLANK_UNIQUENESS.md "Results of the first implementation". Test: flankscan/tests/test_fs9.sh (toy, ~1 min).
 rsi twin share 0.3-2.5 % per family. Not wired into fs_all.sh / plates / verdict yet; threshold sweep and the scale test (tbr VES 621 128 copies) pending.
 Also today: fs fold homodimer rule (fs_rsi11 rerun), MINKC=25.
+- fs_rsi14 (final of the day; therioserver ~/tmp/fs_rsi14, Tal rsi_v5/composites): toy suites pass (fails=0). 11 elements, 7 accepted: P1 r1+r3 84 %, P2 r1(1-79)+r3 93 %, P26 r5+r6 88 %, P34 r5+r3 87 %, P18 r10+r8 83 %, P48 r5+r5 homodimer 87 %, C11 r1+31+r2+r3+r3rep (53 copies, 85 %).
+  check: P20, P33, C5 (0-14 %), P42 r8+r8 homodimer 62 %. Rules added: MINKC=25; homodimer key in fs_fold; fs_fold rule 2 (an uncovered stretch >= 40 bp that hits the bank separates two candidates; replaced a length rule that failed the toy chain test).
