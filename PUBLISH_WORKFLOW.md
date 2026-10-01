@@ -69,13 +69,14 @@ SINEderella --publish genome.fa consensi.fa
 
 | `SKIP_REBUILD_CONS` | optional | Skip copy-majority rebuild before step4 |
 | `SKIP_CANONICALIZE` | optional | Skip RC merge on consensus bank |
-| `CANON_MIN_ID` | optional (80) | RC/direct merge threshold (%) |
+| `CANON_MIN_ID` | optional (80) | RC merge threshold (%); same-orientation pairs need 98 % (`--direct-min-id`) and length ratio 0.9 (`--min-len-ratio`) |
 
 ## Consensus bank (RC merge + copy rebuild)
 
 AnnoSINE can emit ± duplicates as separate seed names. Before step1,
-`canonicalize_consensus_bank.py` merges clusters (≥80% direct or RC identity;
-oma ± pairs are ~83–84% RC)
+`canonicalize_consensus_bank.py` merges clusters: reverse-complement pairs at ≥80% (oma ± pairs are ~83–84% RC) and
+same-orientation pairs only at ≥98%, and only when the two lengths are within 90% of each other. A shorter variant is never an alias of a longer one
+(2026-10-02: rsi r9 105 bp, r7 154 bp, MEG-RS 135 bp and MEG-RL 207 bp were merged at 89.5/97 % by a position-by-position identity, and the kept name carried the other's sequence)
 and orients to AT-rich 3′. Before step4, `rebuild_consensus_bank.py` writes
 `consensuses.rebuilt.fa` from assigned copies (no N ties). step4 pctid uses
 `-3` (both strands), matching step2.
