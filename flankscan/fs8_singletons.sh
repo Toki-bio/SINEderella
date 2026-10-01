@@ -30,6 +30,7 @@
 # flank, >= 20 bp) and completeness (starts / ends within 15 bp of its consensus ends).
 #
 # Out: OUT/singletons/FAMILY/<group>.aln.fa  the group alignment (consensus row 1), to look at
+#      (default flank in the alignment 100 bp, auto-extended; the TSD flanks and plate flanks are cut from the raw copy, 400 bp)
 #      OUT/singletons/FAMILY/ends.tsv        group copies columns left right, median bp from the 5' end to
 #                                            the unit start (positive = the element starts that far
 #                                            upstream of the unit) and from the unit end to the 3' end
@@ -41,7 +42,7 @@
 #                                            the enrichment curve: a minimum chosen only to silence the shuffled pairs hides short real TSDs)
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
-FL=${FL:-250}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-45}; RELAX_BP=300; MINLEN=20
+FL=${FL:-100}; FULLFL=${FULLFL:-400}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-45}; RELAX_BP=300; MINLEN=20
 cd "$OUT"; D=singletons/$FAM; rm -rf "$D"; mkdir -p "$D"
 
 # groups, NALN each at most (seed 42)
@@ -94,9 +95,11 @@ for G in S B A; do
     while :; do                              # extend the flank while an end sits close to the flank end
         rm -f "$D/$G".*.tmp "$D/$G.plate.aln.fa" "$D/$G.proposed.fa"
         { printf ">REF_%s\n%s\n" "$FAM" "$REF"; extract "$G" "$FLC"; } > "$D/$G.in.fa"
+        extract "$G" "$FULLFL" | seqkit seq -w 0 > "$D/$G.full.fa"       # the same copies with long raw flanks (not aligned)
         mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" "$D/$G.in.fa" 2> /dev/null \
             | seqkit seq -w 0 > "$D/$G.aln.fa"
-        gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v CAL="$D/$G.cal.tmp" -v ENDS="$D/$G.ends.tmp" -v PLATE="$D/$G.plate.aln.fa" -v PROP="$D/$G.proposed.fa" -v FLC=$FLC -v FLD=$FLD '
+        gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v CAL="$D/$G.cal.tmp" -v ENDS="$D/$G.ends.tmp" -v PLATE="$D/$G.plate.aln.fa" -v PROP="$D/$G.proposed.fa" -v FLC=$FLC -v FLD=$FLD -v FULL="$D/$G.full.fa" '
+            BEGIN { while ((getline ln < FULL) > 0) { if (ln ~ /^>/) fk = substr(ln, 2); else FS_[fk] = ln } }
             /^>/ { n++; h[n] = substr($1, 2); next } { s[n] = $0 }
             function isb(c) { c = toupper(c); return c ~ /^[ACGTN]$/ }
             # ---- ViewAlign _findBestTsdInFlanks (ported; 3 side slack RSLK) ----
@@ -134,8 +137,13 @@ for G in S B A; do
                 for (kk = 0; kk < W - 1 && right > left && sc[right] < thr; kk++) right--
                 # per copy: 30 bases before the 5 end, 56 from the 3 end + 1; bp between each end and the unit
                 for (i = 2; i <= n; i++) {
-                    up[i] = ""; for (x = left - 1; x >= 1 && length(up[i]) < 30; x--) { c = substr(s[i], x, 1); if (isb(c)) up[i] = toupper(c) up[i] }
-                    dn[i] = ""; for (x = right + 1; x <= L && length(dn[i]) < RSLK + 31; x++) { c = substr(s[i], x, 1); if (isb(c)) dn[i] = dn[i] toupper(c) }
+                    # the flanks are cut from the raw copy, not from the alignment: n5 / m3 = copy bases before the left column / up to the right column
+                    fr = FS_[h[i]]; f5 = 0; while (f5 < length(fr) && substr(fr, f5 + 1, 1) ~ /[a-z]/) f5++
+                    a5 = 0; for (x = 1; x <= L; x++) { c = substr(s[i], x, 1); if (c ~ /[A-Z]/) break; if (c ~ /[a-z]/) a5++ }
+                    off[i] = f5 - a5; nb5[i] = 0; for (x = 1; x < left; x++) if (substr(s[i], x, 1) != "-") nb5[i]++
+                    mb3[i] = 0; for (x = 1; x <= right; x++) if (substr(s[i], x, 1) != "-") mb3[i]++
+                    p5 = off[i] + nb5[i]; up[i] = toupper(substr(fr, (p5 > 30 ? p5 - 29 : 1), (p5 > 30 ? 30 : p5)))
+                    dn[i] = toupper(substr(fr, off[i] + mb3[i] + 1, RSLK + 31))
                     o5 = 0; seen = 0; for (x = left; x <= L && !seen; x++) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o5++ }
                     o3 = 0; seen = 0; for (x = right; x >= 1 && !seen; x--) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o3++ }
                     O5[i - 1] = o5; O3[i - 1] = o3 }
@@ -175,8 +183,9 @@ for G in S B A; do
                 print ">" h[1] > PLATE; print pad substr(s[1], left, right - left + 1) pad > PLATE
                 print ">proposed_" G > PLATE; print pad pc pad > PLATE
                 for (i = 2; i <= n; i++) {
-                    u = ""; for (x = left - 1; x >= 1 && length(u) < FLD; x--) { c = substr(s[i], x, 1); if (isb(c)) u = c u }
-                    d = ""; for (x = right + 1; x <= L && length(d) < FLD; x++) { c = substr(s[i], x, 1); if (isb(c)) d = d c }
+                    fr = FS_[h[i]]; p5 = off[i] + nb5[i]
+                    u = toupper(substr(fr, (p5 > FLD ? p5 - FLD + 1 : 1), (p5 > FLD ? FLD : p5)))
+                    d = toupper(substr(fr, off[i] + mb3[i] + 1, FLD))
                     print ">" h[i] > PLATE; print substr(pad, 1, FLD - length(u)) u substr(s[i], left, right - left + 1) d substr(pad, 1, FLD - length(d)) > PLATE }
                 gsub(/-/, "", pc); print ">proposed_" G > PROP; print pc > PROP
                 asort(O5); asort(O3)
@@ -211,5 +220,5 @@ gawk -F'\t' -v OFS='\t' '
           for (g in n) printf "%s\t%s\t%d\t%.1f\t%.1f\t%.1f\t%.1f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", g, nm[g], n[g], 100 * fu[g] / n[g],
                 100 * u[g] / n[g], 100 * d[g] / n[g], 100 * t[g] / n[g], sh[g], ml[g], e5[g], e3[g], k5[g], k3[g], fl[g] }' \
     "$D/ends.tsv" "$D/copies.tsv" > "$D/summary.tsv"
-rm -f "$D/copies.body" "$D"/*.in.fa "$D/win.tmp"
+rm -f "$D/copies.body" "$D"/*.in.fa "$D"/*.full.fa "$D/win.tmp"
 echo "fs8: $FAM -> $OUT/$D/summary.tsv" >&2
