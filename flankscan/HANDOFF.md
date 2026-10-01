@@ -343,3 +343,10 @@ rsi twin share 0.3-2.5 % per family. Not wired into fs_all.sh / plates / verdict
 Also today: fs fold homodimer rule (fs_rsi11 rerun), MINKC=25.
 - fs_rsi14 (final of the day; therioserver ~/tmp/fs_rsi14, Tal rsi_v5/composites): toy suites pass (fails=0). 11 elements, 7 accepted: P1 r1+r3 84 %, P2 r1(1-79)+r3 93 %, P26 r5+r6 88 %, P34 r5+r3 87 %, P18 r10+r8 83 %, P48 r5+r5 homodimer 87 %, C11 r1+31+r2+r3+r3rep (53 copies, 85 %).
   check: P20, P33, C5 (0-14 %), P42 r8+r8 homodimer 62 %. Rules added: MINKC=25; homodimer key in fs_fold; fs_fold rule 2 (an uncovered stretch >= 40 bp that hits the bank separates two candidates; replaced a length rule that failed the toy chain test).
+
+## 2026-10-01: r7 TSDs (question: "~60 % of copies, not 19 %?")
+fs8 now prints the real-pair TSD curve next to the shuffled one (tsd_calibration.tsv: group min_len pairs shuffled_hits shuffled_pct real_pct excess).
+r7 singles (200 copies), 3' slack 25, share of copies with a TSD of at least L bp, real vs shuffled: L4 73 vs 76.5 %; L6 53 vs 49.5; L7 43.5 vs 33; L8 35 vs 25.5; L12 23 vs 10; L14 19 vs 5.
+So 53-73 % of r7 singles have a TSD at L4-6, but shuffled pairs do too: that is chance. The excess is 3-14 points. Control r9: excess ~30 points at every L (L8: 47 vs 15 %).
+Slack 10: r7 excess <= 3.5 points (r9 26-32); slack 3: r7 0 (r9 20-33). The 19 % is the share at the calibrated minimum (14 bp), not the excess.
+A 60 % TSD rate is not reproduced by this detector; it would have to come from his own reading of plates (with the r7 3' end placed differently).
