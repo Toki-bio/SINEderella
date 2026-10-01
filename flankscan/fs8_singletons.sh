@@ -36,7 +36,9 @@
 #      OUT/singletons/FAMILY/copies.tsv      group wid full up_hit down_hit tsd_len tsd slack3 off5 off3
 #      OUT/singletons/FAMILY/summary.tsv     per group: copies, full %, partner 5' / 3' %, TSD %, shuffled %,
 #                                            5' / 3' end offsets
-#      OUT/singletons/FAMILY/tsd_calibration.tsv
+#      OUT/singletons/FAMILY/tsd_calibration.tsv   group min_len pairs shuffled_hits shuffled_pct real_pct excess_points
+#                                            (real_pct = share of the copies with a TSD of at least min_len; excess = real - shuffled,
+#                                            the enrichment curve: a minimum chosen only to silence the shuffled pairs hides short real TSDs)
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
 FL=${FL:-250}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-25}; RELAX_BP=300; MINLEN=20
@@ -141,7 +143,9 @@ for G in S B A; do
                 MINL = 0
                 for (mn = 4; mn <= 14; mn++) { hs = 0; ns = 0
                     for (i = 2; i <= n; i++) { j = (i < n) ? i + 1 : 2; if (j == i) continue; ns++; if (best(up[i], dn[j], mn)) hs++ }
-                    print G, mn, ns, hs, (ns ? sprintf("%.1f", 100 * hs / ns) : "-") >> CAL
+                    hr = 0; for (i = 2; i <= n; i++) if (best(up[i], dn[i], mn)) hr++        # the same search on the real pairs
+                    print G, mn, ns, hs, (ns ? sprintf("%.1f", 100 * hs / ns) : "-"), (nc ? sprintf("%.1f", 100 * hr / nc) : "-"),
+                          (ns && nc ? sprintf("%.1f", 100 * hr / nc - 100 * hs / ns) : "-") >> CAL
                     if (mn == 4 && ns > 50 && hs == 0) { print "fs8: TSD detector found nothing on shuffled pairs - broken, stop" > "/dev/stderr"; exit 3 }
                     if (!MINL && ns && hs / ns <= 0.05) { MINL = mn; SHUF = 100 * hs / ns } }
                 if (!MINL) { MINL = 14; SHUF = 0 }
