@@ -31,6 +31,7 @@ cd "$OUT"
 [[ -s ends.tsv ]] || { echo "fs6c: no ends.tsv - run fs6b first" >&2; exit 1; }
 printf "name\tparent\tpeak\tside5_unit\ts5_qs\ts5_qe\ts5_gap\tside3_unit\ts3_qs\ts3_qe\ts3_gap\tcopies\n" > chains.tsv
 : > chains.skip
+: > cand_families.tsv      # chain TAB comma-separated families of ALL its units (stage 6 re-assigns their copies)
 K=$(gawk -F'\t' 'NR > 1 && $2 ~ /^C[0-9]+$/ { n = substr($2, 2) + 0; if (n > m) m = n } END { print m + 0 }' candidates.tsv)
 new_total=0
 
@@ -84,6 +85,9 @@ for ((round = 1; round <= MAXROUND; round++)); do
         UP=$(gawk -F'\t' -v N="$N" -v U="$P5U" '$1 == N { print (U != "-" ? U : $4) }' candidates.tsv)
         DN=$(gawk -F'\t' -v N="$N" -v U="$P3U" '$1 == N { print (U != "-" ? U : $5) }' candidates.tsv)
         printf "%s\t%s\tchain\t%s\t%s\t%s\t-\t%s\t%s\t%s\t%s\tkept\n" "$CN" "$PK" "$UP" "$DN" "$NSEL" "$NSEL" "$NSEL" "$LENS" "$CL" >> candidates.tsv
+        # every unit family of the chain (the parent's units + the added ones): stage 6 re-assigns the copies of ALL of them
+        PF=$(gawk -F'\t' -v N="$N" 'FILENAME == ARGV[1] { f[$1] = $2; next } $1 == N { print (N in f) ? f[N] : $4 "," $5 }' cand_families.tsv candidates.tsv | head -1)
+        printf "%s\t%s\n" "$CN" "$(echo "$PF,$P5U,$P3U" | tr ',' '\n' | grep -v '^-$' | grep -v '^$' | sort -u | paste -sd, -)" >> cand_families.tsv
         printf "%s\textended:%s\n" "$N" "$CN" >> cand/status_changes.tsv
         made=$((made + 1)); new_total=$((new_total + 1))
         echo "fs6c: $N (open $SIDES) -> $CN: $NSEL copies, $CL bp, added ${P5U}(5') ${P3U}(3')" >&2

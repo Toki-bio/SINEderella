@@ -287,3 +287,19 @@ P12 (5' r2/r1, 3' r3), P6, P9, P10 (5' r2), P21, P39, P40 (3' r3); closed: P1, P
 P41, P42. accepted.fa is now 5 (P1, P26, P2, P34, P18). TODO: build the chain candidate for an open end
 (extend each copy's element over the flank unit hit, align, consensus, re-run stage 6) - recursive for chains of
 3+; then rebuild rsi_v3 (its bank still contains P12).
+
+## 2026-10-01: stage 6c chain extension (his "yes" after the P12 finding)
+Order now: fs5 -> fs6b (ends) -> fs6c (chains) -> fs6 (re-assign) -> fs7 (hierarchy). fs_lib.sh holds the shared
+fs_build_cons / fs_fold / fs_endcheck (fs5 refactored onto it, toy 71/71 unchanged). fs6c: per open candidate,
+every copy's flank-unit hit (stage 6b) gives the extension; copies carrying the commonest unit on every open side
+(>= MINK) -> new candidate chain_Ck (peak id Ck, members registered in members.tsv, all unit families in
+cand_families.tsv, parent status extended:chain_Ck), merged by best hit, ends re-checked, <= 3 rounds.
+Window for "unit at the junction" widened to 100 bp (linkers: r1 + r3 has 39 bp). fs7: parts column (any number
+of units). Bug found on rsi first run: stage 6 re-assigned only the first/last unit family -> chain C5 counted 1
+element (meaningless 100 %); now every unit family (cand_families.tsv) -> 52/52 elements, 84.6 %.
+Tests: tests/test_chain.sh + make_toy_chain.sh (60 x TD + 30 + TE + 40 + TF): 9/9; original toy 71/71.
+rsi (~/tmp/fs_rsi7, Tal rsi_v2/composites/chains/): P12, P6, P39, P40 extended; ONE kept chain family
+chain_C5 = r1:1-154 + gap 31 + r2:1-146 + r3:3-176 + r3:130-201 (589 bp, 53 copies, 84.6 % accept, 1925 r3 +
+140 r1 + 136 r2 elements read as one full unit of it) = the long-sought 3-part element r1 ~ r2 + r3 WITH r3's
+internal repeat (REFINEMENT §11 point 4). C2 (r1 + r2[106-146] + r3, 15 %) check. Still open: P9, P10, P21
+(3'), P41. Accepted now: P1, P26, P2, P34, P18, C5 (P12 gone).

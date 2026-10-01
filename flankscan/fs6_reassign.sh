@@ -40,8 +40,10 @@ if [[ ! -s candidates.fa ]]; then
 fi
 
 # the copies: all copies of the parts' families
-gawk -F'\t' 'FILENAME == ARGV[1] { if (FNR > 1 && $14 == "kept") { fam[$4]; fam[$5] }; next }
-             FNR == 1 || ($3 in fam)' candidates.tsv loci.tsv > "$RE/loci.tsv"
+CF=cand_families.tsv; [[ -s "$CF" ]] || CF=/dev/null            # stage 6c: all unit families of each chain
+gawk -F'\t' 'FILENAME == ARGV[1] { if (FNR > 1 && $14 == "kept") { fam[$4]; fam[$5]; kept[$1] }; next }
+             FILENAME == ARGV[2] { if ($1 in kept) { n = split($2, f, ","); for (i = 1; i <= n; i++) fam[f[i]] }; next }
+             FNR == 1 || ($3 in fam)' candidates.tsv "$CF" loci.tsv > "$RE/loci.tsv"
 tail -n +2 "$RE/loci.tsv" | cut -f1 > "$RE/wids.txt"
 seqkit grep -f "$RE/wids.txt" windows.fa        > "$RE/windows.fa"        2> /dev/null
 seqkit grep -f "$RE/wids.txt" windows.masked.fa > "$RE/windows.masked.fa" 2> /dev/null
