@@ -350,3 +350,9 @@ r7 singles (200 copies), 3' slack 25, share of copies with a TSD of at least L b
 So 53-73 % of r7 singles have a TSD at L4-6, but shuffled pairs do too: that is chance. The excess is 3-14 points. Control r9: excess ~30 points at every L (L8: 47 vs 15 %).
 Slack 10: r7 excess <= 3.5 points (r9 26-32); slack 3: r7 0 (r9 20-33). The 19 % is the share at the calibrated minimum (14 bp), not the excess.
 A 60 % TSD rate is not reproduced by this detector; it would have to come from his own reading of plates (with the r7 3' end placed differently).
+
+Follow-up (his ViewAlign screenshot, rsi r7 top100 plate, body columns 101-344, TSD 4-20 bp, 20 % mismatch: "TSD in 73 of 101 copies (72 %), median length 10"):
+the same detector (tools/tsd_curve.py PLATE LEFT RIGHT) on that plate: min 4: real 66 % (3' slack 3) / 92 % (slack 25) vs shuffled 34 / 73 %; min 12: real 38 / 57 % vs shuffled 2 / 5 %.
+So ~40-57 % of those copies have a real TSD (his ~60 % is right for that plate); the TSDs flank a 244-column body, longer than the 154 bp r7 consensus (the r7 subfam plate proposes +77 bp at the 3' end).
+Stage 8 on the r7 SINGLES (body = 154 bp r7 as found in their own alignment) gives 3-14 points excess only: the TSDs belong to the longer element, so r7 as defined by the bank consensus is not the unit.
+Open: r7 consensus extended by ~77 bp at 3' (his r7_133seqs_extended row) and stage 8 rerun for r7 with it.
