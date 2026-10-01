@@ -122,11 +122,11 @@ gawk -F'\t' -v OFS='\t' '
     # (highest identity among all pairs that pass), linked candidates form one group, and the group
     # keeps the candidate from the largest peak. First-hit in peak order merged rsi P42 (r8 + r8) into
     # P26 (r5h_r6, 90.6 %) although it is 99.0 % identical to P43 (r8 + r8, a smaller peak).
-    # lengths must also be within 8 %: a chain of four units that contains the three-unit chain (632 vs 581 bp, rsi) is a longer
+    # lengths must also be within 30 bp: a chain of four units that contains the three-unit chain (632 vs 583 bp, rsi; 8 % apart is not 'the same') is a longer
     # element, not the same one
     # key (3rd list column, optional): homodimers carry "H:<family>" and merge only with homodimers of the same family -
     # a tandem of one unit is its own element and is never absorbed by a composite of other units (rsi r8 + r8 into r5 + r6)
-    $1 != $2 && K[$1] == K[$2] && (L[$1] > L[$2] ? L[$2] / L[$1] : L[$1] / L[$2]) >= 0.92 { if ($3 >= 90 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2]) {
+    $1 != $2 && K[$1] == K[$2] && (L[$1] > L[$2] ? L[$1] - L[$2] : L[$2] - L[$1]) <= 30 { if ($3 >= 90 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2]) {
                    if ($3 > pid[$1, $2]) pid[$1, $2] = pid[$2, $1] = $3 } }
     function root(x) { while (up[x] != x) x = up[x]; return x }
     END {
