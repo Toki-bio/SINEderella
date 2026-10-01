@@ -56,6 +56,25 @@ LOG = logging.getLogger("step6_report")
 # Discovery
 # ===========================================================================
 
+SORT_JS = r'''<script>
+// every table.tbl with a header row sorts by a clicked column (numbers by value, others as text; click again to reverse)
+document.querySelectorAll('table.tbl').forEach(function(t){
+  var hr=t.tHead?t.tHead.rows[0]:null; if(!hr)return;
+  Array.prototype.forEach.call(hr.cells,function(th,ci){
+    th.style.cursor='pointer'; th.title='click to sort';
+    th.addEventListener('click',function(){
+      var tb=t.tBodies[0],rows=Array.prototype.slice.call(tb.rows),dir=th.dataset.dir==='asc'?-1:1;
+      Array.prototype.forEach.call(hr.cells,function(o){delete o.dataset.dir;});
+      th.dataset.dir=dir===1?'asc':'desc';
+      var val=function(r){var x=r.cells[ci]?r.cells[ci].textContent.trim().replace(/,/g,'').replace(/%$/,''):'';var n=parseFloat(x);return isNaN(n)?x.toLowerCase():n;};
+      rows.sort(function(a,b){var x=val(a),y=val(b);if(typeof x==='number'&&typeof y==='number')return dir*(x-y);if(typeof x==='number')return -1;if(typeof y==='number')return 1;return dir*(x<y?-1:x>y?1:0);});
+      rows.forEach(function(r){tb.appendChild(r);});
+    });
+  });
+});
+</script>
+'''
+
 def find_step2_out(run_root: Path) -> Path:
     candidates = sorted(
         glob.glob(str(run_root / "step2" / "step2_output*")),
@@ -2318,6 +2337,13 @@ def build_html(run_root: Path,
             subfams_for_aln if species_code else sorted({r[0] for r in stats_rows if r}))
     except Exception as e:  # the report must not fail over an optional panel
         sys.stderr.write("WARNING: element hierarchy skipped: %s\n" % e)
+    # Sequence similarity between consensuses (the sequence-part counterpart of the hierarchy); "" when numpy / bank missing
+    blocks_section = ""
+    try:
+        import report_blocks as RB
+        blocks_section = RB.section(run_root)
+    except Exception as e:  # optional panel
+        sys.stderr.write("WARNING: similarity blocks skipped: %s\n" % e)
     profiles_json = json.dumps(aln_profiles, separators=(",", ":"))
     annotations_json = json.dumps(aln_annotations, separators=(",", ":"))
 
@@ -2436,6 +2462,7 @@ def build_html(run_root: Path,
     {'<a href="#alignments">Alignments</a>' if alignment_section else ''}
     <a href="#overview">Overview</a>
     {'<a href="#hierarchy">Hierarchy</a>' if hierarchy_section else ''}
+    {'<a href="#blocks">Similarity</a>' if blocks_section else ''}
     <a href="#composition">Composition</a>
     <a href="#divergence">Divergence&thinsp;/&thinsp;Similarity</a>
     <a href="#pca">PCA</a>
@@ -2451,6 +2478,8 @@ def build_html(run_root: Path,
   {alignment_section}
 
   {hierarchy_section}
+
+  {blocks_section}
 
   <section class="card" id="overview">
     <h2>Overview</h2>
@@ -2608,6 +2637,7 @@ var ANNOTATIONS = {annotations_json};
   }});
 }})();
 </script>
+{SORT_JS}
 </body></html>
 """
     out_path.parent.mkdir(parents=True, exist_ok=True)

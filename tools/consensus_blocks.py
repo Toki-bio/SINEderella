@@ -59,16 +59,21 @@ def merge(acc):
             k=out[-1]; out[-1]=(k[0],c[1],min(k[2],c[2]),max(k[3],c[3]),k[4]+c[4],(c[1]-k[0]),k[6])
         else: out.append(c)
     return out
-n,s=rd(sys.argv[1]); ms=[mask(x) for x in s]
-data={'names':n,'lens':[len(x) for x in s],'blocks':[]}
-for i in range(len(n)):
-    for j in range(i+1,len(n)):
-        c=blocks(ms[i],ms[j],'+')
-        r=rc(ms[j]); cr=blocks(ms[i],r,'-')
-        # convert minus coords to B forward coordinates
-        L=len(r); cr=[(a0,a1,L-b1,L-b0,m,ln,'-') for a0,a1,b0,b1,m,ln,_ in cr for b0,b1 in [(b0,b1)]]
-        bl=merge(pick(c+cr))
-        for a0,a1,b0,b1,m,ln,st in bl:
-            data['blocks'].append([i,j,st,a0+1,a1,b0+1,b1,round(100*m/ln,1)])
-json.dump(data,open(sys.argv[2],'w'))
-print(len(data['blocks']),'blocks')
+def compute(path):
+    """all-against-all blocks of the consensuses in a FASTA: {'names', 'lens', 'blocks': [i, j, strand, a0, a1, b0, b1, identity]}"""
+    n,s=rd(path); ms=[mask(x) for x in s]
+    data={'names':n,'lens':[len(x) for x in s],'blocks':[]}
+    for i in range(len(n)):
+        for j in range(i+1,len(n)):
+            c=blocks(ms[i],ms[j],'+')
+            r=rc(ms[j]); cr=blocks(ms[i],r,'-')
+            # convert minus coords to B forward coordinates
+            L=len(r); cr=[(a0,a1,L-b1,L-b0,m,ln,'-') for a0,a1,b0,b1,m,ln,_ in cr]
+            bl=merge(pick(c+cr))
+            for a0,a1,b0,b1,m,ln,st in bl:
+                data['blocks'].append([i,j,st,a0+1,a1,b0+1,b1,round(100*m/ln,1)])
+    return data
+if __name__=='__main__':
+    data=compute(sys.argv[1])
+    json.dump(data,open(sys.argv[2],'w'))
+    print(len(data['blocks']),'blocks')

@@ -42,8 +42,9 @@ def main():
             return 0
     cons = read_fa(bank)
     n_assigned = {r["Subfamily"]: int(r["Assigned"]) for r in csv.DictReader(open(stats), delimiter="\t")}
-    pairs = [p for p in find_length_variant_pairs(cons, min_id=a.min_id)
-             if n_assigned.get(p["short"], 0) >= MIN_ASSIGNED and n_assigned.get(p["long"], 0) >= MIN_ASSIGNED]
+    cands = find_length_variant_pairs(cons, min_id=a.min_id)
+    pairs = [p for p in cands if n_assigned.get(p["short"], 0) >= MIN_ASSIGNED and n_assigned.get(p["long"], 0) >= MIN_ASSIGNED]
+    untested = [p for p in cands if p not in pairs]
     out = os.path.join(run, "results", "length_variants")
     os.makedirs(out, exist_ok=True)
     if len(pairs) > a.max_pairs:
@@ -80,6 +81,14 @@ def main():
         })
         import shutil
         shutil.rmtree(os.path.join(out, tag + ".work"), ignore_errors=True)
+    for p in untested:   # a candidate pair with too few copies: flagged, to be tested on a species that has more
+        rows.append({
+            "short": p["short"], "long": p["long"], "consensus_identity": p["identity"], "extra_bp": p["extra"],
+            "verdict": "NOT_TESTED", "copies_5prime_complete": "", "mode_ends": "", "valley_ratio": "", "linkage_index": "",
+            "diagnostic_columns": "", "tsd_excess_points": "",
+            "notes": "too few assigned copies (%s: %d, %s: %d; need %d each): test on another species with more copies" % (
+                p["short"], n_assigned.get(p["short"], 0), p["long"], n_assigned.get(p["long"], 0), MIN_ASSIGNED),
+        })
     cols = ["short", "long", "consensus_identity", "extra_bp", "verdict", "copies_5prime_complete", "mode_ends", "valley_ratio",
             "linkage_index", "diagnostic_columns", "tsd_excess_points", "notes"]
     with open(os.path.join(out, "summary.tsv"), "w") as o:
