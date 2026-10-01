@@ -318,3 +318,9 @@ internal repeat (REFINEMENT §11 point 4). C2 (r1 + r2[106-146] + r3, 15 %) chec
   L LEAK-vs-divergence example (tools/leak_div_example.py), E end evidence for P9/P10/P21/P41 + C5 (tools/cand_ends.py,
   docs/OPEN_CANDIDATES.md). Results in glm2/RESULTS.txt; Claude must verify each independently before merging.
 - Manuscript re-read: MANUSCRIPT_REVIEW.md section 15 (15 quirks).
+- 2026-10-01 stage 8 for r5-r8 (control r9), ~/tmp/fs_rsi6/singletons/<fam>/summary.tsv: singles are standalone monomers.
+  full-length / TSD vs shuffled: r5 94 % / 37.5 vs 0 %; r6 96 % / 35.5 vs 5 %; r7 94.5 % / 19 vs 5 %; r8 93.5 % / 53.5 vs 0 %;
+  no partners (<5 %). Control r9 TSD 24-39 vs 3.5-4.5 %. With r1,r2,r3,r10 earlier: r1 marginal, r2/r3 not alone, r10 singles no TSD.
+- fs_rsi9 (newest code, 954 s): 14 elements, 6 accepted: r1_r3_P1 89.7 %, r5_r6_P26 87.3, r1_r3_P2 84.5, r5_r3_P34 86.6,
+  r10_r8_P18 86.1, chain r1+31+r2+r3 (C1, 57 copies) 89.8 %. Open/check: P9, P10, P21, P25, P41, C2 (30.2 %), P20, P33.
+  NOTE: the r3 internal repeat is no longer part of the chain (old builder gave r3:3-176 + r3:130-201); check why (GLM task E).
