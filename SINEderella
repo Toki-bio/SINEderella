@@ -361,6 +361,20 @@ canonicalize_consensus_bank(){
 }
 
 ###############################################################################
+# HELPER: length versions (is a shorter consensus a separate SINE or the same element with a decayed 3' end?)
+###############################################################################
+length_variants_step(){
+  local rundir="$1"
+  [[ "${SKIP_LENGTH_VARIANTS:-0}" == "1" ]] && { log "SKIP_LENGTH_VARIANTS=1"; return 0; }
+  local py="$SCRIPT_DIR/tools/length_variants_run.py"
+  [[ -f "$py" ]] || { log "WARNING: $py missing — length-version test skipped"; return 0; }
+  log "Length-version test (candidate pairs: shorter consensus = 5' part of a longer one; tools/length_variants.py)"
+  python3 "$py" "$rundir" --threads "${THREADS:-16}" --max-pairs "${LENGTH_VARIANTS_MAX_PAIRS:-12}"     > "$rundir/length_variants.log" 2>&1 || log "WARNING: length_variants_run.py failed (see length_variants.log)"
+  [[ -s "$rundir/results/length_variants/summary.tsv" ]] && log "Length-version summary: results/length_variants/summary.tsv"
+  return 0
+}
+
+###############################################################################
 # HELPER: rebuild consensus from assigned copies (before step4 plots)
 ###############################################################################
 rebuild_consensus_bank(){
@@ -485,6 +499,8 @@ run_step2_step3(){
 
   # Assembly QC
   [[ -f genome.clean_assembly_qc.tsv ]] && ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
+
+  length_variants_step "$(pwd -P)"
 
   # --- Step 6 / publish HTML report (optional) ---
   # Must run AFTER the results/ symlink farm above, not before: step6_report.py
@@ -1247,6 +1263,8 @@ mode_resume(){
       ln -sf ../consensuses.clean.fa results/consensuses.fa
     [[ -f genome.clean_assembly_qc.tsv ]] && \
       ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
+
+    length_variants_step "$(pwd -P)"
 
   else
     log "Step2+3 — running..."

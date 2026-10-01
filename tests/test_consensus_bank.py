@@ -112,6 +112,17 @@ class TestNoShorterVariantMerge(unittest.TestCase):
         self.assertEqual(find_rc_clusters({"a": self.R7, "b": rc(self.R7)}, 80.0), [["a", "b"]])
         self.assertEqual(find_rc_clusters({"a": self.R7, "b": self.R7}, 80.0), [["a", "b"]])
 
+    def test_length_variant_candidates_listed_not_merged(self):
+        from consensus_bank_lib import find_length_variant_pairs
+        pairs = find_length_variant_pairs({"r7": self.R7, "r9": self.R9, "r2": self.R2}, min_id=0.85)
+        self.assertEqual([(p["short"], p["long"]) for p in pairs], [("r9", "r7")])
+        self.assertEqual(pairs[0]["extra"], 49)
+        self.assertEqual(pairs[0]["offset"], 0)
+
+    def test_equal_length_pair_is_not_a_length_variant(self):
+        from consensus_bank_lib import find_length_variant_pairs
+        self.assertEqual(find_length_variant_pairs({"r2": self.R2, "r4": self.R4}, min_id=0.8), [])
+
 
 if __name__ == "__main__":
     unittest.main()

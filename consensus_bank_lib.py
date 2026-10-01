@@ -381,3 +381,40 @@ def orient_at_rich_3prime(seq: str) -> str:
             return rc(u)
         return u
     return r.seq
+
+
+def _prefix_identity(sa: str, sb: str, max_offset: int) -> tuple[float, int]:
+    """Edit-distance alignment of all of sa against a prefix region of sb (sb may start max_offset bases earlier and run on
+    past the end of sa): (1 - edits / len(sa), start offset). Indels are allowed, so one small indel does not hide a 5' part."""
+    n, m = len(sa), len(sb)
+    inf = n + m + 1
+    prev = [0 if j <= max_offset else inf for j in range(m + 1)]
+    for i in range(1, n + 1):
+        cur = [i] + [inf] * m
+        for j in range(1, m + 1):
+            cur[j] = min(prev[j - 1] + (sa[i - 1] != sb[j - 1]), prev[j] + 1, cur[j - 1] + 1)
+        prev = cur
+    j = min(range(m + 1), key=lambda x: prev[x])
+    return 1.0 - prev[j] / float(n), min(max_offset, max(0, j - n))
+
+
+def find_length_variant_pairs(cons: dict[str, str], min_id: float = 0.80, min_extra: int = 10, max_extra: int = 120, max_offset: int = 10) -> list[dict]:
+    """Pairs where the shorter consensus is the 5' part of the longer one: ungapped identity of the shorter against the longer's
+    start (offset 0..max_offset) >= min_id, the longer extends it by min_extra..max_extra bp (a longer extension is a composite
+    or another element, handled by flankscan). These are NOT merged: whether the shorter is a separate monomer SINE or the same
+    element with a decayed or variable 3' end is decided from the copies by tools/length_variants.py (rsi r9 / r7, MEG-RS / MEG-RL).
+    Returns [{short, long, identity, offset, extra}]."""
+    seqs = {n: ungap(s).upper() for n, s in cons.items()}
+    out = []
+    names = sorted(seqs, key=lambda n: len(seqs[n]))
+    for i, a in enumerate(names):
+        sa = seqs[a]
+        for b in names[i + 1:]:
+            sb = seqs[b]
+            extra = len(sb) - len(sa)
+            if extra < min_extra or extra > max_extra:
+                continue
+            best = _prefix_identity(sa, sb, max_offset)
+            if best[0] >= min_id:
+                out.append({"short": a, "long": b, "identity": round(100 * best[0], 1), "offset": best[1], "extra": extra})
+    return out

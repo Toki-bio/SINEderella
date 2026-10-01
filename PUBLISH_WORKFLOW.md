@@ -70,6 +70,8 @@ SINEderella --publish genome.fa consensi.fa
 | `SKIP_REBUILD_CONS` | optional | Skip copy-majority rebuild before step4 |
 | `SKIP_CANONICALIZE` | optional | Skip RC merge on consensus bank |
 | `CANON_MIN_ID` | optional (80) | RC merge threshold (%); same-orientation pairs need 98 % (`--direct-min-id`) and length ratio 0.9 (`--min-len-ratio`) |
+| `SKIP_LENGTH_VARIANTS` | optional (0) | `1` skips the length-version test (shorter consensus = 5′ part of a longer one; see docs/LENGTH_VARIANTS.md) |
+| `LENGTH_VARIANTS_MAX_PAIRS` | optional (12) | cap on candidate pairs tested per run |
 
 ## Consensus bank (RC merge + copy rebuild)
 
@@ -82,6 +84,13 @@ and orients to AT-rich 3′. Before step4, `rebuild_consensus_bank.py` writes
 `-3` (both strands), matching step2.
 
 Oma repair procedure: [docs/OMA_CONSENSUS_REPAIR.md](docs/OMA_CONSENSUS_REPAIR.md).
+
+### Length versions
+
+A shorter consensus that is the 5' part of a longer one is never merged (see above). After assignment, `tools/length_variants_run.py` tests every such
+pair on the copies (end modes, internal bases following the length, TSD after each end, residual similarity) and writes
+`results/length_variants/summary.tsv`: `TWO_VERSIONS` / `UNLINKED_ENDS` / `SINGLE_MODE` / `UNRESOLVED`. Method, calibration on rle MEG-RS/MEG-RL and
+rsi r9/r7/r8, limits: docs/LENGTH_VARIANTS.md. The verdict is a decision input; nothing is merged or renamed automatically.
 
 ## Divergence chart
 
