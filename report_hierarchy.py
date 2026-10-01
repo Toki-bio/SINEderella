@@ -27,6 +27,26 @@ def _plate(fam, code, aln_base, sfnames):
     return "https://toki-bio.github.io/MSA-viewer/?url=%s&title=%s" % (quote(raw, safe=""), quote(sf))
 
 
+def _segs(r):
+    """[(unit, start, end) | (None, gap_bp, 0)] from the parts column (any number of units); older two-part
+    tables without it fall back to part1 / gap / part2."""
+    out = []
+    if r.get("parts"):
+        for e in r["parts"].split(";"):
+            if e.startswith("gap:"):
+                out.append((None, int(e[4:]), 0))
+            else:
+                u, span = e.split(":")
+                a, b = span.split("-")
+                out.append((u, int(a), int(b)))
+        return out
+    out.append((r["part1"], int(r["part1_start"]), int(r["part1_end"])))
+    if int(r["gap"]) > 0:
+        out.append((None, int(r["gap"]), 0))
+    out.append((r["part2"], int(r["part2_start"]), int(r["part2_end"])))
+    return out
+
+
 def section(run_root, species_code=None, aln_base=None, subfamilies=()):
     p = Path(run_root) / "flankscan" / "hierarchy.tsv"
     if not p.is_file():
@@ -35,9 +55,11 @@ def section(run_root, species_code=None, aln_base=None, subfamilies=()):
     if not rows:
         return ""
     rows.sort(key=lambda r: (r["verdict"] != "accept", -int(r["copies"] or 0)))
-    fams = sorted({r["part1"] for r in rows} | {r["part2"] for r in rows})
+    for r in rows:
+        r["_segs"] = _segs(r)
+    fams = sorted({f for r in rows for f, _, _ in r["_segs"] if f})
     col = {f: PALETTE[i % len(PALETTE)] for i, f in enumerate(fams)}
-    maxbp = max(int(r["part1_end"]) + int(r["gap"]) + int(r["part2_end"]) - int(r["part2_start"]) + 1 for r in rows)
+    maxbp = max(sum((b - a + 1) if f else a for f, a, b in r["_segs"]) for r in rows)
     W = int(X0 + maxbp * PX + 30)
     H = ROWH * len(rows) + 30
     s = ['<svg viewBox="0 0 %d %d" width="%d" role="img" aria-label="element hierarchy, parts to scale" '
@@ -58,10 +80,7 @@ def section(run_root, species_code=None, aln_base=None, subfamilies=()):
         s.append('<text x="0" y="%d" font-size="10.5" fill="%s">%s &#183; %s copies &#183; %s%% full &#183; %s bp</text>'
                  % (y + 27, chip, html.escape(r["verdict"]), r["copies"], r["pct_full"], r["cons_len"]))
         x = X0
-        segs = [(r["part1"], int(r["part1_start"]), int(r["part1_end"]))]
-        if int(r["gap"]) > 0:
-            segs.append((None, int(r["gap"]), 0))
-        segs.append((r["part2"], int(r["part2_start"]), int(r["part2_end"])))
+        segs = r["_segs"]
         op5 = r.get("open5_unit", "-"); op3 = r.get("open3_unit", "-")
         if op5 not in ("-", ""):        # the element continues into a known unit beyond this end (stage 6b)
             s.append('<rect x="%.1f" y="%d" width="36" height="%d" rx="2" fill="none" stroke="#a23b3b" stroke-dasharray="4 3">'
@@ -89,7 +108,7 @@ def section(run_root, species_code=None, aln_base=None, subfamilies=()):
         y += ROWH
     s.append("</svg>")
     return ("<section class='card' id='hierarchy'><h2>Element hierarchy</h2>"
-            "<p class='intro'>Elements built from two consensus units, found by flankscan from the junctions "
+            "<p class='intro'>Elements built from two or more consensus units (a chain has three or more), found by flankscan from the junctions "
             "of the assigned copies: each part drawn to scale at its positions in its own consensus, grey = "
             "sequence neither unit covers (linker or middle). <b>accept</b> = at least 70 % of the layout's "
             "copies read as one full unit when the element is added to the bank; <b>open</b> = the element "
