@@ -303,3 +303,18 @@ chain_C5 = r1:1-154 + gap 31 + r2:1-146 + r3:3-176 + r3:130-201 (589 bp, 53 copi
 140 r1 + 136 r2 elements read as one full unit of it) = the long-sought 3-part element r1 ~ r2 + r3 WITH r3's
 internal repeat (REFINEMENT §11 point 4). C2 (r1 + r2[106-146] + r3, 15 %) check. Still open: P9, P10, P21
 (3'), P41. Accepted now: P1, P26, P2, P34, P18, C5 (P12 gone).
+
+## 2026-10-01: builder v2, rsi rerun, delegation, manuscript re-read
+- fs_lib.sh builder v2 (commit e95f90a): 300 bp window, column walk (60 % share), then proximal-flank mini-alignment
+  (60 bp each side, share 0.4 = TSHARE, sparse columns <50 % occupancy kept as gaps, poly-A capped at TAILA=15). Plate rows:
+  100 bp degapped flank + extension + element + extension + 100 bp. C5: 608 bp, GGGCCGG...AATAAAATCTTT+A15. Toy 71 + chain 9 pass.
+- Rerun with newest code: server ~/tmp/fs_rsi9 (stages 5,6b,6c,6,7 via ~/tmp/up/rsi_chain3.sh), then ~/rhin/rsi_v5 report
+  (rsi_v5.sh; RAW_ALN_BASE .../Tal/main/rsi_v5/alignments/). Launched by ~/tmp/up/rsi_go.sh. rsi_v4 (older builder) is superseded.
+- Stage 8 for r5,r6,r7,r8 (control r9): ~/tmp/up/fs8_more.sh -> ~/tmp/fs_rsi6/singletons/<fam>, log ~/tmp/fs8_more.log.
+- Standalone picture so far: r9 (92 % single, TSD 30-39 % vs 4 %) and r7/r8 standalone monomers; r10 singles lack TSD
+  (probably missed composites); r3/r1/r2 almost never alone. Final table after fs8_more.
+- Delegated to GLM (aider, worktree C:/work/sd-glm2, branch glm-uniq-cpg-leak, tasks C:/work/glm-harness/glm2): U flank-uniqueness
+  benchmark + approaches A/B/C (tools/flank_uniq), C CpG-adjusted divergence test (tools/cpg_div, docs/CPG_DIVERGENCE_TEST.md),
+  L LEAK-vs-divergence example (tools/leak_div_example.py), E end evidence for P9/P10/P21/P41 + C5 (tools/cand_ends.py,
+  docs/OPEN_CANDIDATES.md). Results in glm2/RESULTS.txt; Claude must verify each independently before merging.
+- Manuscript re-read: MANUSCRIPT_REVIEW.md section 15 (15 quirks).
