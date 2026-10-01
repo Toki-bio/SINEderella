@@ -5,6 +5,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; W=${1:-${TMPDIR:-/tmp}/fs9
 rm -rf "$W"; mkdir -p "$W"
 python3 "$HERE/make_toy_flank.py" "$W/toy" 1
 bash "$HERE/../fs9_twins.sh" "$W/toy/genome.fa" "$W/toy/copies.bed" "$W/out" 4 > "$W/run.log" 2>&1 || { tail -20 "$W/run.log"; exit 1; }
+# control: the same copies moved to random places (their flanks are unrelated now): no twin may be found
+bedtools shuffle -i "$W/toy/copies.bed" -g "$W/toy/genome.fa.fai" -seed 7 > "$W/toy/shuffled.bed"
+bash "$HERE/../fs9_twins.sh" "$W/toy/genome.fa" "$W/toy/shuffled.bed" "$W/ctl" > "$W/ctl.log" 2>&1
+echo "control (shuffled copies): $(gawk -F'	' '$2 ~ /twin/' "$W/ctl/copy_status.tsv" | wc -l) twin copies, expected 0"
 bash "$HERE/../fs9_dupregion.sh" "$W/toy/genome.fa" "$W/toy/copies.bed" "$W/dup" 4 >> "$W/run.log" 2>&1 || { tail -20 "$W/run.log"; exit 1; }
 gawk -F'\t' -v OFS='\t' '
     FILENAME == ARGV[1] { cls[$1] = $2; grp[$1] = $3; id[$1] = $4; next }
