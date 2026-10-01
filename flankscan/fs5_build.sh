@@ -124,7 +124,7 @@ while IFS=$'\t' read -r P TY U D NP MIR; do
 done < cand/peaks_used.tsv
 
 # 4) the same element built twice -> merged by best hit into groups; each group keeps its largest peak
-cut -f1,13 cand/built.tsv > cand/list.tsv; fs_fold cand/list.tsv cand/status.tsv
+gawk -F'\t' -v OFS='\t' '{ print $1, $13, ($3 == "homodimer" ? "H:" $4 : "-") }' cand/built.tsv > cand/list.tsv; fs_fold cand/list.tsv cand/status.tsv
 { printf "$HDR"; paste cand/built.tsv <(cut -f2 cand/status.tsv); } > candidates.tsv
 gawk -F'\t' 'NR > 1 && $14 == "kept" { print $1 }' candidates.tsv | while read -r N; do cat "cand/$N.fa"; done > candidates.fa
 rm -f cand/all.fa cand/self.m8 cand/built.tsv cand/status.tsv cand/list.tsv

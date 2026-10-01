@@ -97,7 +97,7 @@ for ((round = 1; round <= MAXROUND; round++)); do
         cand/status_changes.tsv candidates.tsv; } > cand/cand.new
     mv cand/cand.new candidates.tsv
     if (( made > 0 )); then
-        gawk -F'\t' 'NR > 1 && $14 == "kept" { print $6 "\t" $1 "\t" $13 }' candidates.tsv | sort -t$'\t' -k1,1nr | cut -f2,3 > cand/list.tsv
+        gawk -F'\t' 'NR > 1 && $14 == "kept" { print $6 "\t" $1 "\t" $13 "\t" ($3 == "homodimer" ? "H:" $4 : "-") }' candidates.tsv | sort -t$'\t' -k1,1nr | cut -f2-4 > cand/list.tsv
         fs_fold cand/list.tsv cand/status.tsv
         gawk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { st[$1] = $2; next } FNR == 1 { print; next } { if ($1 in st) $14 = st[$1]; print }' cand/status.tsv candidates.tsv > cand/cand.new
         mv cand/cand.new candidates.tsv

@@ -114,7 +114,7 @@ fs_fold() {
 cut -f1 "$LIST" | while read -r N; do cat "cand/$N.fa"; done > cand/all.fa
 ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> /dev/null > cand/self.m8 || true
 gawk -F'\t' -v OFS='\t' '
-    FILENAME == ARGV[1] { L[$1] = $2; ord[++n] = $1; next }             # list: name cons_len
+    FILENAME == ARGV[1] { L[$1] = $2; K[$1] = $3; ord[++n] = $1; next } # list: name cons_len [key]
     # m8: pid, q_s q_e ($7 $8), s_s s_e ($9 $10). Same element = the alignment covers >= 90 % of
     # BOTH: a shorter candidate contained in a longer one is a different element (r3 with its
     # internal repeat inside r1 + 39 bp + r3; r10 + r6 part inside r10 + 105 bp + group B)
@@ -122,7 +122,9 @@ gawk -F'\t' -v OFS='\t' '
     # (highest identity among all pairs that pass), linked candidates form one group, and the group
     # keeps the candidate from the largest peak. First-hit in peak order merged rsi P42 (r8 + r8) into
     # P26 (r5h_r6, 90.6 %) although it is 99.0 % identical to P43 (r8 + r8, a smaller peak).
-    $1 != $2 { if ($3 >= 90 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2]) {
+    # key (3rd list column, optional): homodimers carry "H:<family>" and merge only with homodimers of the same family -
+    # a tandem of one unit is its own element and is never absorbed by a composite of other units (rsi r8 + r8 into r5 + r6)
+    $1 != $2 && K[$1] == K[$2] { if ($3 >= 90 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2]) {
                    if ($3 > pid[$1, $2]) pid[$1, $2] = pid[$2, $1] = $3 } }
     function root(x) { while (up[x] != x) x = up[x]; return x }
     END {
