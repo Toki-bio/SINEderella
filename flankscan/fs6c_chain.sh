@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fs6c_chain.sh OUT_DIR RUN_DIR [THREADS=8] [MINK=50] [MAXROUND=3]
+# fs6c_chain.sh OUT_DIR RUN_DIR [THREADS=8] [MINK=25] [MAXROUND=3]
 #
 # Stage 6c of flankscan: chains. A candidate whose end is OPEN (stage 6b: >= 50 % of its copies continue into
 # a known bank unit at that end) is the middle of a longer chain - stages 3-5 pair every copy with its nearest
@@ -25,7 +25,7 @@
 #      OUT/chains.skip  open candidates with too few copies carrying the flank unit
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; source "$HERE/fs_lib.sh"
-OUT=${1:?OUT_DIR}; RUN=$(readlink -f "${2:?RUN_DIR}"); T=${3:-8}; MINK=${4:-50}; MAXROUND=${5:-3}
+OUT=${1:?OUT_DIR}; RUN=$(readlink -f "${2:?RUN_DIR}"); T=${3:-8}; MINK=${4:-25}; MAXROUND=${5:-3}
 FL=100; SHARE=0.6; SKIP=0.3; EFL=250
 cd "$OUT"
 [[ -s ends.tsv ]] || { echo "fs6c: no ends.tsv - run fs6b first" >&2; exit 1; }
