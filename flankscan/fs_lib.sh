@@ -123,26 +123,26 @@ fs_fold() {
     cut -f1 "$LIST" | while read -r N; do cat "cand/$N.fa"; done > cand/all.fa
     ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> /dev/null > cand/self.m8 || true
     # pairs that pass rules 1 and 3, with the uncovered stretches (name start end) of both candidates
-    gawk -F'	' -v OFS='	' -v XMIN=$XMIN '
+    gawk -F'\t' -v OFS='\t' -v XMIN=$XMIN '
         FILENAME == ARGV[1] { L[$1] = $2; K[$1] = $3; next }
         $1 != $2 && K[$1] == K[$2] && $3 >= 90 && $9 < $10 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2] {
             print $1, $2, $3, ($7 - 1 >= XMIN ? $1 ":1-" $7 - 1 : "-"), (L[$1] - $8 >= XMIN ? $1 ":" $8 + 1 "-" L[$1] : "-"),
                   ($9 - 1 >= XMIN ? $2 ":1-" $9 - 1 : "-"), (L[$2] - $10 >= XMIN ? $2 ":" $10 + 1 "-" L[$2] : "-") }' "$LIST" cand/self.m8 > cand/fold.pairs
     # rule 2: an uncovered stretch that is a known unit separates the candidates
     : > cand/fold.block
-    while IFS=$'	' read -r A B PID X1 X2 X3 X4; do
+    while IFS=$'\t' read -r A B PID X1 X2 X3 X4; do
         for X in "$X1" "$X2" "$X3" "$X4"; do
             [[ "$X" == - ]] && continue
             N=${X%%:*}; R=${X#*:}; S=${R%-*}; E=${R#*-}
             gawk -v S=$S -v E=$E '!/^>/ { print ">x
 " substr($0, S, E - S + 1) }' "cand/$N.fa" > cand/fold.x.fa
-            if [[ -n $(ssearch36 -m 8 -E 1e-3 -Z 1000 cand/fold.x.fa cons.masked.fa 2> /dev/null | gawk -F'	' '$4 >= 40 { print "hit"; exit }') ]]; then
-                printf "%s	%s
+            if [[ -n $(ssearch36 -m 8 -E 1e-3 -Z 1000 cand/fold.x.fa cons.masked.fa 2> /dev/null | gawk -F'\t' '$4 >= 40 { print "hit"; exit }') ]]; then
+                printf "%s\t%s
 " "$A" "$B" >> cand/fold.block; break
             fi
         done
-    done < <(gawk -F'	' '$4 != "-" || $5 != "-" || $6 != "-" || $7 != "-"' cand/fold.pairs)
-    gawk -F'	' -v OFS='	' '
+    done < <(gawk -F'\t' '$4 != "-" || $5 != "-" || $6 != "-" || $7 != "-"' cand/fold.pairs)
+    gawk -F'\t' -v OFS='\t' '
         FILENAME == ARGV[1] { ord[++n] = $1; next }
         FILENAME == ARGV[2] { bl[$1, $2] = bl[$2, $1] = 1; next }
         { if (!(($1, $2) in bl) && $3 > pid[$1, $2]) pid[$1, $2] = pid[$2, $1] = $3 }
