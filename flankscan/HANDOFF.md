@@ -357,13 +357,14 @@ So ~40-57 % of those copies have a real TSD (his ~60 % is right for that plate);
 Stage 8 on the r7 SINGLES (body = 154 bp r7 as found in their own alignment) gives 3-14 points excess only: the TSDs belong to the longer element, so r7 as defined by the bank consensus is not the unit.
 Open: r7 consensus extended by ~77 bp at 3' (his r7_133seqs_extended row) and stage 8 rerun for r7 with it.
 
-## 2026-10-01: why SINEderella missed the r7 TSDs (traced on rsi_r7_133seqs_top100)
-Same plate, same detector (tools/tsd_curve.py), only the 3' end of the body changed:
-- body ends at col 209 (end of the r7 consensus row): excess over shuffled -1..+1 points at every minimum length (nothing).
-- body ends at col 344 (his reading, extended row): excess 35-54 points (min 8, slack 3: 51 % real vs 13 % shuffled).
-Cause: the r7 consensus (chunk consensus r7_133seqs, 105 aligned bp) stops at col 209, but cols 210-262 are conserved in >=95 % of the 100 copies
-(majority base 94-100 %), followed by the tail TAAATAAATAAAAG (~263-285, 85-99 %). The element is ~175 bp, the TSD sits right after that tail.
-The 3' TSD window (56 bp after the end, slack 3/25) therefore started ~75 bp too early, inside the element, and compared body sequence to the 5' flank.
-No stage notices this: fs6b opens an end only when the continuation is a bank unit; this continuation is unique, conserved sequence.
-Fix to build (not done): end extension by column conservation in the copy alignment (extend while majority base >= ~90 % in >= 80 % of copies, stop at the
-poly-A/low-complexity tail), run before fs8, and report the extension length per element.
+## 2026-10-01: why SINEderella missed the r7 TSDs (corrected trace; the first version of this note blamed a truncated consensus - wrong)
+Traced on the r7 singles of fs_rsi6 (S.aln.fa, 200 copies) and on his top100 plate, same detector, one parameter changed at a time:
+- fs8 already finds the 3' end by column conservation, not from the consensus: it put it at col 774 (end of the conserved block ...CCTGGAAAAACACACT), ~53 bp past the bank r7 end. That part was fine.
+- The structured tail (TAAATAAATAAAAG + A-rich run, 40-60 bp) is gappy in the alignment (< 35 % of copies per column), so no end finder can include it; the TSD starts after it.
+- The 3' search allowed only 25 bp past the end (his ViewAlign correction). r7 singles, min 12: slack 25 -> 23 % real vs 10 % shuffled (+13); slack 45 -> 64 vs 12 (+52); end moved to col 830-900 with slack 25 -> +52..55 (= his ~60 %).
+  So 60 % is right; the 19 % was the 3' search window ending before the TSD.
+- Copy age is NOT the reason: TSD excess does not depend on identity quartile (r8 +52..66 in every quartile, r7 +10..18 at slack 25).
+- Tried and rejected: skipping the A/T-rich tail per copy (eats AT-rich TSDs, signal drops to +0..+8).
+Change: fs8 TSD_RSLACK default 25 -> 45, 3' window RSLK+31 bases (56 at 25). The shuffled calibration uses the same window, so chance is controlled.
+Slack 45 vs 25 (excess points, min 12; singles): r5 +48 vs +28, r6 +57 vs +32, r7 +49 vs +13, r8 +63 vs +53; controls (r9-like A groups) +24..+39 vs +20..+34.
+Rerun of fs8 for all rsi families on fs_rsi14: ~/tmp/fs8_rsi14_{a,b}.log.

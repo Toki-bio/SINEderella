@@ -23,7 +23,7 @@
 #   3) one TSD search per copy at those ends (_findBestTsdInFlanks, ported exactly: 30 bases before the
 #      5' end, 56 after the 3' end, TSD 4-20 bp, <= 20 % mismatch, the 5' copy <= 4 bp from the end).
 #      His two corrections: the 3' end of a SINE is fuzzy (simple-motif tails), so the 3' copy may start
-#      up to TSD_RSLACK (25) bp past the 3' end instead of 3; and the default minimum (4 bp) counts chance
+#      up to TSD_RSLACK (45) bp past the 3' end instead of 3; and the default minimum (4 bp) counts chance
 #      motifs, so the minimum is calibrated: the smallest length found in <= 5 % of shuffled pairs
 #      (5' side of one copy with the 3' side of the next, same ends).
 # Plus, per copy: a relaxed partner search (every bank consensus vs RELAX_BP of each flank, E <= 1 per
@@ -41,7 +41,7 @@
 #                                            the enrichment curve: a minimum chosen only to silence the shuffled pairs hides short real TSDs)
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
-FL=${FL:-250}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-25}; RELAX_BP=300; MINLEN=20
+FL=${FL:-250}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-45}; RELAX_BP=300; MINLEN=20
 cd "$OUT"; D=singletons/$FAM; rm -rf "$D"; mkdir -p "$D"
 
 # groups, NALN each at most (seed 42)
@@ -135,7 +135,7 @@ for G in S B A; do
                 # per copy: 30 bases before the 5 end, 56 from the 3 end + 1; bp between each end and the unit
                 for (i = 2; i <= n; i++) {
                     up[i] = ""; for (x = left - 1; x >= 1 && length(up[i]) < 30; x--) { c = substr(s[i], x, 1); if (isb(c)) up[i] = toupper(c) up[i] }
-                    dn[i] = ""; for (x = right + 1; x <= L && length(dn[i]) < 56; x++) { c = substr(s[i], x, 1); if (isb(c)) dn[i] = dn[i] toupper(c) }
+                    dn[i] = ""; for (x = right + 1; x <= L && length(dn[i]) < RSLK + 31; x++) { c = substr(s[i], x, 1); if (isb(c)) dn[i] = dn[i] toupper(c) }
                     o5 = 0; seen = 0; for (x = left; x <= L && !seen; x++) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o5++ }
                     o3 = 0; seen = 0; for (x = right; x >= 1 && !seen; x--) { c = substr(s[i], x, 1); if (c ~ /[ACGTN]/) seen = 1; else if (c ~ /[acgtn]/) o3++ }
                     O5[i - 1] = o5; O3[i - 1] = o3 }
