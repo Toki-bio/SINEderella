@@ -35,22 +35,24 @@ clear difference still counts, which is why B uses frequency differences and not
 ## Calibration on real data (2026-10-02)
 
 Positive control, the case in Gogolevsky 2009: *Rousettus leschenaultii* (rle, Pteropodidae), MEG-RL 9,706 + MEG-RS 6,717 firm copies.
-Pooled, blind to the family labels: modes at 135 and 204, valley ratio 0.072 (1,509 of 15,519 copies between), 6 diagnostic columns
-(15, 25, 26, 35, 102, 121; consensus 25–26 is AA in MEG-RL, GT in MEG-RS), linkage 0.59, TSD excess 42 and 44 points,
-0 of 3,536 short-mode copies with flank similarity ≥ 0.75 to the MEG-RL extension → `TWO_VERSIONS`.
-About 41 % of the short mode carry the long type at the diagnostic columns (decayed long copies, or a mixed population): MEG-RS is the
-majority of its mode, not all of it.
+Pooled, blind to the family labels: modes at 135 and 204, valley ratio 0.027, 6 diagnostic columns (25, 26, 35, 102, 106, 121; consensus
+25-26 is AA in MEG-RL, GT in MEG-RS), linkage 0.66, TSD excess +33 and +45 points, 0 of 5,465 short-mode copies with flank similarity >= 0.75
+to the MEG-RL extension -> `TWO_VERSIONS`. About a third of the short mode carries the long type at the diagnostic columns (decayed long
+copies, or a mixed population): MEG-RS is the majority of its mode, not all of it.
 
 rsi (v7 bank, original r7 154 bp consensus):
 
 | test | verdict | modes | valley | linkage | TSD excess |
 |---|---|---|---|---|---|
-| r9 + r7, long r7 | TWO_VERSIONS | 114, 151 | 0.086 | 0.97 (12 columns) | +46, +48 |
-| r7 + r8, long r8 | TWO_VERSIONS | 152, 178 | 0.047 | 0.56 (8 columns; 42 % of the r8 mode carry the r7 type) | +45, +48 |
-| r9 + r7 + r8, long r8 | TWO_VERSIONS (3 modes) | 113, 152, 178 | 0.09, 0.05 | 0.95 | +46, +47, +52 |
-| r6, r8, r5, r3 alone | SINGLE_MODE | 222 / 178 / 175 / 198 | – | – | – |
+| r9 + r7, long r7 | TWO_VERSIONS | 114, 151 | 0.034 | 0.97 (11 columns) | +47, +46 |
+| r9 + r8, long r8 | TWO_VERSIONS | 113, 178 | 0.037 | 0.96 | +46, +47 |
+| r7 + r8, long r8 | TWO_VERSIONS | 152, 178 | 0.029 | 0.56 (7 columns; the r8 mode also holds r7-type heads) | +47, +51 |
+| r9 + r7 + r8, long r8 | TWO_VERSIONS (3 modes) | 113, 152, 178 | 0.035, 0.039 | 0.95 | +48, +44, +52 |
+| r7 + r5, long r5 | UNLINKED_ENDS | 147, 175 | 0.026 | 0 (no diagnostic column) | +48, +51 |
+| r6, r5 alone | UNLINKED_ENDS | 210/222, 158/175 | 0.22, 0.21 | 0 | +39/+49, +35/+51 |
+| r8, r3 alone | SINGLE_MODE | 178, 198 | - | - | - |
 
-Single families give one mode: the method does not invent versions where the end is only scattered.
+Single families never come out as versions: r8 and r3 give one mode; r6 and r5 have a small second end bump 12-17 bp from the main one but no linkage (one lineage, variable end). r7 / r5 likewise: two end modes, no internal difference.
 
 ## Limits
 

@@ -62,6 +62,10 @@ def main():
             for i, v in enumerate(rep["hist"]):
                 if v:
                     o.write("%d\t%d\n" % (i, v))
+        with open(os.path.join(out, tag + ".copies.tsv"), "w") as o:
+            o.write("fam\tqs\tqe\n")
+            for c in copies:
+                o.write("%s\t%d\t%d\n" % (c.fam, c.qs, c.qe))
         t = rep["tests"]
         lk = t.get("linkage") or {}
         rows.append({

@@ -8,7 +8,8 @@ from the copies, none from the consensus lengths:
 
   A  END MODES      histogram of the 3' end on the long consensus (5'-complete copies only). Real versions give
                     separate modes with an empty valley between them; decay gives one mode and a smooth tail.
-                    valley_ratio = mean density between two modes / the lower mode's peak density.
+                    valley_ratio = density at the deepest point between two modes / the lower mode's peak density;
+                    close peaks (<= 40 bp) with a shallow valley are one broad mode (a version's own end scatters).
   B  LINKAGE        columns inside the shared region where a base is >= DIAG_DIFF more frequent in the short
                     mode than in the long one. Real versions are separate lineages, so those bases follow
                     the length; decay is independent of the internal sequence, so no column differs. Each copy
@@ -39,7 +40,8 @@ import argparse, collections, concurrent.futures as cf, os, random, re, subproce
 SMOOTH = 7          # box smoothing of the end histogram (bp)
 MODE_MIN_FRAC = 0.05   # a mode needs this share of the 5'-complete copies ...
 MODE_MIN_N = 30        # ... and at least this many
-MODE_MERGE = 20     # peaks closer than this are one mode
+MODE_SEP = 10       # peaks closer than this are one peak
+MERGE_NEAR = 40     # neighbouring peaks this close with a shallow valley are one broad mode
 MODE_FLOOR = 0.2    # the mode window extends while the density is >= this x the peak
 MODE_MAXHALF = 30   # ... but at most this far from the peak
 MODE_PROM = 4.0     # the peak must stand this far above the median density of its surroundings (40 bp each side)
@@ -101,7 +103,17 @@ class Copy:
 
 
 # --- A: end modes ----------------------------------------------------------------------------------------
+def _valley(sm, p, q):
+    """(position, ratio) of the deepest point between peaks p < q: mean density in a 5 bp box there / the lower peak."""
+    v = min(range(p, q + 1), key=lambda i: sm[i])
+    box = sm[max(p, v - 2):min(q, v + 2) + 1]
+    return v, (sum(box) / float(len(box))) / min(sm[p], sm[q])
+
+
 def end_modes(copies, cons_len):
+    """Modes of the 3' end (5'-complete copies). Neighbouring peaks <= MERGE_NEAR bp apart that no real valley separates
+    (ratio > VALLEY_MAX) are one broad mode: the end of one version scatters by a few bp in the simple-repeat tail
+    (rsi r9: 90-125 on the r7 consensus), and that must not look like two versions."""
     ends = [c.qe for c in copies if c.qs <= QS_MAX]
     n = len(ends)
     h = [0] * (cons_len + 2 + SMOOTH)
@@ -113,28 +125,45 @@ def end_modes(copies, cons_len):
     peaks = [i for i in range(1, len(sm) - 1) if sm[i] >= need and sm[i] >= sm[i - 1] and sm[i] >= sm[i + 1]]
     peaks.sort(key=lambda i: -sm[i])
     kept = []
-    for p in peaks:
-        if all(abs(p - k) >= MODE_MERGE for k in kept):
-            kept.append(p)
+    for pk in peaks:
+        if all(abs(pk - k) >= MODE_SEP for k in kept):
+            kept.append(pk)
     kept.sort()
-    modes = []
-    for p in kept:
-        lo = hi = p
-        while lo > 1 and p - lo < MODE_MAXHALF and sm[lo - 1] >= MODE_FLOOR * sm[p]:
-            lo -= 1
-        while hi < len(sm) - 1 and hi - p < MODE_MAXHALF and sm[hi + 1] >= MODE_FLOOR * sm[p]:
-            hi += 1
-        around = sorted(sm[max(1, lo - 40):lo] + sm[hi + 1:hi + 41])
+    # prominence: a bump in a flat tail is not a mode
+    prom = []
+    for pk in kept:
+        around = sorted(sm[max(1, pk - 40):max(1, pk - 10)] + sm[pk + 11:pk + 41])
         floor = around[len(around) // 2] if around else 0.0
-        if sm[p] < MODE_PROM * floor:
-            continue    # a bump in a flat tail, not a mode
-        modes.append({"peak": p, "lo": lo, "hi": hi, "density": sm[p]})
+        if sm[pk] >= MODE_PROM * floor:
+            prom.append(pk)
+    # groups of peaks: merge near neighbours with a shallow valley, repeat until stable
+    groups = [[pk] for pk in prom]
+    changed = True
+    while changed and len(groups) > 1:
+        changed = False
+        for k in range(len(groups) - 1):
+            a, b = max(groups[k], key=lambda x: sm[x]), max(groups[k + 1], key=lambda x: sm[x])
+            if b - a <= MERGE_NEAR and _valley(sm, a, b)[1] > VALLEY_MAX:
+                groups[k] = groups[k] + groups[k + 1]
+                del groups[k + 1]
+                changed = True
+                break
+    modes = []
+    for g in groups:
+        pk = max(g, key=lambda x: sm[x])
+        lo, hi = min(g), max(g)
+        while lo > 1 and pk - lo < MODE_MAXHALF and sm[lo - 1] >= MODE_FLOOR * sm[pk]:
+            lo -= 1
+        while hi < len(sm) - 1 and hi - pk < MODE_MAXHALF and sm[hi + 1] >= MODE_FLOOR * sm[pk]:
+            hi += 1
+        modes.append({"peak": pk, "lo": lo, "hi": hi, "density": sm[pk]})
     for k in range(len(modes) - 1):
         a, b = modes[k], modes[k + 1]
-        gap = range(a["hi"] + 1, b["lo"])
-        mean = sum(sm[i] for i in gap) / float(len(gap)) if len(gap) else sm[a["hi"]]
-        b["valley_ratio_before"] = mean / min(a["density"], b["density"])
-        b["between_n"] = sum(h[i] for i in gap)
+        v, ratio = _valley(sm, a["peak"], b["peak"])
+        a["hi"] = min(a["hi"], v)
+        b["lo"] = max(b["lo"], v + 1)
+        b["valley_ratio_before"] = ratio
+        b["between_n"] = sum(h[a["peak"] + 1:b["peak"]])
     return modes, h, n
 
 
@@ -173,8 +202,9 @@ def linkage(copies_by_mode, cons, shared_hi):
         # (rle MEG-RS mode: 41 % G at column 25 against 6 % in the long mode), so a difference in frequency counts, not a fixed one
         bs = max("ACGT-", key=lambda b: a_s[col][b] / float(ns) - a_l[col][b] / float(nl))
         gain = a_s[col][bs] / float(ns) - a_l[col][bs] / float(nl)
-        if gain >= DIAG_DIFF:
-            diag[col] = (bs, a_l[col].most_common(1)[0][0])
+        bl = a_l[col].most_common(1)[0][0]
+        if gain >= DIAG_DIFF and bs != bl:      # bs == bl: the long mode's own majority base, it cannot tell the two apart
+            diag[col] = (bs, bl)
 
     def kind(c):
         vs = vl = 0
@@ -304,7 +334,7 @@ def format_report(rep, cons_len):
     o = ["VERDICT: %s" % rep["verdict"], "copies %d, 5'-complete %d, consensus %d bp" % (rep["n_copies"], rep["n_5prime_complete"], cons_len)]
     for m in rep["modes"]:
         o.append("  mode at %d (window %d-%d)%s" % (m["peak"], m["lo"], m["hi"], "" if "valley_ratio_before" not in m else
-                 ", valley ratio to the previous mode %.3f (%d copies between)" % (m["valley_ratio_before"], m["between_n"])))
+                 ", valley ratio to the previous mode %.3f (%d copies between the peaks)" % (m["valley_ratio_before"], m["between_n"])))
     t = rep["tests"]
     if "linkage" in t:
         lk = t["linkage"]
