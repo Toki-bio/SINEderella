@@ -103,3 +103,69 @@ family: share of copies with a shared flank, and groups (connected copies). Plat
 
 Related: `flankscan/fs8_singletons.sh` (stage 8) asks the same question for one family's single copies
 with TSDs as end markers; its results are a first real test case.
+
+---
+
+## Implementation and test plan (Claude, 2026-10-01; GLM task U was stalling and is dropped in this form)
+
+Decision: build it as a flankscan stage (bash/awk, readable, like stages 1-8), not three competing Python tools. The
+benchmark below decides thresholds, and the approaches A/B stay as two modules of the same stage because they answer two
+different questions.
+
+### What exactly is asked (two classes, reported separately)
+
+1. **Twin copies** (class T): copy A and copy B share flanks from the junction outward, colinear, >= 50 bp, identity >= 85 %.
+   The two SINE copies are one event multiplied (segmental duplication, array unit, carried by another element). Mark `[twin]`.
+2. **Copy inside a duplicated region** (class R): the flank of A matches somewhere else in the genome over >= 100 bp at >= 85 %, but
+   the other place is not a copy of the same family at the same offset. The insertion may be independent; the region is
+   not unique. Mark `[dup-region]`, do not count as non-independent.
+The question "is this family made of independent insertions" is answered by class T only; class R is a warning.
+
+### Traps the design has to survive (each is a benchmark case)
+
+| trap | why it fools a naive test | rule that handles it |
+|---|---|---|
+| strand | an inverted duplicate looks unrelated | compare in element orientation: 5' flank with 5' flank, 3' with 3' (flank sequence as the copy's own orientation; handles both) |
+| insertion hot spot in a repeat | independent insertions into the same LINE/simple repeat have identical proximal flanks | k-mers frequent genome-wide (> 20 copies) and soft-masked/TRF sequence are ignored; a pair needs >= 50 bp of UNmasked, low-copy flank |
+| TSD / target-site preference | the first 5-15 bp next to the junction repeat by chance | window starts after the TSD; pair needs >= 50 bp, not 15 |
+| indels | exact k-mers break at an indel | k = 12, key = (k-mer, offset from junction); pair = >= 8 shared keys on one diagonal band (band +-3 bp), then ungapped/gapped confirmation (ssearch36 on the pair only) |
+| old duplicate | 80-90 % identity kills 20-mers | k = 12 and identity floor 85 %; below that = not called (report the floor) |
+| divergent copies of the SINE itself | flanks fine, element differs | flanks only; element ignored |
+| short flank | copy at a contig end has < 100 bp | pair allowed only if both flanks >= 50 bp; otherwise "untestable", counted separately (never counted unique) |
+| N / low complexity | poly-N or (TA)n matches everything | masked before indexing |
+| nested copies / adjacent copies | copy B lies inside A's flank (tandem or array) | exclude pairs closer than 2 kb on one contig from class T and report them as `[array]`, which exists already |
+| huge families | 600 k copies, 1.2 M windows | index only the proximal 80 bp per side; bucket cap 20; sort-based, no all-vs-all |
+
+### Pipeline (stage fs9, per family)
+
+1. input: flankscan fs1 windows (strand-normalised, +-1000 bp) of the family's copies; keep proximal 80 bp each side, after the TSD.
+2. mask: soft-mask/TRF (stage 2 masks already exist) plus genome-wide frequent k-mers (jellyfish count k = 12 on the genome, drop > 20).
+3. keys: every 12-mer with its offset from the junction, `kmer TAB offset TAB copy TAB side`; `sort`; buckets > 20 dropped.
+4. candidate pairs: from each bucket, all pairs; count shared keys per (pair, side, offset difference); keep >= 8 on a +-3 bp band.
+5. confirm: ssearch36 of the two proximal 150 bp flanks; identity >= 85 % over >= 50 bp, starting <= 15 bp from the junction in both.
+6. class R: minimap2 (or ssearch36) of each flank against the genome; second hit >= 100 bp, >= 85 %, not within 2 kb, not a copy of the family at the same offset.
+7. output: `flank_groups.tsv` (copy_a copy_b side identity length class), union-find groups, per family: share of copies with a twin, number of
+   groups, number untestable; plate rows get `[twin]` / `[dup-region]`; report line in the verdict ("x % of copies have a twin").
+
+### Test plan
+
+1. **Toy (planted truth), extend `tests/make_toy.sh`:** (a) 400 independent copies, unique flanks (negatives); (b) 6 segdups, 3 kb, copies inside:
+   same contig, cross contig, inverted, 95 / 90 / 85 / 80 % identity; (c) tandem array of 10 units; (d) 60 insertions into one LINE-like repeat at the
+   same offset (hot spot: must NOT be twins; must be suppressed by the frequency cap) and 60 at random offsets of it; (e) copies at contig ends
+   (untestable); (f) copy inside a duplicated region where the SINE was inserted after duplication (class R, not T); (g) poly-N and (TA)n flank.
+   Pass = recall 100 % at >= 90 % identity, every hot-spot copy unflagged, class R flagged R and not T, untestable counted, no unique copy flagged.
+2. **Threshold calibration:** sweep k, band, min keys, identity floor on the toy; fix them where recall stays >= 95 % at 85 % identity and false pairs = 0;
+   shuffled-flank control as in stage 8 (shuffle flanks between copies, expect 0 pairs).
+3. **Exact reference:** on a subset of ~2 000 real copies (the array-marked ones plus random singles) run all-pairs ssearch36 of the proximal flanks and score
+   the fast stage against it (recall and false positives), with and without masking.
+4. **Real positives:** rsi MEG-TR (73 of 102 marked [array]), tbr MEG-RS satellite units, nle MEG-TR (8 copies on different contigs), ttr MEG-RS pairs;
+   must be found as twins (tandem ones as `[array]`).
+5. **Real negatives:** rsi r9 singles and other clean monomers: expect a low twin share; every flagged pair is inspected as an alignment (no score reported
+   without the alignment, see the memory rule).
+6. **Scale:** time and memory on tbr VES (621 128 copies); target: minutes on a 64-core node, memory dominated by the sort.
+7. **Sensitivity of the verdict:** report the twin share per family for rsi r1-r10 with the thresholds' range, not a single number.
+
+### Open design question for Toki
+
+Where to put the line between "independent insertion" and "twin": identity floor 85 % over 50 bp is a first guess. Old duplicates (> 15 % divergent flanks) are
+missed by design; do you want a second tier (70-85 %, class "possible old duplicate") reported separately?
