@@ -24,3 +24,12 @@ SELFTEST OK.
 
 Still open for D3: run it on a real step3 table and take the top rows to him as the
 concrete example the decision asks for.
+
+## 2026-10-01 - re-check against the task text
+
+Verified against step3_postprocess.sh: the 12-column layout of all_sines.bedlike.ALL.tsv,
+the 0.90 LEAK rule, the runner= tags in the col-10 note, the SeqID-style copy ids and the
+score fallback all match the script; the selftest arithmetic checks out by hand (4 LEAK
+copies, diffs 47.5 / 7.5 / 2.5 points, 2 unflagged by the >5-points rule, share 50 %).
+One fix: the fallback NOTE lost its verb in the mixed identity/score case ("for those,
+back to the columns...") - each branch now prints its own complete sentence.
