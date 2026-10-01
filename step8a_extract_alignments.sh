@@ -61,6 +61,10 @@ MAFFT_ARGS=(--localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --preservec
 
 # Base flank sizes
 BASE_UP=50
+# SubFam: the copy next to this script first (the orchestrator installs it there), then PATH. A bare "SubFam"
+# failed with rc=127 in every rsi run because the pipeline shell had no SubFam on PATH.
+SUBFAM_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/SubFam"
+[[ -x "$SUBFAM_BIN" ]] || SUBFAM_BIN="$(command -v SubFam || echo SubFam)"
 BASE_DOWN=70
 
 ###############################################################################
@@ -498,7 +502,7 @@ while IFS=$'\t' read -r subfam count; do
 
             set +e
             tlog "$subfam: subfam sample extracted ($(grep -c '^>' "$scratch/input.fasta") seqs), SubFam starts"
-            (cd "$scratch" && SubFam input.fasta 50)
+            (cd "$scratch" && "$SUBFAM_BIN" input.fasta 50)
             subfam_rc=$?
             set -e
             tlog "$subfam: SubFam done (rc=$subfam_rc)"
