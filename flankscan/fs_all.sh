@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # fs_all.sh RUN_DIR OUT_DIR [THREADS=16] [MINK=50] [FLANK=1000] [PARTNERS.fa]
-# MINKC (default 25): minimum copies carrying the flank unit for a chain extension (stage 6c). Not MINK: ends are checked on the
+# MINKC (default 25): minimum copies carrying the flank unit for a chain extension (stage 6c); ends are checked on the 60 best copies only.
 # (PARTNERS.fa: optional partner library for stage 3, from fs0_partnerlib.sh)
 # All flankscan stages (1-7, 6b) on one SINEderella run, timed; writes OUT_DIR/DONE (or FAILED) at the end.
 set -uo pipefail
