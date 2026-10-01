@@ -21,20 +21,20 @@
 #     spaced seed 111010010100110111 (weight 11, finds old duplicates). A seed that occurs in more than CAP flanks at
 #     the same offset is dropped (hot spots)
 #  3) candidate pair = >= MK shared seeds on one diagonal (band +-BAND bp) with the first seed within START bp of the
-#     junction in BOTH copies (pass 1: 8, pass 2: 3)
-#  4) confirmation: score the diagonal (and BAND diagonals around it, to cross small indels): match +1, mismatch or N
-#     -1, best segment, start <= START bp from the junction, length >= MINLEN, identity >= ID1 (tier 1) or ID2 (tier 2)
+#     junction in BOTH copies (MK1 = 6 in pass 1, MK2 = 3 in pass 2)
+#  4) confirmation: score the diagonal (and BAND diagonals around it, to cross small indels): match +1, mismatch -1, masked bases
+#     skipped, best segment, start <= START bp from the junction, length >= MINLEN, identity >= ID1 (tier 1) or ID2 (tier 2)
 #
 # In : GENOME.fa (+ .fai made if missing; soft-masked if possible), COPIES.bed (bed6, strand = element orientation)
 # Out: OUT/flank_groups.tsv  copy_a copy_b side identity length tier class     (one row per pair and side)
 #      OUT/copy_status.tsv   copy status (twin1 twin2 array untestable unique) n_partners group
 #      OUT/summary.txt       counts and shares
-# Env: W=100 IW=80 MINFL=50 MINLEN=50 START=20 BAND=3 CAP=20 GCAP=20 ID1=85 ID2=70 ARRKB=2000
+# Env: MK1=6 MK2=3 (shared seeds needed in pass 1 / 2) W=100 IW=80 MINFL=50 MINLEN=50 START=20 BAND=3 CAP=20 GCAP=20 ID1=85 ID2=70 ARRKB=2000
 #      KCOUNT=<file "20-mer TAB count" of the genome, canonical, e.g. jellyfish dump -c>; counted here up to 300 Mb
 set -euo pipefail
 G=${1:?GENOME.fa}; B=${2:?COPIES.bed}; OUT=${3:?OUT_DIR}
 W=${W:-100}; IW=${IW:-80}; MINFL=${MINFL:-50}; MINLEN=${MINLEN:-50}; START=${START:-20}; BAND=${BAND:-3}
-CAP=${CAP:-20}; GCAP=${GCAP:-20}; ID1=${ID1:-85}; ID2=${ID2:-70}; ARRKB=${ARRKB:-2000}
+CAP=${CAP:-20}; GCAP=${GCAP:-20}; ID1=${ID1:-85}; ID2=${ID2:-70}; ARRKB=${ARRKB:-2000}; MK1=${MK1:-6}; MK2=${MK2:-3}
 mkdir -p "$OUT"; G=$(readlink -f "$G"); B=$(readlink -f "$B"); cd "$OUT"
 [[ -s "$G.fai" ]] || samtools faidx "$G"
 export LC_ALL=C
@@ -89,10 +89,10 @@ pass_run() {
                   if (cp[i] < cp[j]) print sd[i], cp[i], cp[j], of[i] - of[j], of[i], of[j]; else print sd[i], cp[j], cp[i], of[j] - of[i], of[j], of[i] } } n = 0 }
         { if ($1 != last) { flush(); last = $1 } n++; of[n] = $2; cp[n] = $3; sd[n] = $4 } END { flush() }' "keys.$TAG.tsv" > "hits.$TAG.tsv"
     # candidate pairs: >= MK seeds within one band of delta, first seed within START bp of the junction in both copies
-    gawk -F'\t' -v OFS='\t' -v MK=$MK -v BAND=$BAND -v START=$START '
+    gawk -F'\t' -v OFS='\t' -v MK=$MK -v BAND=$BAND -v START=$START -v SLACK=25 '
         { p = $1 SUBSEP $2 SUBSEP $3; c[p, $4]++; if (!(p in seen)) { seen[p] = 1; order[++np] = p; ma[p] = 1e9; mb[p] = 1e9 }
           dl[p] = dl[p] " " $4; if ($5 < ma[p]) ma[p] = $5; if ($6 < mb[p]) mb[p] = $6 }
-        END { for (q = 1; q <= np; q++) { p = order[q]; if (ma[p] > START || mb[p] > START) continue
+        END { for (q = 1; q <= np; q++) { p = order[q]; if (ma[p] > START + SLACK || mb[p] > START + SLACK) continue     # masked bases at the junction push the first seed outward; the confirmation applies START
               nd = split(dl[p], D, " "); best = 0; bd = 0
               for (a = 1; a <= nd; a++) { s = 0; for (d = D[a] - BAND; d <= D[a] + BAND; d++) s += c[p, d] + 0; if (s > best) { best = s; bd = D[a] } }
               if (best >= MK) { split(p, f, SUBSEP); print f[1], f[2], f[3], bd, best } } }' "hits.$TAG.tsv" | sort -u > "cand.$TAG.tsv"
@@ -106,14 +106,15 @@ pass_run() {
                   x = substr(A, i, 1); y = substr(Bq, j, 1)
                   if (sc <= 0) { sc = 0; st = (i <= START && j <= START) ? 1 : 0; mt = 0; ln = 0 }
                   if (!st) continue
-                  ln++; if (x == y && x != "N") { sc++; mt++ } else sc--
+                  if (x == "N" || y == "N") continue                    # a masked base is neither a match nor a mismatch
+                  ln++; if (x == y) { sc++; mt++ } else sc--
                   if (sc > bs) { bs = sc; bm = mt; bl = ln } }
               if (bl >= ML && 100 * bm / bl >= IDM && bl > bestl) { bestl = bl; bestid = 100 * bm / bl } }
           if (bestl >= ML) printf "%s\t%s\t%s\t%.1f\t%d\t%s\n", $2, $3, $1, bestid, bestl, TAG }' seqs.tsv "cand.$TAG.tsv" > "conf.$TAG.tsv"
 }
 
-pass_run 111111111111 8 $ID1 p1
-pass_run 111010010100110111 3 $ID2 p2
+pass_run 111111111111 $MK1 $ID1 p1
+pass_run 111010010100110111 $MK2 $ID2 p2
 # a pair found in both passes keeps its pass 1 row; the tier follows the identity
 gawk -F'\t' -v OFS='\t' -v ID1=$ID1 '{ key = $1 SUBSEP $2 SUBSEP $3; if (key in done) next; done[key] = 1
       print $1, $2, $3, $4, $5, ($4 >= ID1 ? "T1" : "T2"), "twin" }' conf.p1.tsv conf.p2.tsv | sort -k1,1 -k2,2 -k3,3 > pairs.body
