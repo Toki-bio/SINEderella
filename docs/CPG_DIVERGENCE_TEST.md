@@ -4,9 +4,7 @@ Related: docs/BORROWED_TRIAGE.md, "CpG-adjusted (Kimura) divergence" (section 5,
 Tools: tools/cpg_div/cpg_div.py (one plate), tools/cpg_div/run_all.py (all species).
 Data: tools/cpg_div/summary.tsv.
 
-**STATUS: the numbers in this document are PENDING.** The method, the decision
-rule and the limitations below are final. Every number must be taken from
-tools/cpg_div/summary.tsv; nothing is invented. To produce the table:
+**STATUS: numbers filled 2026-10-01 from tools/cpg_div/summary.tsv.** To reproduce the table:
 
     python tools/cpg_div/run_all.py
 
@@ -62,36 +60,45 @@ Two questions decide the outcome:
 
 ## Results
 
-PENDING — paste the rows of tools/cpg_div/summary.tsv into the table, then
-write the three sections below from the table alone.
-
-| species | family | n_copies | consensus_cpg_share | median_raw_p | median_cpg_adj_p | spearman_raw_vs_adj | bin_change_share |
-|---|---|---|---|---|---|---|---|
-| PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
+Run 2026-10-01 on 414 plates (all `C:/work/Tal/*/alignments/*top100.aln.fa`; table: `tools/cpg_div/summary.tsv`).
+The aggregates below were computed from that table (Claude, independent of the GLM text); 371 plates have values,
+39 give NA (species saq 9, ccr 8, teu 6, toc 6, dmo 5, gpy 5: not yet explained, probably plates without
+upper-case element columns or with a different row layout; to be checked before any claim about those species).
 
 ### How large is the CpG effect?
 
-PENDING — per species and family, in plain words: median raw_p -> median
-cpg_adj_p, as a percentage of the raw value, next to that family's consensus
-CpG share.
+Across the 371 plates the median CpG-adjusted divergence is a median of **10 %** lower than raw (10th to 90th
+percentile of plates: 2 % to 38 %). Per species (median over its plates, drop of median_cpg_adj_p relative to
+median_raw_p, and median consensus CpG share):
+
+| species | plates | drop | consensus CpG share |
+|---|---|---|---|
+| hum | 64 | 35 % | 0.151 |
+| rsi_v3 / rsi_v2 / rsi | 17 / 17 / 14 | 32 / 31 / 29 % | 0.10 |
+| rle | 6 | 27 % | 0.080 |
+| rmi | 6 | 15 % | 0.150 |
+| zeb | 15 | 14 % | 0.108 |
+| tim (Timema) | 14 | 13 % | 0.096 |
+| tbr | 6 | 10 % | 0.097 |
+| eri | 8 | 2 % | 0.026 |
+| timb | 55 | 5 % | 0.067 |
+| sco | 25 | 5 % | 0.075 |
+
+The relation to the consensus CpG share is weak (Pearson r = 0.33 over the 371 plates): the drop depends on how
+much of the divergence is transitions at CpG sites, which the CpG share of the consensus alone does not predict.
 
 ### Which families are affected most?
 
-PENDING — rank the families by the drop in the median and by the bin-change
-share; name the top ones and state what they have in common (expected: the
-highest consensus CpG shares).
+The mammalian plates (human, the rsi and Rhinolophus sets) are affected most, 27-35 %; invertebrate and low-GC
+sets least (about 5 %). The table per family is in `summary.tsv` (sort by the two divergence columns).
 
 ### Should the divergence profiles be CpG-adjusted?
 
-PENDING — the answer follows the rule:
-
-- If the bin-change share is 0 (or ~0) for every family: no copy changes its
-  bin, so every profile keeps its shape; the adjustment would only compress
-  the divergence axis. Then either keep the profiles raw and say so in the
-  Methods, or switch profile and axis to cpg_adj_p — a presentation choice,
-  not a change in results.
-- If some families have moved copies: those profiles change shape; name
-  them. For them the answer is yes, at least for the published profile.
+The rule written above gives a clear answer for the mammalian sets: the rank correlation raw vs adjusted is high
+(median 0.96), but the median share of copies that change one of five equal-size divergence bins is **0.26**, so
+the profiles change shape and not only the axis. For the mammalian families the answer is yes, at least as a second
+track beside the raw profile; for the invertebrate plates the effect is small. This is a recommendation for the
+published profile, not applied: D2 stays open until the user decides, and the 39 NA plates need explaining first.
 
 ## What this test does NOT show
 
