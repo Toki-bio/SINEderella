@@ -332,3 +332,7 @@ internal repeat (REFINEMENT §11 point 4). C2 (r1 + r2[106-146] + r3, 15 %) chec
 - GLM task E (tools/cand_ends.py on branch glm-uniq-cpg-leak) PASSED its own check but is NOT usable: on the rsi_v5 candidate
   plates it reports every end "closed" (consensus end column 101 = the flank boundary of the plate, 1 column beyond),
   while stage 6b finds P9/P10/P25 open. Not merged; stage 6b/6c ends.tsv is the end evidence.
+- GLM task L (tools/leak_div_example.py) was merged then REVERTED the same day: its selftest passes, but on a real
+  step3 table (rsi_peel, 16 246 LEAK copies) it prints divergence 0.00 for every copy and runner_bs/best_bs ratios that do not
+  match col 10 (best 675 / runner 1346, ratio 0.9132). The column semantics are misread. Needs a real example for D3 (open).
+- GLM task C (CPG divergence test, docs/CPG_DIVERGENCE_TEST.md, tools/cpg_div) merged to main (numbers filled by Claude from summary.tsv).
