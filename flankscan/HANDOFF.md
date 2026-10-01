@@ -356,3 +356,14 @@ the same detector (tools/tsd_curve.py PLATE LEFT RIGHT) on that plate: min 4: re
 So ~40-57 % of those copies have a real TSD (his ~60 % is right for that plate); the TSDs flank a 244-column body, longer than the 154 bp r7 consensus (the r7 subfam plate proposes +77 bp at the 3' end).
 Stage 8 on the r7 SINGLES (body = 154 bp r7 as found in their own alignment) gives 3-14 points excess only: the TSDs belong to the longer element, so r7 as defined by the bank consensus is not the unit.
 Open: r7 consensus extended by ~77 bp at 3' (his r7_133seqs_extended row) and stage 8 rerun for r7 with it.
+
+## 2026-10-01: why SINEderella missed the r7 TSDs (traced on rsi_r7_133seqs_top100)
+Same plate, same detector (tools/tsd_curve.py), only the 3' end of the body changed:
+- body ends at col 209 (end of the r7 consensus row): excess over shuffled -1..+1 points at every minimum length (nothing).
+- body ends at col 344 (his reading, extended row): excess 35-54 points (min 8, slack 3: 51 % real vs 13 % shuffled).
+Cause: the r7 consensus (chunk consensus r7_133seqs, 105 aligned bp) stops at col 209, but cols 210-262 are conserved in >=95 % of the 100 copies
+(majority base 94-100 %), followed by the tail TAAATAAATAAAAG (~263-285, 85-99 %). The element is ~175 bp, the TSD sits right after that tail.
+The 3' TSD window (56 bp after the end, slack 3/25) therefore started ~75 bp too early, inside the element, and compared body sequence to the 5' flank.
+No stage notices this: fs6b opens an end only when the continuation is a bank unit; this continuation is unique, conserved sequence.
+Fix to build (not done): end extension by column conservation in the copy alignment (extend while majority base >= ~90 % in >= 80 % of copies, stop at the
+poly-A/low-complexity tail), run before fs8, and report the extension length per element.
