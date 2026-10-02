@@ -262,7 +262,7 @@ echo "[$(date)] Aligning $CLUSTERS clusters with consensus using MAFFT..."
 
 cat input_reps.fasta "$CONSENSUS_PATH" > combined_input.fasta
 
-mafft --thread "$(nproc)" \
+mafft --thread "$(nproc)" --threadit 0 \
       --localpair \
       --maxiterate 1000 \
       --ep 0.123 \

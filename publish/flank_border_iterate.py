@@ -227,7 +227,7 @@ def extract_for_side(bed, genome, side, flank_bp, out_fa, work):
 def mafft(in_fa, out_fa, threads=8, opts=None):
     o = opts or MAFFT_OPTS
     code, _, err = sh(
-        "mafft --thread %d %s %s > %s 2>/dev/null"
+        "mafft --thread %d --threadit 0 %s %s > %s 2>/dev/null"
         % (threads, o, shlex.quote(in_fa), shlex.quote(out_fa)))
     return code == 0 and os.path.getsize(out_fa) > 0, err
 

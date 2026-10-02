@@ -76,7 +76,7 @@ for sf_fasta in "${sf_files[@]}"; do
     [[ $nseqs -le 200 ]] && cp "$sf_fasta" "$tmpdir/sampled.fa" || \
       sample_fasta "$sample_n" "$sf_fasta" "$tmpdir/sampled.fa"
     cat "$CONS_BANK" "$tmpdir/sampled.fa" > "$tmpdir/to_align.fa"
-    mafft --thread "$(nproc 2>/dev/null || echo 1)" --nuc --auto --reorder --quiet \
+    mafft --thread "$(nproc 2>/dev/null || echo 1)" --threadit 0 --nuc --auto --reorder --quiet \
           "$tmpdir/to_align.fa" > "$OUT_DIR/${sf_name}.aln.fa" 2>/dev/null || \
       log "    WARNING: mafft failed"
   else
@@ -93,7 +93,7 @@ for sf_fasta in "${sf_files[@]}"; do
       (cd "$subfam_workdir" && SubFam "${sf_name}.fa") || {
         log "    WARNING: SubFam failed, falling back to direct mafft"
         cat "$CONS_BANK" "$tmpdir/${sf_name}.fa" > "$tmpdir/to_align.fa"
-        mafft --thread "$(nproc 2>/dev/null || echo 1)" --nuc --auto --reorder --quiet \
+        mafft --thread "$(nproc 2>/dev/null || echo 1)" --threadit 0 --nuc --auto --reorder --quiet \
               "$tmpdir/to_align.fa" > "$OUT_DIR/${sf_name}.aln.fa" 2>/dev/null || true
         rm -rf "$tmpdir"
         continue
@@ -135,7 +135,7 @@ for sf_fasta in "${sf_files[@]}"; do
     else
       # Fallback if SubFam not available
       cat "$CONS_BANK" "$tmpdir/${sf_name}.fa" > "$tmpdir/to_align.fa"
-      mafft --thread "$(nproc 2>/dev/null || echo 1)" --nuc --auto --reorder --quiet \
+      mafft --thread "$(nproc 2>/dev/null || echo 1)" --threadit 0 --nuc --auto --reorder --quiet \
             "$tmpdir/to_align.fa" > "$OUT_DIR/${sf_name}.aln.fa" 2>/dev/null || \
         log "    WARNING: mafft failed"
     fi

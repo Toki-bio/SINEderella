@@ -86,7 +86,7 @@ done
 # -- MAFFT wrapper (PLAN section 4 params) ------------------------------------
 run_mafft(){
   local input="$1" output="$2"
-  mafft --thread "$THREADS" --threadtb "$THREADS" --threadit "$THREADS" \
+  mafft --thread "$THREADS" --threadtb "$THREADS" --threadit 0 \
         --localpair --maxiterate 1000 --ep 0.123 \
         --nuc --reorder --preservecase --quiet \
         "$input" > "$output" 2>/dev/null

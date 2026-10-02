@@ -104,3 +104,7 @@ Without pctid TSVs it falls back to bitscore KDE + violins.
 Flanks / Flank context / Element / Overall chips from `verdict.py`.
 
 Skip with `USE_DISC=0` if you only want stock SINEderella links.
+
+## Reproducible alignments (mafft `--threadit 0`)
+
+mafft with iterative refinement (`--maxiterate`, and `--auto`, which picks it) gives a different alignment on every run when `--thread` > 1, because the refinement threads race. Tested on real rsi copies (top100 of r5, r7, r10): every such call differed between two identical runs; progressive calls (`--retree N --maxiterate 0`) did not. All iterative calls in the pipeline now pass `--threadit 0` (same result for 1, 3, 4, 16, 32 threads, no measurable slowdown). Alignments from runs made before this change (2026-10-02) are not reproducible bit for bit; the counts, assignments and length-version verdicts do not depend on them (ssearch36).

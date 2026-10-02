@@ -142,7 +142,7 @@ for sp_dir in "$MULTI_DIR"/*/; do
       # Align
       mafft --thread "$(nproc 2>/dev/null || echo 1)" \
             --threadtb "$(nproc 2>/dev/null || echo 1)" \
-            --threadit "$(nproc 2>/dev/null || echo 1)" \
+            --threadit 0 \
             --nuc --auto --reorder --quiet \
             "$tmpdir/to_align.fa" \
             > "$sp_align_dir/${sf_name}.aln.fa" 2>/dev/null || {

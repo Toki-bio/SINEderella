@@ -600,7 +600,7 @@ def compute_copy_diagnostic_state(subfamily_fastas, consensus_seqs,
                 fh.write(f">{name}\n{seq}\n")
 
         aln_out = copies_file + ".aln"
-        cmd = (f"mafft --thread {threads} --quiet --auto "
+        cmd = (f"mafft --thread {threads} --threadit 0 --quiet --auto "
                f"--preservecase {shlex.quote(combined)} > {shlex.quote(aln_out)}")
         run_cmd(cmd)
 

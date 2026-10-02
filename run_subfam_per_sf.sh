@@ -59,7 +59,7 @@ run_one_sf() {
 
     # Final alignment: chunk-consensuses + sf consensus → .al
     cat "$work/input_reps.fasta" "$cons" > "$work/combined.fasta"
-    mafft --thread "$THREADS" \
+    mafft --thread "$THREADS" --threadit 0 \
           --localpair \
           --maxiterate 1000 \
           --ep 0.123 \
