@@ -42,7 +42,7 @@
 #                                            the enrichment curve: a minimum chosen only to silence the shuffled pairs hides short real TSDs)
 set -euo pipefail
 OUT=${1:?OUT_DIR}; FAM=${2:?FAMILY}; CTRL=${3:-}; T=${4:-8}
-FL=${FL:-100}; FULLFL=${FULLFL:-400}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-45}; ETRIM=${ENDTRIM:-0}; RELAX_BP=300; MINLEN=20
+FL=${FL:-100}; FULLFL=${FULLFL:-400}; FLD=${FLD:-100}; NALN=${NALN:-200}; RSLK=${TSD_RSLACK:-45}; ETRIM=${ENDTRIM:-0}; EXT3=${EXT3:-0}; EXT3_THR=${EXT3_THR:-0.7}; RELAX_BP=300; MINLEN=20
 cd "$OUT"; D=singletons/$FAM; rm -rf "$D"; mkdir -p "$D"
 
 # groups, NALN each at most (seed 42)
@@ -98,7 +98,7 @@ for G in S B A; do
         extract "$G" "$FULLFL" | seqkit seq -w 0 > "$D/$G.full.fa"       # the same copies with long raw flanks (not aligned)
         mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" "$D/$G.in.fa" 2> /dev/null \
             | seqkit seq -w 0 > "$D/$G.aln.fa"
-        gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v ETRIM=$ETRIM -v CAL="$D/$G.cal.tmp" -v ENDS="$D/$G.ends.tmp" -v PLATE="$D/$G.plate.aln.fa" -v PROP="$D/$G.proposed.fa" -v FLC=$FLC -v FLD=$FLD -v FULL="$D/$G.full.fa" '
+        gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v ETRIM=$ETRIM -v EXT3=$EXT3 -v EXT3_THR=$EXT3_THR -v CAL="$D/$G.cal.tmp" -v ENDS="$D/$G.ends.tmp" -v PLATE="$D/$G.plate.aln.fa" -v PROP="$D/$G.proposed.fa" -v FLC=$FLC -v FLD=$FLD -v FULL="$D/$G.full.fa" '
             BEGIN { while ((getline ln < FULL) > 0) { if (ln ~ /^>/) fk = substr(ln, 2); else FS_[fk] = ln } }
             /^>/ { n++; h[n] = substr($1, 2); next } { s[n] = $0 }
             function isb(c) { c = toupper(c); return c ~ /^[ACGTN]$/ }
@@ -188,9 +188,19 @@ for G in S B A; do
                 asort(R5); asort(R3)
                 # the plate: element columns as aligned, flanks packed (FLD bases, no gap columns)
                 pc = ""; for (x = left; x <= right; x++) pc = pc (cov[x] >= 0.5 ? maj[x] : "-")
+                # EXT3: the proposed consensus is continued past the right end while the bases that the copies carry
+                # there (the packed flank, the same bases the plate shows) agree: majority share >= EXT3_THR among the
+                # copies that have a base, those are >= half of the copies; at most FLD - 1 bases. 0 = off (default).
+                ext = ""
+                if (EXT3) for (xk = 1; xk < FLD; xk++) { delete ek; ev = 0; et = 0; eb = ""
+                    for (i = 2; i <= n; i++) { c = toupper(substr(FS_[h[i]], off[i] + mb3[i] + xk, 1)); if (c ~ /^[ACGT]$/) { ek[c]++; ev++ } }
+                    for (c in ek) if (ek[c] > et) { et = ek[c]; eb = c }
+                    if (ev < 0.5 * nc || et / ev < EXT3_THR) break
+                    ext = ext eb }
+                pc = pc ext
                 pad = sprintf("%*s", FLD, ""); gsub(/ /, "-", pad)
                 print ">" h[1] > PLATE; print pad substr(s[1], left, right - left + 1) pad > PLATE
-                print ">proposed_" G > PLATE; print pad pc pad > PLATE
+                print ">proposed_" G > PLATE; print pad pc substr(pad, 1, FLD - length(ext)) > PLATE
                 for (i = 2; i <= n; i++) {
                     fr = FS_[h[i]]; p5 = off[i] + nb5[i]
                     u = toupper(substr(fr, (p5 > FLD ? p5 - FLD + 1 : 1), (p5 > FLD ? FLD : p5)))
