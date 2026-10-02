@@ -30,6 +30,9 @@ fi
   echo "ERROR: set DISC to SINE-discriminator root (need boundary_justify.py)" >&2
   exit 1
 }
+# the border scan (needs_border_loop.py, a child python process) imports boundary.py from $DISC; without the export it fell back to
+# /staging/tmp/sinedisc, failed with "No module named boundary" and the scan reported nothing flagged (found 2026-10-02)
+export DISC
 
 # DRAGEN toolchain only where it exists. On other hosts (therioserver) the unconditional
 # prepend put /usr/bin ahead of the active conda env: /usr/bin/python3 has no numpy, so the
