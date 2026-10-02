@@ -57,6 +57,36 @@ def _length_versions(run_root):
             "<table class='tbl'><thead><tr><th>Pair (short / long)</th><th class='n'>Identity %</th><th>Answer</th><th>Note</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
+AUDIT_WORDS = {"MATCH": "matches the bank", "SHORTER": "rebuild is shorter", "LONGER": "rebuild is longer", "DIVERGED": "differs from the bank",
+               "UNSTABLE": "the two rebuilds differ", "SKIPPED": "too few copies", "FAILED": "rebuild failed"}
+
+
+def _consensus_audit(run_root):
+    """table of results/consensus_audit/summary.tsv (tools/consensus_audit.py), '' if the run has none"""
+    p = Path(run_root) / "results" / "consensus_audit" / "summary.tsv"
+    if not p.exists():
+        return ""
+    lines = [l.rstrip(chr(10)).split(chr(9)) for l in open(p, encoding="utf-8")]
+    if len(lines) < 2:
+        return ""
+    h = lines[0]
+    rows = []
+    for l in lines[1:]:
+        r = dict(zip(h, l))
+        s1 = [k for k in h if k.startswith("rebuilt_bp_s")]
+        m1 = [k for k in h if k.startswith("mismatches_s")]
+        bp = " / ".join(r.get(k, "") or "-" for k in s1)
+        mm = " / ".join(r.get(k, "") or "-" for k in m1)
+        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td><b>%s</b></td></tr>" % (
+            html.escape(lab(r["family"])), html.escape(r.get("copies", "")), html.escape(r.get("bank_bp", "")), html.escape(bp), html.escape(mm),
+            AUDIT_WORDS.get(r.get("verdict", ""), html.escape(r.get("verdict", "")))))
+    return ("<h3 style='margin-top:16px'>Is each consensus what its copies say?</h3><p>Every consensus is rebuilt from the copies assigned to it (random subsamples, "
+            "two seeds) and compared with the bank sequence (<code>docs/CONSENSUS_AUDIT.md</code>). A shorter or longer rebuild is not an error by itself: "
+            "it says that fewer, or more, than 30 % of the copies carry a stretch.</p>"
+            "<table class='tbl'><thead><tr><th>Consensus</th><th class='n'>Copies</th><th class='n'>Bank bp</th><th class='n'>Rebuilt bp (2 seeds)</th>"
+            "<th class='n'>Mismatches</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
+
+
 def section(run_root):
     bank = _bank(run_root)
     if bank is None:
@@ -147,4 +177,4 @@ A.onchange=B.onchange=draw;document.querySelectorAll('td.bc').forEach(function(t
   <p style="font-size:12px;opacity:.75">All blocks (&ge; 20 bp, &ge; 78 %%) are in <code>results/consensus_blocks.tsv</code>.</p>
   %s
 </section>
-""" % (note, "".join(rows), js, _length_versions(run_root))
+""" % (note, "".join(rows), js, _length_versions(run_root) + _consensus_audit(run_root))

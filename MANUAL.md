@@ -338,6 +338,8 @@ sine_consensus.sh group_1.fasta group_1_out
 sine_consensus_smart.sh group_1.fasta group_1_out
 ```
 
+The current upstream builder (github.com/Toki-bio/SINE_consensus, `sine_consensus.sh`, with an anchor phase and the 30 % / gaps-in-denominator rule) is also shipped as `tools/vendor/sine_consensus.sh`, with a seed option (`-r`) and `mafft --threadit 0` so that a run is repeatable; the pipeline uses it only for the consensus audit (`docs/CONSENSUS_AUDIT.md`), not to build the bank.
+
 See `QUALITY_FLAGGING_README.md` for interpreting `sine_consensus_smart.sh`'s convergence
 diagnostics, and `analyze_convergence.sh` for batch-summarizing convergence across many groups at
 once.

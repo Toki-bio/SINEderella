@@ -47,6 +47,8 @@ design philosophy behind this.
 | `benchmark_sear.sh` | Benchmark sear vs sear_multi performance |
 | `run_step5_wrapper.sh` | Step 5 batch runner |
 | `step5_direct.sh` | Direct single-run subfamily alignment (simplified step 5) |
+| `tools/length_variants_run.py` | After assignment: is a consensus that is the 5′ part of a longer one a separate SINE or the same element with a worn 3′ end (end modes, linkage, TSD on the copies); [docs/LENGTH_VARIANTS.md](docs/LENGTH_VARIANTS.md) |
+| `tools/consensus_audit.py` | After assignment: every consensus rebuilt from its own assigned copies and compared with the bank; uses `tools/vendor/sine_consensus.sh` (seeded copy of the current SINE_consensus bootstrap builder); [docs/CONSENSUS_AUDIT.md](docs/CONSENSUS_AUDIT.md) |
 | `import_squamata_run.py` | Import SINEderella run results into SINEdb data format (requires sine-kb models) |
 
 ## Dependencies
@@ -62,6 +64,7 @@ design philosophy behind this.
 ## Documentation
 
 - [MANUAL.md](MANUAL.md) — Full user manual
+- [docs/LENGTH_VARIANTS.md](docs/LENGTH_VARIANTS.md) — separate SINE or decayed 3′ end; [docs/CONSENSUS_AUDIT.md](docs/CONSENSUS_AUDIT.md) — consensus vs its own copies; [PUBLISH_WORKFLOW.md](PUBLISH_WORKFLOW.md) — publish flow, env vars, reproducible alignments (`mafft --threadit 0`)
 - [QUALITY_FLAGGING_README.md](QUALITY_FLAGGING_README.md) — Consensus convergence QC system
 - [PLAN_alignment_viewer.md](PLAN_alignment_viewer.md) — Alignment tier design rationale
 - [ALIGNMENT_DEPLOYMENT.md](ALIGNMENT_DEPLOYMENT.md) — Deployment checklist for alignments

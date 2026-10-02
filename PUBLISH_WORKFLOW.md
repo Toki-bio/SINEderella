@@ -72,6 +72,8 @@ SINEderella --publish genome.fa consensi.fa
 | `CANON_MIN_ID` | optional (80) | RC merge threshold (%); same-orientation pairs need 98 % (`--direct-min-id`) and length ratio 0.9 (`--min-len-ratio`) |
 | `SKIP_LENGTH_VARIANTS` | optional (0) | `1` skips the length-version test (shorter consensus = 5′ part of a longer one; see docs/LENGTH_VARIANTS.md) |
 | `LENGTH_VARIANTS_MAX_PAIRS` | optional (12) | cap on candidate pairs tested per run |
+| `SKIP_CONSENSUS_AUDIT` | optional (0) | `1` skips the consensus audit (each consensus rebuilt from its assigned copies; see docs/CONSENSUS_AUDIT.md) |
+| `CONSENSUS_AUDIT_JOBS` | optional (8) | parallel rebuilds in the consensus audit |
 
 ## Consensus bank (RC merge + copy rebuild)
 
@@ -84,6 +86,10 @@ and orients to AT-rich 3′. Before step4, `rebuild_consensus_bank.py` writes
 `-3` (both strands), matching step2.
 
 Oma repair procedure: [docs/OMA_CONSENSUS_REPAIR.md](docs/OMA_CONSENSUS_REPAIR.md).
+
+### Consensus audit
+
+After the length-version test, `tools/consensus_audit.py` rebuilds every consensus of the bank from its own assigned copies (bootstrap subsamples, two seeds; `tools/vendor/sine_consensus.sh`) and writes `results/consensus_audit/summary.tsv`: mismatches and gap columns against the bank, and a verdict `MATCH` / `SHORTER` / `LONGER` / `DIVERGED` / `UNSTABLE` / `SKIPPED`. The table is shown in the report. It is a decision input; the bank is never changed. Method and limits: docs/CONSENSUS_AUDIT.md.
 
 ### Length versions
 
