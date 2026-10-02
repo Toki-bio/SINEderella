@@ -27,7 +27,7 @@ look like.
 Second rule (2026-10-02), over ALL loci of the family: REGULAR spacing. Near-identical array units rank first, so the
 first LIMIT rows can consist of array copies only and the rule above then finds no independent copy to put first (rsi
 MEG-RS: 89 % of 1 715 copies in 30 arrays of ~2 kb spacing, 77 of the top 100 from two arrays). A tandem run is >= REG_MIN
-consecutive copies on one contig, each gap <= REG_GAP and within a factor REG_RATIO of the run's median gap; chance
+consecutive copies on one contig, each gap <= REG_GAP (6 kb) and within a factor REG_RATIO (5) of the run's median gap; chance
 neighbours in a dispersed family have gaps of very different size and almost never form such a run. The union of both
 rules is used. `regular_runs` is also used by tools/array_flag.py.
 """
@@ -36,9 +36,9 @@ import sys
 GAP = 50000     # hla MEG-RL: an array with a ~27 kb period
 MIN_COPIES = 3
 LIMIT = 300
-REG_GAP = 10000     # regular-spacing rule (all loci)
+REG_GAP = 6000     # regular-spacing rule (all loci)
 REG_MIN = 5
-REG_RATIO = 2.0
+REG_RATIO = 5.0
 
 
 def regular_runs(loci):

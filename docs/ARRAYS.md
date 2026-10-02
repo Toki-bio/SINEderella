@@ -6,12 +6,12 @@ bat MEG-RS plates 2026-09-28 and again on *R. sinicus* MEG-RS 2026-10-02: 1 526 
 from two arrays with spacings of 2.1 and 2.9 kb, flanks 90 % identical over 300 bp each side).
 
 ## Detection (`tools/array_order.py`, `regular_runs`)
-A tandem run is at least `REG_MIN` = 5 consecutive copies on one contig, each gap at most `REG_GAP` = 10 kb and within a factor
-`REG_RATIO` = 2 of the run's median gap. Applied to **all** loci of a family, not only the 300 best-scoring ones (the earlier rule,
+A tandem run is at least `REG_MIN` = 5 consecutive copies on one contig, each gap at most `REG_GAP` = 6 kb and within a factor
+`REG_RATIO` = 5 of the run's median gap (arrays of one family mix unit lengths, e.g. 1.3 / 2.0 / 2.3 / 4.7 kb in MEG-RS; a factor of 2 found only 71 % of the copies the looser neighbour rule puts in arrays). Applied to **all** loci of a family, not only the 300 best-scoring ones (the earlier rule,
 neighbours within 50 kb among the first 300, is kept and the union is used: it catches arrays of large period, e.g. hla MEG-RL ~27 kb).
-Calibration: simulated dispersed copies (exponential gaps, mean 20 kb, the densest realistic case) are marked in 1.5 % of copies,
-at mean 50 kb in 0 %; on the 21 families of the *R. sinicus* run, 20 families have 0.0-0.2 % of copies in runs and MEG-RS 70.8 %.
-Unit-length variants of one array (1.4 / 2.0 / 2.3 kb) stay in one run (tests/test_array_order.py).
+Calibration: simulated dispersed copies (exponential gaps, mean 20 kb, the densest realistic case) are marked in 1.1 % of copies,
+at mean 50 kb in 0 %; on the 21 families of the *R. sinicus* run, 20 families have 0.0 % of copies in runs and MEG-RS 92.8 % (1 592 of 1 715,
+21 arrays, the largest of 307 copies, median spacing 2 160 bp). Unit-length variants of one array stay in one run (tests/test_array_order.py).
 
 ## What it changes
 * **Plates** (step8a): the top 100 takes every independent copy first, then the best copy of each array, then further array copies;

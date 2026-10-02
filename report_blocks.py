@@ -104,7 +104,7 @@ def _arrays(run_root):
             html.escape(lab(r["family"])), html.escape(r["copies"]), html.escape(r["copies_in_arrays"]), html.escape(r["pct_in_arrays"]),
             html.escape(r["arrays"]), html.escape(r["median_spacing_bp"]), flag))
     return ("<h3 style='margin-top:16px'>Do the copies sit in tandem arrays?</h3><p>Copies in a run of at least five on one contig with regular spacing "
-            "(gaps up to 10 kb, within a factor of 2 of the run's median) are units of an array, not independent insertions. A family with 20 % or more of its "
+            "(gaps up to 6 kb, within a factor of 5 of the run's median) are units of an array, not independent insertions. A family with 20 % or more of its "
             "copies in arrays is marked, and its plates take independent copies first (<code>tools/array_flag.py</code>).</p>"
             "<table class='tbl'><thead><tr><th>Family</th><th class='n'>Copies</th><th class='n'>In arrays</th><th class='n'>In arrays %</th><th class='n'>Arrays</th>"
             "<th class='n'>Median spacing bp</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")

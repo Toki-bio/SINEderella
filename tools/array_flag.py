@@ -2,7 +2,7 @@
 """array_flag.py RUN_DIR: how much of each family sits in tandem arrays?
 
 For every family of results/assignment_full.tsv (firmly assigned copies) the copies are checked with the regular-spacing rule of
-tools/array_order.py (>= 5 consecutive copies on one contig, gaps <= 10 kb and within a factor 2 of the run's median). Writes
+tools/array_order.py (>= 5 consecutive copies on one contig, gaps <= 6 kb and within a factor 5 of the run's median). Writes
 results/array_flag.tsv: family, copies, copies_in_arrays, pct_in_arrays, arrays, largest_array, median_spacing_bp, flag.
 flag ARRAY = at least 20 % of the copies are in arrays: the copies of that family are not independent insertions, their flanks
 align, and the family cannot be judged as a dispersed SINE from them (the report replaces "Strong SINE" by "Tandem array").
