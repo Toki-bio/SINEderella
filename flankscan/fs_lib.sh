@@ -32,7 +32,7 @@ fs_build_cons() {
                    print ">" p[1]; next }
             { L = length($0); print tolower(substr($0, 1, l)) toupper(substr($0, l + 1, L - l - r)) tolower(substr($0, L - r + 1)) }' \
         > "$P.copies.fa"
-    mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" \
+    mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" --threadit 0 \
         "$P.copies.fa" > "$P.mafft" 2> /dev/null
     # pass A: the element columns and the column walk; the proximal flank of every copy goes to its own alignment
     gawk -v SHARE=$SHARE -v SKIP=$SKIP -v TAILW=$TAILW -v ST="$P.state" -v RF="$P.right.fa" -v LF="$P.left.fa" '
@@ -64,8 +64,8 @@ fs_build_cons() {
             close(ST); close(ST ".copies"); close(RF); close(LF)
         }' "$P.mafft"
     : > "$P.right.aln"; : > "$P.left.aln"
-    if [[ -s "$P.right.fa" ]]; then mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --quiet --thread "$T" "$P.right.fa" > "$P.right.aln" 2> /dev/null; fi
-    if [[ -s "$P.left.fa" ]]; then mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --quiet --thread "$T" "$P.left.fa" > "$P.left.aln" 2> /dev/null; fi
+    if [[ -s "$P.right.fa" ]]; then mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --quiet --thread "$T" --threadit 0 "$P.right.fa" > "$P.right.aln" 2> /dev/null; fi
+    if [[ -s "$P.left.fa" ]]; then mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --quiet --thread "$T" --threadit 0 "$P.left.fa" > "$P.left.aln" 2> /dev/null; fi
     # pass B: extend through the proximal-flank alignments, pack the plate
     gawk -v NAME="$NAME" -v ALN="$P.aln.fa" -v SHARE=$TSHARE -v TAILA=${TAILA:-15} -v FLD=$FLD -v RAF="$P.right.aln" -v LAF="$P.left.aln" '
         function dashes(m,   d) { d = sprintf("%*s", m, ""); gsub(/ /, "-", d); return d }

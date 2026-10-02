@@ -96,7 +96,7 @@ for G in S B A; do
         rm -f "$D/$G".*.tmp "$D/$G.plate.aln.fa" "$D/$G.proposed.fa"
         { printf ">REF_%s\n%s\n" "$FAM" "$REF"; extract "$G" "$FLC"; } > "$D/$G.in.fa"
         extract "$G" "$FULLFL" | seqkit seq -w 0 > "$D/$G.full.fa"       # the same copies with long raw flanks (not aligned)
-        mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" "$D/$G.in.fa" 2> /dev/null \
+        mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" --threadit 0 "$D/$G.in.fa" 2> /dev/null \
             | seqkit seq -w 0 > "$D/$G.aln.fa"
         gawk -v OFS='\t' -v G=$G -v RSLK=$RSLK -v ETRIM=$ETRIM -v EXT3=$EXT3 -v EXT3_THR=$EXT3_THR -v CAL="$D/$G.cal.tmp" -v ENDS="$D/$G.ends.tmp" -v PLATE="$D/$G.plate.aln.fa" -v PROP="$D/$G.proposed.fa" -v FLC=$FLC -v FLD=$FLD -v FULL="$D/$G.full.fa" '
             BEGIN { while ((getline ln < FULL) > 0) { if (ln ~ /^>/) fk = substr(ln, 2); else FS_[fk] = ln } }
