@@ -48,6 +48,7 @@ design philosophy behind this.
 | `run_step5_wrapper.sh` | Step 5 batch runner |
 | `step5_direct.sh` | Direct single-run subfamily alignment (simplified step 5) |
 | `tools/length_variants_run.py` | After assignment: is a consensus that is the 5′ part of a longer one a separate SINE or the same element with a worn 3′ end (end modes, linkage, TSD on the copies); [docs/LENGTH_VARIANTS.md](docs/LENGTH_VARIANTS.md) |
+| `tools/array_flag.py`, `tools/array_order.py` | Tandem arrays: copies in runs of regular spacing, a per-family flag and plate selection that takes independent copies first; [docs/ARRAYS.md](docs/ARRAYS.md) |
 | `tools/consensus_audit.py` | After assignment: every consensus rebuilt from its own assigned copies and compared with the bank; uses `tools/vendor/sine_consensus.sh` (seeded copy of the current SINE_consensus bootstrap builder); [docs/CONSENSUS_AUDIT.md](docs/CONSENSUS_AUDIT.md) |
 | `import_squamata_run.py` | Import SINEderella run results into SINEdb data format (requires sine-kb models) |
 

@@ -23,12 +23,47 @@ Why (bat corpus, 2026-09-28): the MEG-RS top100 plates of vmu, tbr, fho, tni and
 near-identical they top the bitscore ranking, and the plate then showed one repeated unit ~100
 times: its shared flanks read as a "continuation" of the element and hid what the dispersed copies
 look like.
+
+Second rule (2026-10-02), over ALL loci of the family: REGULAR spacing. Near-identical array units rank first, so the
+first LIMIT rows can consist of array copies only and the rule above then finds no independent copy to put first (rsi
+MEG-RS: 89 % of 1 715 copies in 30 arrays of ~2 kb spacing, 77 of the top 100 from two arrays). A tandem run is >= REG_MIN
+consecutive copies on one contig, each gap <= REG_GAP and within a factor REG_RATIO of the run's median gap; chance
+neighbours in a dispersed family have gaps of very different size and almost never form such a run. The union of both
+rules is used. `regular_runs` is also used by tools/array_flag.py.
 """
 import sys
 
 GAP = 50000     # hla MEG-RL: an array with a ~27 kb period
 MIN_COPIES = 3
 LIMIT = 300
+REG_GAP = 10000     # regular-spacing rule (all loci)
+REG_MIN = 5
+REG_RATIO = 2.0
+
+
+def regular_runs(loci):
+    """loci: list of (contig, start). Returns {index: run id} for the copies in tandem runs of regular spacing."""
+    order = sorted(range(len(loci)), key=lambda i: (loci[i][0], loci[i][1]))
+    runs, out = 0, {}
+    k = 0
+    while k < len(order):
+        j, gaps = k, []
+        while j + 1 < len(order) and loci[order[j + 1]][0] == loci[order[j]][0]:
+            g = loci[order[j + 1]][1] - loci[order[j]][1]
+            if g > REG_GAP or g <= 0:
+                break
+            if gaps:
+                med = sorted(gaps)[len(gaps) // 2]
+                if g > REG_RATIO * med or g * REG_RATIO < med:
+                    break
+            gaps.append(g)
+            j += 1
+        if j - k + 1 >= REG_MIN:
+            for m in order[k:j + 1]:
+                out[m] = runs
+            runs += 1
+        k = j + 1 if j - k + 1 >= REG_MIN else (j if j > k else k + 1)
+    return out
 
 
 def main(argv):
@@ -53,6 +88,10 @@ def main(argv):
                 cluster[m] = k
                 rows[m][7] = "array"
         k = j + 1
+    reg = regular_runs([(r[2], int(r[3])) for r in rows])      # all loci, regular spacing
+    for i, rid in reg.items():
+        rows[i][7] = "array"
+        cluster[i] = ("r", rid)
     if mark_only:
         out = range(len(rows))
     else:

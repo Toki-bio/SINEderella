@@ -87,6 +87,10 @@ and orients to AT-rich 3′. Before step4, `rebuild_consensus_bank.py` writes
 
 Oma repair procedure: [docs/OMA_CONSENSUS_REPAIR.md](docs/OMA_CONSENSUS_REPAIR.md).
 
+### Tandem arrays
+
+After assignment `tools/array_flag.py` writes `results/array_flag.tsv` (share of each family's copies in tandem arrays of regular spacing); step8a puts independent copies on the top-100 plate first and marks array rows `[array]`; the report shows "Tandem array" for a flagged family. See docs/ARRAYS.md.
+
 ### Consensus audit
 
 After the length-version test, `tools/consensus_audit.py` rebuilds every consensus of the bank from its own assigned copies (bootstrap subsamples, two seeds; `tools/vendor/sine_consensus.sh`) and writes `results/consensus_audit/summary.tsv`: mismatches and gap columns against the bank, and a verdict `MATCH` / `SHORTER` / `LONGER` / `DIVERGED` / `UNSTABLE` / `SKIPPED`. The table is shown in the report. It is a decision input; the bank is never changed. Method and limits: docs/CONSENSUS_AUDIT.md.

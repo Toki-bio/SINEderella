@@ -1959,6 +1959,25 @@ def compute_annotations(species_code: str, subfams: List[str], aln_dir: Path,
     return out
 
 
+def read_array_flags(run_root: Path) -> Dict[str, dict]:
+    """results/array_flag.tsv (tools/array_flag.py) -> {family: {pct, copies, arrays, spacing}} for the families flagged ARRAY"""
+    p = Path(run_root) / "results" / "array_flag.tsv"
+    out: Dict[str, dict] = {}
+    if not p.is_file():
+        return out
+    try:
+        lines = [l.rstrip(chr(10)).split(chr(9)) for l in open(p, encoding="utf-8")]
+        h = lines[0]
+        for l in lines[1:]:
+            r = dict(zip(h, l))
+            if r.get("flag") == "ARRAY":
+                out[r["family"]] = {"pct": float(r["pct_in_arrays"]), "copies": int(r["copies"]),
+                                    "arrays": int(r["arrays"]), "spacing": int(r["median_spacing_bp"])}
+    except (OSError, ValueError, KeyError, IndexError):
+        return {}
+    return out
+
+
 def build_alignment_section(
     species_code: str,
     subfams: List[str],
@@ -1967,11 +1986,13 @@ def build_alignment_section(
     aln_dir: Optional[Path] = None,
     profiles: Optional[Dict[str, dict]] = None,
     verdicts: Optional[Dict[str, dict]] = None,
+    array_flags: Optional[Dict[str, dict]] = None,
 ) -> str:
     """Alignment table. With raw_base (http URL): MSA-viewer links. Else: relative paths."""
     use_remote = bool(raw_base and raw_base.startswith("http"))
     profiles = profiles or {}
     verdicts = verdicts or {}
+    array_flags = array_flags or {}
 
     def aln_href(fn: str, title: str, remote_fn: Optional[str] = None) -> str:
         if use_remote:
@@ -2041,11 +2062,17 @@ def build_alignment_section(
         t100_icon = _diag_icon(f"{sf}_top100", "top100", t100_remote) if has_t100 else ""
         r100_icon = _diag_icon(f"{sf}_rand100", "rand100", r100_remote) if has_r100 else ""
         vd = verdicts.get(sf) or {}
+        af = array_flags.get(sf) or array_flags.get(remote_sf)
+        overall = (_vchip("Tandem array", "warn",
+                          "%.0f%% of the %d firm copies sit in %d tandem arrays (median spacing %d bp): not independent insertions, "
+                          "their flanks align; judge the family on copies outside the arrays (results/array_flag.tsv)."
+                          % (af["pct"], af["copies"], af["arrays"], af["spacing"]))
+                   if af else status_overall(vd.get('verdict')))
         verdict_cells = (
             f"<td>{status_flanks(vd.get('verdict'))}</td>"
             f"<td>{status_flank_context(vd.get('flank_top'), vd.get('flank_rand'))}</td>"
             f"<td>{status_element(vd.get('verdict'))}</td>"
-            f"<td>{status_overall(vd.get('verdict'))}</td>"
+            f"<td>{overall}</td>"
         ) if vd else (
             "<td class='small muted'>n/a</td>" * 4
         )
@@ -2324,7 +2351,7 @@ def build_html(run_root: Path,
             aln_verdicts = compute_verdicts(species_code, subfams_for_aln, aln_dir)
         alignment_section = build_alignment_section(
             species_code, subfams_for_aln, raw_base=aln_base, aln_dir=aln_dir,
-            profiles=aln_profiles, verdicts=aln_verdicts)
+            profiles=aln_profiles, verdicts=aln_verdicts, array_flags=read_array_flags(run_root))
     # Element hierarchy (flankscan stage 7: composites drawn as their parts, to scale); "" without it
     hierarchy_section = ""
     try:

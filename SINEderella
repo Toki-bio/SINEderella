@@ -375,6 +375,18 @@ length_variants_step(){
 }
 
 ###############################################################################
+# HELPER: tandem arrays (how much of each family sits in arrays of regular spacing; tools/array_flag.py)
+###############################################################################
+array_flag_step(){
+  local rundir="$1"
+  local py="$SCRIPT_DIR/tools/array_flag.py"
+  [[ -f "$py" ]] || { log "WARNING: $py missing — array flag skipped"; return 0; }
+  python3 "$py" "$rundir" > "$rundir/array_flag.log" 2>&1 || log "WARNING: array_flag.py failed (see array_flag.log)"
+  [[ -s "$rundir/results/array_flag.tsv" ]] && log "Tandem-array flag: $(tail -n1 "$rundir/array_flag.log")"
+  return 0
+}
+
+###############################################################################
 # HELPER: consensus audit (rebuild each consensus from its assigned copies, compare with the bank; tools/consensus_audit.py)
 ###############################################################################
 consensus_audit_step(){
@@ -514,6 +526,7 @@ run_step2_step3(){
   # Assembly QC
   [[ -f genome.clean_assembly_qc.tsv ]] && ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
 
+  array_flag_step "$(pwd -P)"
   length_variants_step "$(pwd -P)"
   consensus_audit_step "$(pwd -P)"
 
@@ -1279,6 +1292,7 @@ mode_resume(){
     [[ -f genome.clean_assembly_qc.tsv ]] && \
       ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
 
+    array_flag_step "$(pwd -P)"
     length_variants_step "$(pwd -P)"
     consensus_audit_step "$(pwd -P)"
 

@@ -87,6 +87,29 @@ def _consensus_audit(run_root):
             "<th class='n'>Mismatches</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
+def _arrays(run_root):
+    """table of results/array_flag.tsv (tools/array_flag.py), '' if the run has none"""
+    p = Path(run_root) / "results" / "array_flag.tsv"
+    if not p.exists():
+        return ""
+    lines = [l.rstrip(chr(10)).split(chr(9)) for l in open(p, encoding="utf-8")]
+    if len(lines) < 2:
+        return ""
+    h = lines[0]
+    rows = []
+    for l in lines[1:]:
+        r = dict(zip(h, l))
+        flag = "<b>tandem array</b>" if r.get("flag") == "ARRAY" else "&ndash;"
+        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td>%s</td></tr>" % (
+            html.escape(lab(r["family"])), html.escape(r["copies"]), html.escape(r["copies_in_arrays"]), html.escape(r["pct_in_arrays"]),
+            html.escape(r["arrays"]), html.escape(r["median_spacing_bp"]), flag))
+    return ("<h3 style='margin-top:16px'>Do the copies sit in tandem arrays?</h3><p>Copies in a run of at least five on one contig with regular spacing "
+            "(gaps up to 10 kb, within a factor of 2 of the run's median) are units of an array, not independent insertions. A family with 20 % or more of its "
+            "copies in arrays is marked, and its plates take independent copies first (<code>tools/array_flag.py</code>).</p>"
+            "<table class='tbl'><thead><tr><th>Family</th><th class='n'>Copies</th><th class='n'>In arrays</th><th class='n'>In arrays %</th><th class='n'>Arrays</th>"
+            "<th class='n'>Median spacing bp</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
+
+
 def section(run_root):
     bank = _bank(run_root)
     if bank is None:
@@ -177,4 +200,4 @@ A.onchange=B.onchange=draw;document.querySelectorAll('td.bc').forEach(function(t
   <p style="font-size:12px;opacity:.75">All blocks (&ge; 20 bp, &ge; 78 %%) are in <code>results/consensus_blocks.tsv</code>.</p>
   %s
 </section>
-""" % (note, "".join(rows), js, _length_versions(run_root) + _consensus_audit(run_root))
+""" % (note, "".join(rows), js, _length_versions(run_root) + _arrays(run_root) + _consensus_audit(run_root))
