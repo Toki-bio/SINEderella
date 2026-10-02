@@ -77,6 +77,23 @@ class TestVerdicts(unittest.TestCase):
         self.assertEqual(rep["verdict"], "TWO_VERSIONS", rep["why"])
         self.assertLess(rep["tests"]["linkage"]["index"], 0.9)
 
+    def test_broad_short_mode_is_one_mode(self):
+        # the short version's end scatters over 93-115 (two clusters joined by a bridge): one broad mode, still two versions
+        cs = population(0, 800)
+        for _ in range(700):
+            e = R.choice([93, 94, 113, 114]) if R.random() < 0.7 else R.randint(95, 112)
+            cs.append(make_copy(e, R.random() < 0.9, R.random() < 0.7))
+        rep = lv.analyse(cs, CONS)
+        self.assertEqual(rep["verdict"], "TWO_VERSIONS", rep["why"])
+        self.assertEqual(len(rep["modes"]), 2)
+
+    def test_tied_alleles_skip_column(self):
+        # a column where the short mode gains a base that is also the long mode's majority cannot be diagnostic
+        cs = population(600, 800)
+        rep = lv.analyse(cs, CONS)
+        for col, (bs, bl) in rep["tests"]["linkage"]["diag_columns"].items():
+            self.assertNotEqual(bs, bl)
+
     def test_decay_is_single_mode(self):
         # one length (200) and ends scattered evenly over 110-195: no second mode
         spread = [R.randint(110, 195) for _ in range(600)]
