@@ -240,6 +240,14 @@ calibration idea as the TSD minimum in flankscan stage 8). Runs at least that lo
 family; all runs of a SAT_B family are excluded as before. `flagged`, `all` and `none` remain as options; both modes stay testable.
 Reported per consensus: `kindB_long_min`, `kindB_long_runs`; the report says "N long arrays inside a dispersed family".
 
+## 5g. Viewer (2026-10-03)
+
+Tal `satellites/viewer.html` (https://toki-bio.github.io/Tal/satellites/viewer.html): loads a run's `results/satellites/loci.bed` (+ `indication.tsv`)
+or a `*.loci.tsv` of `satellite_trf_verify.py`, and shows summary cards, the indication table, **where the monomers sit on the SINE** (loci per
+consensus position, from the aligned SINE part), a monomers-per-locus histogram and a sortable, filterable locus table (kind, consensus,
+min monomers, contig). Checked on the cobra (block at 34-110 of Squam3C) and rle (MEG-RS arrays of ~2 100, ~880 and ~1 500 bp units) data.
+Not yet in it: per-locus monomer alignments and the per-locus analysis of the 2023 paper (needs the characterisation step, section 4.3).
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
