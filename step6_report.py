@@ -1987,12 +1987,20 @@ def build_alignment_section(
     profiles: Optional[Dict[str, dict]] = None,
     verdicts: Optional[Dict[str, dict]] = None,
     array_flags: Optional[Dict[str, dict]] = None,
+    copies: Optional[Dict[str, Tuple[int, int]]] = None,
+    identity: Optional[Dict[str, Tuple[float, int]]] = None,
 ) -> str:
-    """Alignment table. With raw_base (http URL): MSA-viewer links. Else: relative paths."""
+    """Alignment table. With raw_base (http URL): MSA-viewer links. Else: relative paths.
+
+    copies:   sf -> (all, firm) from summary.by_subfam.tsv (total_assigned, firm_assigned)
+    identity: sf -> (mean % identity to consensus, n copies measured) from step4 *_pctid.tsv
+    """
     use_remote = bool(raw_base and raw_base.startswith("http"))
     profiles = profiles or {}
     verdicts = verdicts or {}
     array_flags = array_flags or {}
+    copies = copies or {}
+    identity = identity or {}
 
     def aln_href(fn: str, title: str, remote_fn: Optional[str] = None) -> str:
         if use_remote:
@@ -2076,8 +2084,15 @@ def build_alignment_section(
         ) if vd else (
             "<td class='small muted'>n/a</td>" * 4
         )
+        cp = copies.get(sf) or copies.get(remote_sf)
+        copies_cell = (f"<td class='num'>{cp[0]:,} / {cp[1]:,}</td>" if cp
+                       else "<td class='small muted'>n/a</td>")
+        idt = identity.get(sf) or identity.get(remote_sf)
+        identity_cell = (f"<td class='num' title='mean of {idt[1]:,} copies with unanimous votes'>{idt[0]:.1f}&nbsp;%</td>"
+                         if idt else "<td class='small muted'>n/a</td>")
         rows_html += (
             f"<tr><td><code>{html.escape(sf)}</code></td>"
+            f"{copies_cell}{identity_cell}"
             f"<td>{aln_link(t100_fn, f'{species_code} {sf} top100', 'top 100 by score', remote_fn=t100_remote)}"
             f" {t100_icon}</td>"
             f"<td>{aln_link(r100_fn, f'{species_code} {sf} rand100', '100 random', 'orange', remote_fn=r100_remote)}"
@@ -2106,6 +2121,12 @@ def build_alignment_section(
         + "</p>"
         "<table class='tbl'>"
         "<thead><tr><th>Subfamily</th>"
+        "<th title='All = every locus assigned to this subfamily by its best vote "
+        "(total_assigned); firm = 10/10 unanimous votes and bitscore above threshold "
+        "(firm_assigned); summary.by_subfam.tsv'>Copies all&nbsp;/&nbsp;firm</th>"
+        "<th title='Mean ssearch36 % identity of copies to the subfamily consensus "
+        "(step4 *_pctid.tsv: copies with 10/10 unanimous votes, up to 10,000 sampled). Higher = younger.'>"
+        "Mean identity</th>"
         "<th title='Click &#9656; to open the alignment-composition diagram'>"
         "Top 100 by bitscore</th>"
         "<th title='Click &#9656; to open the alignment-composition diagram'>"
@@ -2349,9 +2370,21 @@ def build_html(run_root: Path,
             # gate on the same flag as the diagrams -- both are the optional,
             # numpy-needing, per-file-read analysis stage
             aln_verdicts = compute_verdicts(species_code, subfams_for_aln, aln_dir)
+        # copy numbers (all = total_assigned, firm = firm_assigned) and mean % identity
+        # for the two columns next to the subfamily name
+        sf_copies: Dict[str, Tuple[int, int]] = {}
+        if bysf_hdr and "total_assigned" in bysf_hdr and "firm_assigned" in bysf_hdr:
+            i_all, i_firm = bysf_hdr.index("total_assigned"), bysf_hdr.index("firm_assigned")
+            for r in bysf_rows:
+                try:
+                    sf_copies[r[0]] = (int(r[i_all]), int(r[i_firm]))
+                except (ValueError, IndexError):
+                    pass
+        sf_identity = {sf: (sum(v) / len(v), len(v)) for sf, v in pctid_by_sf.items() if v}
         alignment_section = build_alignment_section(
             species_code, subfams_for_aln, raw_base=aln_base, aln_dir=aln_dir,
-            profiles=aln_profiles, verdicts=aln_verdicts, array_flags=read_array_flags(run_root))
+            profiles=aln_profiles, verdicts=aln_verdicts, array_flags=read_array_flags(run_root),
+            copies=sf_copies, identity=sf_identity)
     # Element hierarchy (flankscan stage 7: composites drawn as their parts, to scale); "" without it
     hierarchy_section = ""
     try:
