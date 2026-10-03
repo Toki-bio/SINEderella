@@ -224,6 +224,22 @@ without TSDs), raw-hit input, a snake and a gecko run against the paper's per-sp
 * The report's Similarity section gets a "Satellites" table (`report_blocks._satellites`).
 * `SINEderella` copies the four tool files into the run dir (`tools/`) and exports `SINEDERELLA_TOOLS`, so a run is reproducible from its own copy.
 
+## 5f. Bats, and the answer to "family share or every locus?" (2026-10-03)
+
+Stage run on the existing tbr and rle runs (tables only; Tal `satellites/bats_test/`):
+* **tbr MEG-RS**: 286 hits, two arrays of 81 and 109 units (926 / 912 bp): excess 66 %, SAT_B. The ~910 bp period seen on the plates.
+* **rle MEG-RS**: 19 470 hits, excess 6.9 %, **not** SAT_B: the family is dispersed (it is the positive control of the length-version test),
+  yet 35 regular runs, 26 of them with >= 20 units (9 with >= 50), one of 36 units with the **same 2 145 bp unit as the rsi array**; the chance
+  null gives no run at all at this hit density. rle MEG-TR: 28 runs, 14 of 20-49 units, none expected. tbr VES (641 631 hits, one per 3 kb):
+  chance alone gives 37 000 runs of 5-9 units and 180 of 20-49, observed 1 939 of 20-49 and 221 of >= 50 against 0 expected.
+
+So the family-share flag is right for tbr and would leave the real rle arrays in the SINE analysis. Rule now in the stage (`--exclude-b long`,
+default): per consensus, the run-length distribution of the chance null is computed with the shares, and the **long minimum** is the smallest
+run length L for which chance explains fewer than max(1, 5 %) of the observed runs with >= L units (rle MEG-RS: 5, tbr VES: 50; the same
+calibration idea as the TSD minimum in flankscan stage 8). Runs at least that long are satellite loci on their own and are excluded in any
+family; all runs of a SAT_B family are excluded as before. `flagged`, `all` and `none` remain as options; both modes stay testable.
+Reported per consensus: `kindB_long_min`, `kindB_long_runs`; the report says "N long arrays inside a dispersed family".
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the

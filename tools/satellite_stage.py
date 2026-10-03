@@ -117,7 +117,7 @@ def main():
         lmin = bsum.get("long_min")
         longB = [x for x in B if lmin is not None and x[3] >= lmin]
         mono = int(sum(x[4] for x in A))
-        rows.append((q, len(full), len(A), mono, max((x[4] for x in A), default=0), len(B), bsum["pct_B"], bsum["excess_B"],
+        rows.append((q, len(cons[q]), len(full), len(A), mono, max((x[4] for x in A), default=0), len(B), bsum["pct_B"], bsum["excess_B"],
                      lmin if lmin is not None else "-", len(longB), "SAT_A" if A else "-", "SAT_B" if flagB else "-"))
         for c, s, e, per, cop, cs, ce in A:
             loci.append(("A", q, c, s, e, per, cop, "%d-%d" % (cs, ce)))
@@ -158,9 +158,9 @@ def main():
             excluded += [q + "\t" + l for l in drop]
             print("satellite_stage: %s: %d of %d full hits removed from %s (kept in .before_satellites)" % (q, len(drop), len(keep) + len(drop), os.path.basename(bed)), flush=True)
     with open(os.path.join(a.out, "indication.tsv"), "w") as o:
-        o.write("consensus\tfull_hits\tkindA_loci\tkindA_monomers\tkindA_largest\tkindB_runs\tkindB_pct\tkindB_excess_pct\tkindB_long_min\tkindB_long_runs\tflag_A\tflag_B\n")
+        o.write("consensus\tcons_len\tfull_hits\tkindA_loci\tkindA_monomers\tkindA_largest\tkindB_runs\tkindB_pct\tkindB_excess_pct\tkindB_long_min\tkindB_long_runs\tflag_A\tflag_B\n")
         for r in rows:
-            o.write("%s\t%d\t%d\t%d\t%.0f\t%d\t%.1f\t%.1f\t%s\t%d\t%s\t%s\n" % r)
+            o.write("%s\t%d\t%d\t%d\t%d\t%.0f\t%d\t%.1f\t%.1f\t%s\t%d\t%s\t%s\n" % r)
     with open(os.path.join(a.out, "loci.bed"), "w") as o:
         o.write("#kind\tconsensus\tcontig\tstart\tend\tperiod_or_unit\tmonomers_or_hits\tsine_part\n")
         for l in sorted(loci, key=lambda x: (x[2], x[3])):
@@ -168,9 +168,9 @@ def main():
     open(os.path.join(a.out, "units.fa"), "w").write("".join(units))
     with open(os.path.join(a.out, "excluded_hits.bed"), "w") as o:
         o.writelines(excluded)
-    na = sum(r[2] for r in rows)
+    na = sum(r[3] for r in rows)
     print("satellite_stage: %d consensuses, %d kind-A loci, %d consensuses SAT_B, %d hits excluded -> %s" % (
-        len(rows), na, sum(1 for r in rows if r[11] == "SAT_B"), len(excluded), a.out))
+        len(rows), na, sum(1 for r in rows if r[12] == "SAT_B"), len(excluded), a.out))
     return 0
 
 
