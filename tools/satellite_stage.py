@@ -9,9 +9,11 @@ Design: docs/SATELLITES.md (sections 4 and 5). Per consensus:
           full-length hits (gen-<q>.bed); the family is SAT_B when the excess over chance is >= 20 % of its hits.
 Writes OUT/indication.tsv (per consensus), OUT/loci.bed (kind, consensus, locus, monomers, SINE part), OUT/units.fa, OUT/<q>.kindA.loci.tsv.
 Exclusion (default on; --no-exclude writes the tables only): hits of gen-<q>.bed that overlap a kind-A locus, or a kind-B run that counts
-as a satellite locus, are removed. --exclude-b decides which kind-B runs count: `long` (default) = the runs of a SAT_B consensus plus, in
-any consensus, runs at least as long as the calibrated minimum (the smallest length that chance cannot explain: rle MEG-RS 5 units, tbr
-VES 50); `flagged` = runs of SAT_B consensuses only; `all` = every run; `none`. They are removed from gen-<q>.bed (the original is kept as gen-<q>.bed.before_satellites and the
+as a satellite locus, are removed. --exclude-b decides which kind-B runs count: `flagged` (default) = runs of SAT_B consensuses only;
+`long` = those plus, in any consensus, runs with at least --long-min-units (10) units and at least the chance-calibrated minimum (the smallest
+length chance cannot explain: rle MEG-RS 5, tbr VES 50). Kind-B runs are geometric only (no sequence check of the units yet), and in rsi the
+calibrated minimum was 5 for most r-families, which would have counted hundreds of 5-unit clusters of ordinary copies: hence the 10-unit floor
+and `flagged` as default. `all` = every run; `none`. They are removed from gen-<q>.bed (the original is kept as gen-<q>.bed.before_satellites and the
 removed hits in OUT/excluded_hits.bed), so that extraction, SubFam (the peel input) and assignment never see them. Nothing is deleted.
 
 Usage: satellite_stage.py --searches DIR --genome G.fa --cons CONSENSUSES.fa --out OUT [--threads 16] [--no-exclude] [--exclude-b flagged|all|none]
@@ -75,7 +77,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--threads", type=int, default=16)
     ap.add_argument("--no-exclude", action="store_true")
-    ap.add_argument("--exclude-b", choices=["long", "flagged", "all", "none"], default="long")
+    ap.add_argument("--exclude-b", choices=["flagged", "long", "all", "none"], default="flagged")
+    ap.add_argument("--long-min-units", type=int, default=10, help="with --exclude-b long: a run counts on its own only with at least this many units and more than the chance-calibrated minimum")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     cons = read_fa(a.cons)
@@ -117,7 +120,7 @@ def main():
         flagB = bsum["excess_B"] >= FLAG_PCT
         B = [(r[1], r[2], r[3], r[4], r[7]) for r in brows if r[0] == "B"]      # contig start end hits median_gap
         lmin = bsum.get("long_min")
-        longB = [x for x in B if lmin is not None and x[3] >= lmin]
+        longB = [x for x in B if lmin is not None and x[3] >= max(lmin, a.long_min_units)]
         mono = int(sum(x[4] for x in A))
         rows.append((q, len(cons[q]), len(full), len(A), mono, max((x[4] for x in A), default=0), len(B), bsum["pct_B"], bsum["excess_B"],
                      lmin if lmin is not None else "-", len(longB), "SAT_A" if A else "-", "SAT_B" if flagB else "-"))   # flag_A re-set below
