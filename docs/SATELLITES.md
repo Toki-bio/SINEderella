@@ -150,6 +150,24 @@ Then the two real cases:
 The squamate genomes are not on therioserver as far as my notes say (the sq2 work ran on "monsoon"); the accessions are in
 the 2023 paper's Methods. Compare the screen's loci with the paper's counts per species before trusting it.
 
+## 5b. First real test (2026-10-03, KIT, *Gekko japonicus*) — `tools/satellite_screen.py`
+
+Indication only (hit coordinates, no alignment): 9 toy tests pass (planted A and B arrays, trimer/dimer and dispersed controls, dense
+dispersed background, a real array inside a dense background). On the gecko genome (results in Tal `satellites/gja_test/`):
+
+* Existing hit BEDs (80 % length rule applied): kind A 0.0-0.1 %, kind B excess over the chance null 7.5-10 %: nothing flagged, and
+  nothing expected, since sSat monomers are shorter than the length threshold.
+* Squam3A searched again down to 20 % of the consensus length (`sear ... 0.2 65 0`, as in the 2023 paper): 430 322 hits, **270 monomer
+  runs** (>= 4 monomers < 100 bp apart; median monomer 141 bp, the size range the paper gives for gecko sSat3; longest runs 56 / 22 / 10
+  monomers; 194 of the 270 have exactly 4) holding **1 289 hits = 0.3 % of the family's hits**. Kind B: 29.4 % in regular runs but
+  28.3 % expected by chance (one hit per 6 kb): excess 1.1 %, not flagged.
+* Consequences. (1) Kind A is found in seconds by coordinates alone. (2) A family-share threshold (>= 20 %) can never flag a family
+  like Squam3A in gecko: the satellite loci are a fraction of a percent of its hits, yet they are real loci that should leave the SINE
+  analysis. Exclusion for kind A therefore has to act on **loci**; the family share is only meaningful for kind B (rsi MEG-RS 92.8 %).
+  (3) The null for kind B is essential in hit-rich families (without it 11-29 % of hits look "regularly spaced").
+  (4) `sear` merges and filters its hits; a final version should read the raw `ssearch36` hits, and the monomer type (which part of the
+  SINE the monomer covers; the user's `coordinates_by_consensus.sh` classes alpha-epsilon) needs the query coordinates of each hit.
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
