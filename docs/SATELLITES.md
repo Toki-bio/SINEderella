@@ -209,6 +209,21 @@ Not done yet: monomer classification beyond the aligned SINE part, exclusion of 
 between search and assignment), peel input, the report section and the viewer, borderline cases on real data (dimers, composites, SINEs
 without TSDs), raw-hit input, a snake and a gecko run against the paper's per-species counts.
 
+## 5e. Wired into SINEderella (2026-10-03)
+
+* `sear` now also writes `gen-<q>.rawhits.tsv` beside `gen-<q>.bed`: the merged hits at the homology cut with **no length rule**
+  (partial copies, satellite monomers), in genome coordinates and with the original contig names. The filtered `gen-<q>.bed` is unchanged.
+* `step1_search_extract.sh` runs `tools/satellite_stage.py` right after the searches, before `all_hits.labeled.bed`, `merged_hits.bed`,
+  extraction, sampling and SubFam: kind A (`satellite_trf_verify`) on the raw hits, kind B (`satellite_screen`) on the full-length hits.
+  Output in `<step1>/satellites/` (linked as `results/satellites/`): `indication.tsv` (per consensus), `loci.bed` (kind, consensus, locus,
+  period or unit, monomers, SINE part), `units.fa`, `<q>.kindA.loci.tsv`, `excluded_hits.bed`.
+* **Exclusion** (default on): hits of `gen-<q>.bed` overlapping a kind-A locus, or a kind-B run of a consensus flagged SAT_B, are removed
+  (original kept as `gen-<q>.bed.before_satellites`), so extraction, the peel input (SubFam) and assignment never see them. The consensus
+  stays in the bank. Env: `SKIP_SATELLITES=1` (stage off), `SATELLITE_EXCLUDE=0` (tables only), `SATELLITE_EXCLUDE_B=flagged|all|none`.
+  The stage is skipped with a log line when `trf` is not on PATH; a failure inside it never stops step 1 (hits stay unfiltered, warning).
+* The report's Similarity section gets a "Satellites" table (`report_blocks._satellites`).
+* `SINEderella` copies the four tool files into the run dir (`tools/`) and exports `SINEDERELLA_TOOLS`, so a run is reproducible from its own copy.
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the

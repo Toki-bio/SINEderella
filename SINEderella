@@ -519,6 +519,8 @@ run_step2_step3(){
     ln -sf ../genome.clean_step1/searches/all_hits.labeled.bed results/all_hits.labeled.bed
   [[ -f genome.clean_step1/searches/regions.by_subfam.bed ]] && \
     ln -sf ../genome.clean_step1/searches/regions.by_subfam.bed results/regions.by_subfam.bed
+  [[ -d genome.clean_step1/satellites ]] && \
+    ln -sfn ../genome.clean_step1/satellites results/satellites
 
   # Consensus used
   [[ -f consensuses.clean.fa ]] && ln -sf ../consensuses.clean.fa results/consensuses.fa
@@ -730,13 +732,15 @@ mode_full(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
-  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
-  for _tool in orient_consensus_bank.py orient_publish_aln.py; do
+  for _tool in orient_consensus_bank.py orient_publish_aln.py \
+               satellite_stage.py satellite_screen.py satellite_trf_verify.py array_order.py; do   # the last four: satellite screen inside step1
     [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
       cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
   done
+  export SINEDERELLA_TOOLS="$RUN/tools"
   [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
     cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
   local QC_SRC="$SCRIPT_DIR/assembly_qc.sh"
@@ -883,13 +887,15 @@ mode_add(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
-  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
-  for _tool in orient_consensus_bank.py orient_publish_aln.py; do
+  for _tool in orient_consensus_bank.py orient_publish_aln.py \
+               satellite_stage.py satellite_screen.py satellite_trf_verify.py array_order.py; do   # the last four: satellite screen inside step1
     [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
       cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
   done
+  export SINEDERELLA_TOOLS="$RUN/tools"
   [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
     cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
@@ -1048,13 +1054,15 @@ mode_exclude(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
-  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
-  for _tool in orient_consensus_bank.py orient_publish_aln.py; do
+  for _tool in orient_consensus_bank.py orient_publish_aln.py \
+               satellite_stage.py satellite_screen.py satellite_trf_verify.py array_order.py; do   # the last four: satellite screen inside step1
     [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
       cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
   done
+  export SINEDERELLA_TOOLS="$RUN/tools"
   [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
     cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" "$RUN/"
   chmod +x "$RUN/step1_search_extract.sh" "$RUN/step2_asSINEment.sh" "$RUN/step3_postprocess.sh" 2>/dev/null || true
@@ -1178,7 +1186,7 @@ mode_resume(){
   cp -f "$POST_SRC"   ./step3_postprocess.sh
   [[ -z "${PLOT_SRC:-}"    ]] || cp -f "$PLOT_SRC"     ./step4_plots.sh
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC"  ./plot_subfamily.py
-  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py; do
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" ./
   done
   [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \

@@ -333,9 +333,13 @@ if [[ $MINIMAP_MODE -eq 1 ]]; then
     # Merge ALL raw alignments first to chain fragments, THEN filter on merged results
     bedtools sort -i "$WORKING_BANK".minimap_raw.txt 2>/dev/null \
     | bedtools merge -s -i - -c 4,5,6,7 -o max,max,distinct,max 2>/dev/null \
-    | awk -v hom="$Homology" -v minlen="$flen" \
-      'BEGIN{OFS="\t"} $4 >= hom && ($3 - $2) >= minlen' \
+    > "$WORKING_BANK".minimap_merged.tmp
+    # every merged hit at the homology cut, any length: read by the satellite stage
+    awk -v hom="$Homology" 'BEGIN{OFS="\t"} $4 >= hom' "$WORKING_BANK".minimap_merged.tmp > "$taxname-$qname.rawhits.tsv"
+    awk -v hom="$Homology" -v minlen="$flen" \
+      'BEGIN{OFS="\t"} $4 >= hom && ($3 - $2) >= minlen' "$WORKING_BANK".minimap_merged.tmp \
     > "$taxname-$qname.bed"
+    rm -f "$WORKING_BANK".minimap_merged.tmp
 
     # Apply -s / --stop limit (keep top N by bitscore)
     if [[ $STOP_EARLY -eq 1 ]]; then
@@ -377,6 +381,7 @@ fi
 
 HIT_COUNT=0
 STOP_NOW=0
+: > "$(basename "$WORKING_BANK" | cut -c 1-3)-$qname.rawhits.tsv"      # the raw-hit file of this query starts empty (same prefix as the part files)
 
 for bank in *.2k.part_*.bnk; do
   [[ "$bank" == minus_* ]] && continue
@@ -404,8 +409,11 @@ for bank in *.2k.part_*.bnk; do
     if [[ -s _ssearch_sorted_"$round"_"$bank".tmp ]]; then
       bedtools merge -s -c 4,5,6,7,8 -o max,max,distinct,max,max \
         < _ssearch_sorted_"$round"_"$bank".tmp 2>/dev/null \
-      | awk '{if ($7>='"$Homology"' && $4>='"$flen"') print}' \
-      | sort -V > plus_to_add_"$round"_"$bank".bed
+      | sort -V > _merged_"$round"_"$bank".tmp
+      # every merged hit at the homology cut, any length (partial copies, satellite monomers): read by the satellite stage
+      awk '{if ($7>='"$Homology"') print}' _merged_"$round"_"$bank".tmp >> "$taxname-$qname.rawhits.tsv"
+      awk '{if ($7>='"$Homology"' && $4>='"$flen"') print}' _merged_"$round"_"$bank".tmp > plus_to_add_"$round"_"$bank".bed
+      rm -f _merged_"$round"_"$bank".tmp
     else
       : > plus_to_add_"$round"_"$bank".bed
     fi
@@ -453,6 +461,34 @@ for bank in *.2k.part_*.bnk; do
   fi
 done
 
+# fragment (2k sliding window) coordinates -> genome coordinates, sorted, merged; used for the filtered hits and the raw hits
+to_genomic() {   # to_genomic IN OUT
+  cat "$1" |
+    awk '{sub(/_sliding:/," ")}{sub(/_sliding_/," ")}{print $2}' |
+    awk '{gsub(/_/," ")}{print}' |
+    awk '{gsub(/-/," -")}1' |
+    awk '{sum=0;for(i=1;i<=NF;i++)if($i>0)sum+=$i}{print sum}' > "$1".off
+  paste "$1" "$1".off \
+  | awk 'BEGIN{OFS="\t"} {print $0, $2+$NF, $3+$NF}' \
+  | awk 'BEGIN{OFS="\t"}
+         {
+           chrom=$1
+           sub(/_sliding:.*/, "", chrom)
+           sub(/_sliding_.*/, "", chrom)
+           sub(/_slidin.*/, "", chrom)
+           sub(/_slidi.*/, "", chrom)
+           sub(/_slid.*/, "", chrom)
+           sub(/_sli.*/, "", chrom)
+           sub(/_sl.*/, "", chrom)
+           print chrom, $(NF-1), $NF, $7, $5, $6, $8
+         }' \
+  | bedtools sort -i - 2>/dev/null \
+  | bedtools slop -l 1 -r -1 -i - -g "$WORKING_BANK".stripped.genome 2>/dev/null \
+  | bedtools merge -s -i - -c 4,5,6,7 -o max,max,distinct,max 2>/dev/null \
+  > "$2"
+  rm -f "$1".off
+}
+
 cat "$WORKING_BANK".all_hits.txt |
   awk '{sub(/_sliding:/," ")}{sub(/_sliding_/," ")}{print $2}' |
   awk '{gsub(/_/," ")}{print}' |
@@ -497,6 +533,12 @@ paste "$WORKING_BANK".all_hits.txt "$WORKING_BANK".all \
 | bedtools slop -l 1 -r -1 -i - -g "$WORKING_BANK".stripped.genome 2>/dev/null \
 | bedtools merge -s -i - -c 4,5,6,7 -o max,max,distinct,max 2>/dev/null \
 > "$taxname-$qname.bed"
+
+# the raw hits (any length) in the same genome coordinates; the fragment-coordinate file is replaced
+if [[ -s "$taxname-$qname.rawhits.tsv" ]]; then
+  to_genomic "$taxname-$qname.rawhits.tsv" "$taxname-$qname.rawhits.genomic.tmp"
+  mv -f "$taxname-$qname.rawhits.genomic.tmp" "$taxname-$qname.rawhits.tsv"
+fi
 
 fi  # end minimap2/ssearch36 mode selection
 
@@ -587,6 +629,10 @@ if [[ $TEMP_BANK_CREATED -eq 1 ]]; then
 
   awk '{gsub(/@U@/,"_")}1' "$taxname-$qname.bed" > "${taxname}-${qname}.bed.tmp"
   mv "${taxname}-${qname}.bed.tmp" "$taxname-$qname.bed"
+  if [[ -f "$taxname-$qname.rawhits.tsv" ]]; then
+    awk '{gsub(/@U@/,"_")}1' "$taxname-$qname.rawhits.tsv" > "${taxname}-${qname}.rawhits.tmp"
+    mv "${taxname}-${qname}.rawhits.tmp" "$taxname-$qname.rawhits.tsv"
+  fi
 
   awk '{gsub(/@U@/,"_")}1' "$taxname-$qname.bnk" > "${taxname}-${qname}.bnk.tmp"
   mv "${taxname}-${qname}.bnk.tmp" "$taxname-$qname.bnk"

@@ -110,6 +110,38 @@ def _arrays(run_root):
             "<th class='n'>Median spacing bp</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
+def _satellites(run_root):
+    """table of results/satellites/indication.tsv (tools/satellite_stage.py, run inside step 1), '' if the run has none"""
+    p = Path(run_root) / "results" / "satellites" / "indication.tsv"
+    if not p.exists():
+        return ""
+    lines = [l.rstrip(chr(10)).split(chr(9)) for l in open(p, encoding="utf-8")]
+    if len(lines) < 2:
+        return ""
+    h = lines[0]
+    rows = []
+    for l in lines[1:]:
+        r = dict(zip(h, l))
+        fa, fb = r.get("flag_A", "-") == "SAT_A", r.get("flag_B", "-") == "SAT_B"
+        ans = " and ".join(x for x in (("<b>SINE-derived satellite</b> (%s loci)" % r["kindA_loci"]) if fa else "",
+                                       "<b>tandem array of a longer unit</b>" if fb else "") if x) or "&ndash;"
+        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td>%s</td></tr>" % (
+            html.escape(lab(r["consensus"])), html.escape(r["full_hits"]), html.escape(r["kindA_loci"]), html.escape(r["kindA_monomers"]),
+            html.escape(r["kindA_largest"]), html.escape(r["kindB_runs"]), html.escape(r["kindB_excess_pct"]), ans))
+    nex = 0
+    ex = Path(run_root) / "results" / "satellites" / "excluded_hits.bed"
+    if ex.exists():
+        nex = sum(1 for _ in open(ex, encoding="utf-8"))
+    return ("<h3 style='margin-top:16px'>Satellites: SINE sequence in tandem arrays</h3><p>Before extraction and assignment, the hits of each consensus were "
+            "screened for tandem arrays (<code>docs/SATELLITES.md</code>): loci where the monomer is a part of the SINE (TRF on the hit windows, unit aligned to the "
+            "consensus, at least 4 monomers) and arrays of regular spacing whose unit is longer than the SINE (excess over chance). %s "
+            "Loci and monomer consensuses: <code>results/satellites/</code>.</p>"
+            "<table class='tbl'><thead><tr><th>Consensus</th><th class='n'>Full-length hits</th><th class='n'>Satellite loci</th><th class='n'>Monomers</th>"
+            "<th class='n'>Largest locus</th><th class='n'>Regular runs</th><th class='n'>Excess over chance %%</th><th>Answer</th></tr></thead><tbody>"
+            % ("%d hits in satellite loci were removed from the SINE analysis (kept in <code>excluded_hits.bed</code>)." % nex if nex else
+               "No hits were removed.") + "".join(rows) + "</tbody></table>")
+
+
 def section(run_root):
     bank = _bank(run_root)
     if bank is None:
@@ -200,4 +232,4 @@ A.onchange=B.onchange=draw;document.querySelectorAll('td.bc').forEach(function(t
   <p style="font-size:12px;opacity:.75">All blocks (&ge; 20 bp, &ge; 78 %%) are in <code>results/consensus_blocks.tsv</code>.</p>
   %s
 </section>
-""" % (note, "".join(rows), js, _length_versions(run_root) + _arrays(run_root) + _consensus_audit(run_root))
+""" % (note, "".join(rows), js, _length_versions(run_root) + _arrays(run_root) + _satellites(run_root) + _consensus_audit(run_root))

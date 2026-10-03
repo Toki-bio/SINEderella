@@ -122,6 +122,22 @@ rm -f *.2k.bnk *.2k.bnk.fai *.2k.part_* *.2k.part_*.bnk.fai *_s.fai 2>/dev/null 
 
 cd ..
 
+# --- SATELLITE SCREEN (docs/SATELLITES.md): SINE-derived satellites and SINE-containing tandem arrays, found from the hits
+#     and TRF on the hit windows, before extraction / SubFam / assignment see them. SKIP_SATELLITES=1 skips it;
+#     SATELLITE_EXCLUDE=0 writes the tables but removes nothing; SATELLITE_EXCLUDE_B=flagged|all|none for kind-B arrays.
+_TOOLS="${SINEDERELLA_TOOLS:-$(dirname "$(readlink -f "$0")")/tools}"
+if [[ "${SKIP_SATELLITES:-0}" == "1" ]]; then
+    echo "[$(date)] SKIP_SATELLITES=1 - satellite screen skipped"
+elif [[ -f "$_TOOLS/satellite_stage.py" ]] && command -v trf >/dev/null 2>&1; then
+    echo "[$(date)] Satellite screen (tools/satellite_stage.py) on searches/"
+    _SAT_ARGS=(--searches searches --genome "$GENOME" --cons "$CONSENSUS" --out satellites --threads "${THREADS:-$(nproc 2>/dev/null || echo 8)}")
+    [[ "${SATELLITE_EXCLUDE:-1}" == "0" ]] && _SAT_ARGS+=(--no-exclude)
+    _SAT_ARGS+=(--exclude-b "${SATELLITE_EXCLUDE_B:-flagged}")
+    python3 "$_TOOLS/satellite_stage.py" "${_SAT_ARGS[@]}" 2>&1 | tee satellites.log >&2         || echo "[$(date)] WARNING: satellite screen failed (see satellites.log); continuing with the unfiltered hits" >&2
+else
+    echo "[$(date)] Satellite screen skipped (tools/satellite_stage.py or trf not found)"
+fi
+
 # --- REQUIRE sear output ---
 BED_FILES=(searches/*.bed)
 if [[ ${#BED_FILES[@]} -eq 0 ]]; then

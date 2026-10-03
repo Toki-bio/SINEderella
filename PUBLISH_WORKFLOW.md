@@ -72,6 +72,9 @@ SINEderella --publish genome.fa consensi.fa
 | `CANON_MIN_ID` | optional (80) | RC merge threshold (%); same-orientation pairs need 98 % (`--direct-min-id`) and length ratio 0.9 (`--min-len-ratio`) |
 | `SKIP_LENGTH_VARIANTS` | optional (0) | `1` skips the length-version test (shorter consensus = 5′ part of a longer one; see docs/LENGTH_VARIANTS.md) |
 | `LENGTH_VARIANTS_MAX_PAIRS` | optional (12) | cap on candidate pairs tested per run |
+| `SKIP_SATELLITES` | optional (0) | `1` skips the satellite screen inside step 1 (SINE-derived satellites and SINE-containing tandem arrays; docs/SATELLITES.md) |
+| `SATELLITE_EXCLUDE` | optional (1) | `0` writes the satellite tables but removes no hits |
+| `SATELLITE_EXCLUDE_B` | optional (flagged) | kind-B arrays removed for flagged consensuses only, `all`, or `none` |
 | `SKIP_CONSENSUS_AUDIT` | optional (0) | `1` skips the consensus audit (each consensus rebuilt from its assigned copies; see docs/CONSENSUS_AUDIT.md) |
 | `CONSENSUS_AUDIT_JOBS` | optional (8) | parallel rebuilds in the consensus audit |
 
