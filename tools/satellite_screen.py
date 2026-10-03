@@ -71,7 +71,7 @@ def monomer_runs(hits, min_mono=MIN_MONO, mono_gap=MONO_GAP, min_span=MIN_SPAN):
     return runs, member
 
 
-def null_b_pct(hits, nperm=NPERM, seed=1):
+def null_b(hits, nperm=NPERM, seed=1):
     """share of hits in regular runs when the same number of hits is spread at random over the contigs in proportion to the contig extent
     (genome-average density; the contig extent is the span of its hits, so the null is slightly dense = conservative). A real array
     concentrates hits and must not inflate its own null, so the per-contig counts are NOT kept."""
@@ -85,7 +85,7 @@ def null_b_pct(hits, nperm=NPERM, seed=1):
     span = [max(ext[c][1] - ext[c][0], 1) for c in names]
     total = float(sum(span))
     n = len(hits)
-    tot = []
+    tot, lens = [], collections.Counter()
     for _ in range(nperm):
         loci = []
         for c, sp in zip(names, span):
@@ -93,8 +93,23 @@ def null_b_pct(hits, nperm=NPERM, seed=1):
             lo = ext[c][0]
             for _ in range(k):
                 loci.append((c, lo + rnd.randint(0, sp)))
-        tot.append(100.0 * len(ao.regular_runs(loci)) / max(len(loci), 1))
-    return sum(tot) / len(tot)
+        runs = ao.regular_runs(loci)
+        tot.append(100.0 * len(runs) / max(len(loci), 1))
+        for l in collections.Counter(runs.values()).values():
+            lens[l] += 1
+    return sum(tot) / len(tot), {l: v / float(nperm) for l, v in lens.items()}
+
+
+def long_run_min(obs_lens, null_lens, max_false=0.05):
+    """the smallest run length L such that chance explains fewer than max(1, max_false x observed) of the observed runs with >= L
+    units; runs at least that long are satellite loci on their own (the same calibration idea as the TSD minimum of flankscan stage 8).
+    None when no length qualifies."""
+    for L in sorted(set(obs_lens)):
+        o = sum(v for l, v in obs_lens.items() if l >= L)
+        e = sum(v for l, v in null_lens.items() if l >= L)
+        if o and e < max(1.0, max_false * o):
+            return L
+    return None
 
 
 def screen(hits, min_mono=MIN_MONO, mono_gap=MONO_GAP, min_span=MIN_SPAN, nperm=NPERM):
@@ -123,9 +138,13 @@ def screen(hits, min_mono=MIN_MONO, mono_gap=MONO_GAP, min_span=MIN_SPAN, nperm=
     n = len(hits)
     pa, pb = 100.0 * na / max(n, 1), 100.0 * nb / max(n, 1)
     big = max((r[4] for r in rows), default=0)
-    null = null_b_pct(hits, nperm) if (nperm and nb) else 0.0
+    null, null_lens = (null_b(hits, nperm) if (nperm and nb) else (0.0, {}))
+    obs_lens = collections.Counter(len(v) for v in b_groups.values())
+    lmin = long_run_min(obs_lens, null_lens) if nb else None
+    nlong = sum(1 for v in b_groups.values() if lmin is not None and len(v) >= lmin)
     return rows, {"hits": n, "hits_in_A": na, "hits_in_B": nb, "pct_A": pa, "pct_B": pb, "null_B": null, "excess_B": pb - null,
-                  "loci_A": len(a_runs), "loci_B": len(b_groups), "largest": big}
+                  "loci_A": len(a_runs), "loci_B": len(b_groups), "largest": big, "long_min": lmin, "long_runs": nlong,
+                  "null_lens": null_lens, "obs_lens": dict(obs_lens)}
 
 
 def main():

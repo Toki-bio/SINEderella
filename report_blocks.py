@@ -123,11 +123,13 @@ def _satellites(run_root):
     for l in lines[1:]:
         r = dict(zip(h, l))
         fa, fb = r.get("flag_A", "-") == "SAT_A", r.get("flag_B", "-") == "SAT_B"
+        nlong = int(r.get("kindB_long_runs", "0") or 0)
         ans = " and ".join(x for x in (("<b>SINE-derived satellite</b> (%s loci)" % r["kindA_loci"]) if fa else "",
-                                       "<b>tandem array of a longer unit</b>" if fb else "") if x) or "&ndash;"
-        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td>%s</td></tr>" % (
+                                       "<b>tandem array of a longer unit</b>" if fb else "",
+                                       ("%d long arrays inside a dispersed family" % nlong) if (nlong and not fb) else "") if x) or "&ndash;"
+        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td>%s</td></tr>" % (
             html.escape(lab(r["consensus"])), html.escape(r["full_hits"]), html.escape(r["kindA_loci"]), html.escape(r["kindA_monomers"]),
-            html.escape(r["kindA_largest"]), html.escape(r["kindB_runs"]), html.escape(r["kindB_excess_pct"]), ans))
+            html.escape(r["kindA_largest"]), html.escape(r["kindB_runs"]), html.escape(r.get("kindB_long_runs", "")), html.escape(r["kindB_excess_pct"]), ans))
     nex = 0
     ex = Path(run_root) / "results" / "satellites" / "excluded_hits.bed"
     if ex.exists():
@@ -137,7 +139,7 @@ def _satellites(run_root):
             "consensus, at least 4 monomers) and arrays of regular spacing whose unit is longer than the SINE (excess over chance). %s "
             "Loci and monomer consensuses: <code>results/satellites/</code>.</p>"
             "<table class='tbl'><thead><tr><th>Consensus</th><th class='n'>Full-length hits</th><th class='n'>Satellite loci</th><th class='n'>Monomers</th>"
-            "<th class='n'>Largest locus</th><th class='n'>Regular runs</th><th class='n'>Excess over chance %%</th><th>Answer</th></tr></thead><tbody>"
+            "<th class='n'>Largest locus</th><th class='n'>Regular runs</th><th class='n'>of them long</th><th class='n'>Excess over chance %%</th><th>Answer</th></tr></thead><tbody>"
             % ("%d hits in satellite loci were removed from the SINE analysis (kept in <code>excluded_hits.bed</code>)." % nex if nex else
                "No hits were removed.") + "".join(rows) + "</tbody></table>")
 

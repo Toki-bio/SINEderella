@@ -78,6 +78,13 @@ class Screen(unittest.TestCase):
         rows, s = ss.screen(h)
         self.assertGreater(s["excess_B"], 5.0, s)
 
+    def test_long_run_min_calibration(self):
+        obs = {5: 100, 7: 40, 12: 30, 25: 10, 60: 3}
+        null = {5: 95.0, 6: 30.0, 11: 2.0, 15: 0.4}
+        self.assertEqual(ss.long_run_min(obs, null), 7)        # from 7 units on, chance explains < 5 % of the observed runs
+        self.assertIsNone(ss.long_run_min({5: 10}, {5: 12.0}))
+        self.assertEqual(ss.long_run_min({36: 1, 5: 2}, {}), 5)   # nothing expected by chance: every run counts
+
     def test_dimer_and_tandem_pair_are_not_flagged(self):
         h = [("c1", 1000, 1250, "+"), ("c1", 1290, 1540, "+"), ("c1", 50000, 50250, "+"), ("c1", 50050 + 250, 50550, "+")]
         rows, s = ss.screen(h)
