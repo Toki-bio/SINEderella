@@ -168,6 +168,28 @@ dispersed background, a real array inside a dense background). On the gecko geno
   (4) `sear` merges and filters its hits; a final version should read the raw `ssearch36` hits, and the monomer type (which part of the
   SINE the monomer covers; the user's `coordinates_by_consensus.sh` classes alpha-epsilon) needs the query coordinates of each hit.
 
+## 5c. Second real test (2026-10-03, KIT, Indian cobra, Squam3C) and the revision it forces
+
+Ground truth by Tandem Repeats Finder over the whole genome (44 parts, ~9 min on 44 cores): **2 580 Squam3C-derived tandem loci**, 21 799
+monomers, 1.59 Mb; period 67 bp in 1 750 (the sSat3 unit of snakes; dimers of 133-134 bp in 113); 4-9 copies in 2 096 loci, 10-19 in 388,
+20-49 in 79, 50-99 in 13, up to 559 monomers in one. The paper's "thousands of loci, up to ~320 monomers" is reproduced in order of
+magnitude. (Squam3C used here is the reconstruction from the paper's Additional File 2; its positions 42-108 are the 67 nt unit with box B.)
+
+The hit-spacing screen on `sear` hits found 156 runs (1.5 % of hits) and overlaps only 186 of the 2 580 loci (7 %), although 88 % of the
+loci carry some `sear` hit. Cause: `sear` merges neighbouring monomers into one hit (hits 69-76 bp long at a spacing of 134 bp: two monomers
+per hit) and most loci are short (4-9 monomers), so "4 consecutive hits" rarely holds. **Hit spacing alone is not a reliable kind-A detector.**
+
+Revised design of the indication stage (cheap first, TRF only where it can pay off):
+1. **Gate (seconds, hits only):** windows = hit clusters (hits within 300 bp, any hit length, both strands) of each consensus; the number and
+   total size of windows is small (cobra: 54 269 hits = ~11 Mb of windows against 1.8 Gb). A consensus with no cluster of >= 2 hits has
+   no kind-A candidates and costs nothing more. Kind B (regular spacing with the chance null) stays as it is: it worked on rsi MEG-RS.
+2. **Verify (minutes, TRF on the windows only):** `trf windows.fa 2 5 7 80 10 40 300`; a locus = a TRF record with >= 4 copies whose unit aligns to
+   the consensus (or to its doubled sequence). Gives the monomer length, copy number and TRF match per locus; no genome-wide TRF.
+3. **Classify (characterisation):** align the unit to the SINE consensus: positions covered (cobra: 42-108 of Squam3C), full vs partial SINE
+   in the monomer, leading/trailing monomers carrying the SINE terminus.
+Cost check: the genome-wide TRF used as ground truth took ~9 min on 44 cores; the windowed version is two orders of magnitude smaller.
+Open point: `sear` is not the right hit source for the final tool (merging); use raw `ssearch36` hits from step 1.
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
