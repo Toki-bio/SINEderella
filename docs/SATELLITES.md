@@ -190,6 +190,25 @@ Revised design of the indication stage (cheap first, TRF only where it can pay o
 Cost check: the genome-wide TRF used as ground truth took ~9 min on 44 cores; the windowed version is two orders of magnitude smaller.
 Open point: `sear` is not the right hit source for the final tool (merging); use raw `ssearch36` hits from step 1.
 
+## 5d. The gate + windowed TRF stage works (`tools/satellite_trf_verify.py`, 2026-10-03)
+
+Implemented as designed in 5c; defaults: a window (+-1 kb, merged) around every hit, TRF on the windows only (period >= 55, >= 4 copies),
+unit aligned to the consensus (>= 45 bp), best record per locus; `--max-window-mb 600` falls back to clusters of >= 2 hits for hit-rich
+families (and says so). Results on KIT (details and files: Tal `satellites/gate_trf_test/`):
+
+* **Cobra / Squam3C:** 2 052 loci, 15 949 monomers, period 67 bp, SINE part 30-110, in 29 s over 103 Mb of windows (6 % of the genome);
+  **89.7 % of the 2 580 loci found by genome-wide TRF** (90 % of the short loci with 4-9 monomers, 85 % of those with >= 20).
+* **Gecko / Squam3A:** 537 loci, 2 865 monomers, periods 114-126 bp, in 21 s (fell back to >= 2-hit clusters, 112 Mb of windows).
+* **Toy genome:** both planted satellites with the planted SINE part, no false loci from dispersed copies, dimers, trimers or a segmental duplication.
+* Lessons: 100 bp of padding recovered only 60 % (partial windows cut arrays); 1 kb recovers 90 %. Misses are loci without any nearby hit
+  (`sear` drops diverged monomers): the final tool should use raw `ssearch36` hits.
+* Kind B (units longer than the SINE) stays with `satellite_screen.py` (regular spacing + chance null); a 20-unit toy array was 7 % of the hits
+  and the screen reported it as a locus run although the family-share flag stayed off: **report loci, not only a family flag**.
+
+Not done yet: monomer classification beyond the aligned SINE part, exclusion of the loci from the hit set, wiring into SINEderella (step
+between search and assignment), peel input, the report section and the viewer, borderline cases on real data (dimers, composites, SINEs
+without TSDs), raw-hit input, a snake and a gecko run against the paper's per-species counts.
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
