@@ -85,7 +85,7 @@ def main():
         print("satellite_stage: no gen-*.bed in %s, nothing to do" % a.searches)
         return 0
     verify = os.path.join(HERE, "satellite_trf_verify.py")
-    rows, loci, units, excluded = [], [], [], []
+    rows, loci, units, excluded, allA = [], [], [], [], []
     for bed in beds:
         q = query_name(bed)
         if q not in cons:
@@ -106,7 +106,9 @@ def main():
         if os.path.exists(pref + ".loci.tsv"):
             for l in list(open(pref + ".loci.tsv"))[1:]:
                 f = l.rstrip("\n").split("\t")
-                A.append((f[0], int(f[1]), int(f[2]), int(f[3]), float(f[4]), int(f[9]), int(f[10])))
+                # contig start end period copies cons_start cons_end score(aln_len x identity)
+                A.append((f[0], int(f[1]), int(f[2]), int(f[3]), float(f[4]), int(f[9]), int(f[10]), int(f[7]) * float(f[8])))
+        allA.extend((q,) + x for x in A)
         if os.path.exists(pref + ".units.fa"):
             units.append(open(pref + ".units.fa").read())
         # kind B on the full-length hits
@@ -118,9 +120,7 @@ def main():
         longB = [x for x in B if lmin is not None and x[3] >= lmin]
         mono = int(sum(x[4] for x in A))
         rows.append((q, len(cons[q]), len(full), len(A), mono, max((x[4] for x in A), default=0), len(B), bsum["pct_B"], bsum["excess_B"],
-                     lmin if lmin is not None else "-", len(longB), "SAT_A" if A else "-", "SAT_B" if flagB else "-"))
-        for c, s, e, per, cop, cs, ce in A:
-            loci.append(("A", q, c, s, e, per, cop, "%d-%d" % (cs, ce)))
+                     lmin if lmin is not None else "-", len(longB), "SAT_A" if A else "-", "SAT_B" if flagB else "-"))   # flag_A re-set below
         for c, s, e, n, gap in B:
             loci.append(("B", q, c, s, e, gap, n, "-"))
         print("satellite_stage: %s: %d full hits; kind A %d loci (%d monomers); kind B %d runs (%d long, >= %s units), excess %.1f %% %s%s" % (
@@ -130,7 +130,7 @@ def main():
         if a.no_exclude:
             continue
         ex = collections.defaultdict(list)
-        for c, s, e, per, cop, cs, ce in A:
+        for c, s, e, per, cop, cs, ce, sc in A:
             ex[c].append((s, e))
         if a.exclude_b == "all" or (a.exclude_b in ("flagged", "long") and flagB):
             for c, s, e, n, gap in B:
@@ -157,20 +157,45 @@ def main():
             open(bed, "w").writelines(keep)
             excluded += [q + "\t" + l for l in drop]
             print("satellite_stage: %s: %d of %d full hits removed from %s (kept in .before_satellites)" % (q, len(drop), len(keep) + len(drop), os.path.basename(bed)), flush=True)
+    # one locus, one consensus: the same array is found through every consensus that shares its head (rsi: a 140 bp monomer
+    # matched all 17 r-families); attribute it to the best alignment (aligned length x identity), note the others
+    allA.sort(key=lambda x: -x[7])
+    taken = collections.defaultdict(list)
+    attributed, also = [], collections.defaultdict(set)
+    for q, c, s, e, per, cop, cs, ce, sc in allA:
+        hit = None
+        for i, (ts, te) in enumerate(taken[c]):
+            if min(te, e) - max(ts, s) > 0.5 * min(te - ts, e - s):
+                hit = i
+                break
+        if hit is None:
+            taken[c].append((s, e))
+            attributed.append((q, c, s, e, per, cop, cs, ce))
+        else:
+            also[(c, taken[c][hit][0])].add(q)
+    per_q = collections.Counter(x[0] for x in attributed)
+    mono_q = collections.defaultdict(float)
+    big_q = collections.defaultdict(float)
+    for q, c, s, e, per, cop, cs, ce in attributed:
+        mono_q[q] += cop
+        big_q[q] = max(big_q[q], cop)
+        loci.append(("A", q, c, s, e, per, cop, "%d-%d" % (cs, ce), ",".join(sorted(also.get((c, s), ()))) or "-"))
+    rows = [(r[0], r[1], r[2], per_q.get(r[0], 0), int(mono_q.get(r[0], 0)), big_q.get(r[0], 0)) + r[6:11] + ("SAT_A" if per_q.get(r[0], 0) else "-", r[12]) for r in rows]
     with open(os.path.join(a.out, "indication.tsv"), "w") as o:
         o.write("consensus\tcons_len\tfull_hits\tkindA_loci\tkindA_monomers\tkindA_largest\tkindB_runs\tkindB_pct\tkindB_excess_pct\tkindB_long_min\tkindB_long_runs\tflag_A\tflag_B\n")
         for r in rows:
             o.write("%s\t%d\t%d\t%d\t%d\t%.0f\t%d\t%.1f\t%.1f\t%s\t%d\t%s\t%s\n" % r)
     with open(os.path.join(a.out, "loci.bed"), "w") as o:
-        o.write("#kind\tconsensus\tcontig\tstart\tend\tperiod_or_unit\tmonomers_or_hits\tsine_part\n")
+        o.write("#kind\tconsensus\tcontig\tstart\tend\tperiod_or_unit\tmonomers_or_hits\tsine_part\talso_matches\n")
         for l in sorted(loci, key=lambda x: (x[2], x[3])):
+            l = l if len(l) == 9 else l + ("-",)
             o.write("\t".join(str(x) for x in l) + "\n")
     open(os.path.join(a.out, "units.fa"), "w").write("".join(units))
     with open(os.path.join(a.out, "excluded_hits.bed"), "w") as o:
         o.writelines(excluded)
     na = sum(r[3] for r in rows)
-    print("satellite_stage: %d consensuses, %d kind-A loci, %d consensuses SAT_B, %d hits excluded -> %s" % (
-        len(rows), na, sum(1 for r in rows if r[12] == "SAT_B"), len(excluded), a.out))
+    print("satellite_stage: %d consensuses, %d kind-A loci (%d distinct; %d found through more than one consensus), %d consensuses SAT_B, %d hits excluded -> %s" % (
+        len(rows), na, len(attributed), len(also), sum(1 for r in rows if r[12] == "SAT_B"), len(excluded), a.out))
     return 0
 
 
