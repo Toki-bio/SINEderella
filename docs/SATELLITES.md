@@ -150,14 +150,32 @@ Then the two real cases:
 The squamate genomes are not on therioserver as far as my notes say (the sq2 work ran on "monsoon"); the accessions are in
 the 2023 paper's Methods. Compare the screen's loci with the paper's counts per species before trusting it.
 
-## 6. Open questions for the user
+## 6. Decisions and requirements from the user (2026-10-03)
 
-* Threshold for exclusion: 20 % of a family's copies (as the array flag), or any flagged locus regardless of the family's
-  share? (A snake genome has thousands of sSat3 loci next to a healthy Squam3 family: the loci should go, the family stays.)
-* Should case-A monomer runs be removed from the **peel** input as well (they would otherwise appear as long chunk rows)?
-* Is "monomer shorter than the SINE" (A) versus "unit longer" (B) the right split, or is the real distinction whether the
-  SINE sequence is the whole monomer or a part of a larger unit?
-* Characterisation depth: the per-locus analysis of the 2023 paper, or only the monomer and counts?
+* **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
+  satellite.** The screen removes satellite *loci* from the SINE analysis; it must not lose the SINE sequence they carry.
+  For every flagged family the report states which SINE (or which part of it) the monomer contains, with coordinates on
+  the SINE consensus, and the monomer consensus itself is run through SINEderella as a candidate ("can this monomer be a
+  SINE in its own right?") — SINEderella handles shorter versions of an element, so a monomer that is a truncated SINE is
+  a legitimate, testable hypothesis, not noise.
+* **Borderline cases are the hard part**: dimers, composites and other tandems of two or three units that may be SINEs,
+  and SINEs that lack the usual features (Squam2 has no proper TSDs). Rule: the screen excludes only runs of ≥ 4 monomers
+  (the 2023 threshold); 2–3-unit tandems, dimers and composites stay in the SINE analysis and go through the flank scan
+  (`docs/COMPOSITES.md`), marked, never dropped. Absence of a TSD is never a criterion for calling something a satellite.
+* **Exclude by the family's share (≥ 20 %) or every flagged locus?** To be tested on both kinds (snake sSat3 next to a
+  live Squam3 family; rsi MEG-RS). Implement both as options and compare the resulting SINE counts and plates.
+* **Case-A monomer runs out of the peel input too?** Yes — but test first whether the monomer can be a SINE (previous
+  point); the peel must still see a monomer that turns out to be a short SINE version.
+* **Shorter vs longer monomer (A/B)?** The user's framing: the SINE is **fully or partially** inside the satellite
+  monomer. A and B are then two ends of one range (B = full SINE inside a longer unit; A = part of a SINE as the monomer),
+  and the detector pair (hit runs < 100 bp apart; regular spacing of full hits) covers the range. The report says, per
+  family, how much of the SINE the monomer holds and how much of the monomer is SINE.
+* **Characterisation depth:** first counts and classification with coordinates (indication table, loci BED, monomer
+  consensus, SINE positions); then, finalising, the per-locus analysis of the 2023 paper and a satellite viewer like the
+  CLsat viewer (`CLsat_workflow/viewer`).
+* **Compute:** the squamate tests need the sq2 genomes on the monsoon server; see the session notes for the access
+  question. The two test genomes (cobra NN_10x_BNG, Gekko_japonicus_V1.1) can also be downloaded to therioserver for the
+  screen test alone.
 
 ## 7. Sub-task brief
 
