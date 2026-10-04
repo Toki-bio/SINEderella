@@ -199,9 +199,10 @@ def main():
             groups.append([c, s, e, [rec]])
     attributed, also = [], collections.defaultdict(set)
     for c, gs, ge, recs in groups:
-        best_id = max(r[8] for r in recs)
-        cand = [r for r in recs if r[8] >= best_id - 3.0 and r[9] >= 0.9] or [r for r in recs if r[8] >= best_id - 3.0]
-        pick = max(cand, key=lambda r: (r[10], -len(cons[r[0]])))
+        # record = (q, contig, start, end, period, copies, cons_start, cons_end, score, identity, monomer_cov, cons_cov)
+        best_id = max(r[9] for r in recs)
+        cand = [r for r in recs if r[9] >= best_id - 3.0 and r[10] >= 0.9] or [r for r in recs if r[9] >= best_id - 3.0]
+        pick = max(cand, key=lambda r: (r[11], -len(cons[r[0]])))
         q, _, s, e, per, cop, cs, ce = pick[:8]
         attributed.append((q, c, s, e, per, cop, cs, ce))
         for r in recs:
