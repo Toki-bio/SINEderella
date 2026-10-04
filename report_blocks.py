@@ -125,10 +125,20 @@ def _satellites(run_root):
         fa, fb = r.get("flag_A", "-") == "SAT_A", r.get("flag_B", "-") == "SAT_B"
         nlong = int(r.get("kindB_long_runs", "0") or 0)
         nver = int(r.get("kindB_verified_arrays", "0") or 0)       # the runs whose units are near-identical: what `verified` excludes
-        ans = " and ".join(x for x in (("<b>SINE-derived satellite</b> (%s loci)" % r["kindA_loci"]) if fa else "",
-                                       ("<b>tandem array of a longer unit</b> (%d of %s runs verified by unit identity)" % (nver, r["kindB_runs"])) if fb else "",
-                                       ("<b>%d arrays verified by unit identity</b> inside a dispersed family" % nver) if (nver and not fb) else "",
-                                       ("%d long runs" % nlong) if (nlong and not fb and not nver) else "") if x) or "&ndash;"
+        # the Answer follows the unit check, not the share flag: human chr21 Alu (one copy per 4 kb, clustered in GC-rich isochores)
+        # reads 20.6 % regular spacing above a uniform null with 0 of 551 runs verified - clustered copies, not an array (2026-10-05)
+        if fb and nver:
+            kb = "<b>tandem array of a longer unit</b> (%d of %s regularly spaced runs verified by unit identity)" % (nver, r["kindB_runs"])
+        elif fb:
+            kb = ("regular spacing %s %% above a uniform null but <b>no run verified by unit identity</b>: clustered copies "
+                  "(the null places copies uniformly along a contig; a family that favours GC-rich regions exceeds it), not an array" % r["kindB_excess_pct"])
+        elif nver:
+            kb = "<b>%d arrays verified by unit identity</b> inside a dispersed family" % nver
+        elif nlong:
+            kb = "%d long regularly spaced runs, none verified by unit identity" % nlong
+        else:
+            kb = ""
+        ans = " and ".join(x for x in (("<b>SINE-derived satellite</b> (%s loci)" % r["kindA_loci"]) if fa else "", kb) if x) or "&ndash;"
         rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td>%s</td></tr>" % (
             html.escape(lab(r["consensus"])), html.escape(r["full_hits"]), html.escape(r["kindA_loci"]), html.escape(r["kindA_monomers"]),
             html.escape(r["kindA_largest"]), html.escape(r["kindB_runs"]), html.escape(r.get("kindB_verified_arrays", "")),
