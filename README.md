@@ -58,6 +58,18 @@ design philosophy behind this.
 | `flankscan/` | Flank analysis in bash/awk: tandem repeats around copies, composites from junction peaks, candidate elements, chains, hierarchy, singletons/TSD, flank twins; `flankscan/HANDOFF.md` |
 | `import_squamata_run.py` | Import SINEderella run results into SINEdb data format (requires sine-kb models) |
 
+## Standalone and historical scripts
+
+Not called by `SINEderella`, `SINEderella_multi` or `publish_run.sh`; kept for the analyses that used them and runnable by hand:
+`asSINEment` (the earlier assignment engine), `sear_multi` and `benchmark_sear.sh`, `step4_diagnostic.sh/.py` (needs pandas, scipy,
+scikit-learn), `step5_align_subfamilies.sh`, `step5_direct.sh`, `run_step5_wrapper.sh`, `run_subfam_per_sf.sh`, `extract_alignments.sh`
+and `extract_subfam_only.sh` (the multi-run tier extractor that preceded step 8a), `sine_consensus.sh`, `sine_consensus_smart.sh`,
+`sine_pairwise_consensus.sh`, `analyze_convergence.sh`, `step1b_cluster_subfamilies_assist.sh` with `cluster_assist.js` /
+`subfam_cluster_lib.js` (MANUAL §6.1), `flank_border_consensus_test.sh/.py`, `publish/flank_border_iterate.py` as a script (its
+functions are used by the border loop), `import_squamata_run.py`, `tools/composite_scan.py` and `tools/build_composite.py` (the Python
+prototype of flankscan, docs/COMPOSITES.md), `tools/compare_cons.py`, `workflow.html`. The audit of 2026-10-05 (docs/AUDIT_2026-10-05.md)
+did not re-test these.
+
 ## Dependencies
 
 - `ssearch36` (FASTA36 package)
@@ -65,7 +77,7 @@ design philosophy behind this.
 - `bedtools`
 - `samtools`
 - `seqkit`
-- `cons` (EMBOSS)
+- `cons` and `seqret` (EMBOSS; `SubFam` needs both)
 - `trf` (Tandem Repeats Finder; the satellite stage is skipped with a log line without it), `gawk` (consensus audit, flankscan), `dustmasker` (flankscan)
 - Python 3 with numpy and matplotlib (plots, report panels, consensus blocks)
 - Tests: `python -m pytest` from the repo root (`pytest.ini`; the end-to-end tests need mafft, gawk, samtools and are skipped without them)

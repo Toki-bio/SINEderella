@@ -77,7 +77,9 @@ def element_window(cons, rows):
     }
     return lo, hi, d
 
-ENV_PATH = "/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin:/usr/bin"
+# DRAGEN toolchain only where it exists; never /usr/bin ahead of the active environment (on therioserver that put the system
+# bedtools/mafft, or none, ahead of the conda env: the same trap align_for_publish.sh fixed for the shell steps, 2026-10-05)
+ENV_PATH = ":".join(d for d in ("/staging/conda/envs/bioinfo/bin", "/staging/miniconda3/bin") if os.path.isdir(d))
 MAX_FLANK = 1000
 DISP_L, DISP_R = 50, 70
 MIN_RUN = 6
@@ -116,7 +118,7 @@ def write_fa(path, pairs):
 
 
 def sh(cmd, cwd=None, timeout=7200):
-    full = "export PATH=%s:$PATH; %s" % (shlex.quote(ENV_PATH), cmd)
+    full = ("export PATH=%s:$PATH; %s" % (shlex.quote(ENV_PATH), cmd)) if ENV_PATH else cmd
     r = subprocess.run(full, shell=True, cwd=cwd, capture_output=True, text=True,
                        timeout=timeout)
     return r.returncode, r.stdout, r.stderr

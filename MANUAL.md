@@ -1,15 +1,6 @@
-Dragen Version           Size (MB)  Install Date         Path
-4.5.4                    996.74     2026-05-20 01:45:15  /opt/dragen/4.5.4
-4.4.4                    846.30     2025-07-22 00:16:45  /opt/dragen/4.4.4
-
-Bitstream Version        Size (MB)  Install Date         Path
-07.031.818 (0x18101306)  690.49     2026-05-20 01:45:07  /opt/bitstream/07.031.818
-07.031.779 (0x18101306)  601.18     2025-07-22 00:16:36  /opt/bitstream/07.031.779
-
-To remove a dragen version, call `yum remove` on its Path.
 # SINEderella — User Manual
 
-**Version:** 2026-02
+**Version:** 2026-10
 **Pipeline for genome-wide SINE family detection, subfamily assignment, and annotation**
 
 ---
@@ -1558,4 +1549,4 @@ See repository for license information.
 ## Citation
 
 If you use SINEderella in your research, please cite the repository:
-`https://github.com/Toki-bio/SINEderella-dev`
+`https://github.com/Toki-bio/SINEderella` (a `CITATION.cff` with the current version is in the repository root).

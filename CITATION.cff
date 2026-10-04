@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use SINEderella, please cite it as below."
+type: software
+title: "SINEderella: genome-wide identification, subfamily assignment and characterisation of SINE retrotransposons"
+abstract: "A Bash and Python pipeline: homology search of SINE consensuses against a genome (ssearch36), extraction of copies with flanks, assignment to subfamily consensuses by ten-cycle unanimous voting with a bitscore threshold, post-processing (leak and conflict flags, similarity ratios), satellite and tandem-array screening, length-version and consensus audits, and an HTML report with publish-quality alignments."
+authors:
+  - name: "Toki-bio"
+    website: "https://github.com/Toki-bio"
+repository-code: "https://github.com/Toki-bio/SINEderella"
+url: "https://github.com/Toki-bio/SINEderella"
+license-url: "https://github.com/Toki-bio/SINEderella"
+version: "2026.10"
+date-released: "2026-10-05"
+keywords:
+  - SINE
+  - retrotransposon
+  - transposable elements
+  - subfamily
+  - genome annotation
+references:
+  - type: software
+    title: "FASTA36 (ssearch36)"
+    authors:
+      - family-names: Pearson
+        given-names: William R.
+    url: "https://github.com/wrpearson/fasta36"
+  - type: software
+    title: "MAFFT"
+    authors:
+      - family-names: Katoh
+        given-names: Kazutaka
+    url: "https://mafft.cbrc.jp/alignment/software/"

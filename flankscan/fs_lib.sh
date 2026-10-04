@@ -134,11 +134,11 @@ fs_fold() {
         for X in "$X1" "$X2" "$X3" "$X4"; do
             [[ "$X" == - ]] && continue
             N=${X%%:*}; R=${X#*:}; S=${R%-*}; E=${R#*-}
-            gawk -v S=$S -v E=$E '!/^>/ { print ">x
-" substr($0, S, E - S + 1) }' "cand/$N.fa" > cand/fold.x.fa
+            # (the string constant used to span a line break; gawk rejects that as an "unterminated string", so this
+            #  gawk failed, fold.x.fa stayed empty and rule 2 never blocked a pair - found in the audit of 2026-10-05)
+            gawk -v S=$S -v E=$E '!/^>/ { print ">x\n" substr($0, S, E - S + 1) }' "cand/$N.fa" > cand/fold.x.fa
             if [[ -n $(ssearch36 -m 8 -E 1e-3 -Z 1000 cand/fold.x.fa cons.masked.fa 2> /dev/null | gawk -F'\t' '$4 >= 40 { print "hit"; exit }') ]]; then
-                printf "%s\t%s
-" "$A" "$B" >> cand/fold.block; break
+                printf "%s\t%s\n" "$A" "$B" >> cand/fold.block; break
             fi
         done
     done < <(gawk -F'\t' '$4 != "-" || $5 != "-" || $6 != "-" || $7 != "-"' cand/fold.pairs)

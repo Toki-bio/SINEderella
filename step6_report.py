@@ -1557,10 +1557,11 @@ LEG_ASSIGN_STATS = [
     ("Subfamily",      "Subfamily name from the consensus FASTA."),
     ("Assigned",       "Copies that passed all assignment criteria "
                        "(unanimous 10/10 vote AND bitscore &ge; threshold)."),
-    ("TopN_Bitscore",  "Bitscore of the N-th best per-subfamily hit "
-                       "(N = min(10, count)); reference for the threshold."),
-    ("Threshold",      "Cutoff applied: 0.45 &times; TopN_Bitscore "
-                       "&times; 100. Copies below this are unassigned."),
+    ("TopN_Bitscore",  "Bitscore of the N-th best per-subfamily copy "
+                       "(N = min(10, count)); reference for the threshold. Step 2 bitscores are the "
+                       "SUM over the 10 voting cycles, so a single-cycle score is about one tenth of this."),
+    ("Threshold",      "Cutoff applied: 0.45 &times; TopN_Bitscore (same 10-cycle sum). "
+                       "Copies below this are unassigned."),
 ]
 
 LEG_BYSUBFAM = [
@@ -1585,13 +1586,13 @@ LEG_BYSUBFAM = [
 
 LEG_THRESHOLDS = [
     ("Subfamily",        "Subfamily name."),
-    ("Threshold (x100)", "Bitscore cutoff used by step2 "
-                         "(stored as integer = bits &times; 100)."),
+    ("Threshold (10-cycle sum)", "Bitscore cutoff used by step2: 0.45 &times; the N-th best copy's bitscore, "
+                         "where step2 bitscores are summed over the 10 voting cycles."),
     ("RealSelfBits",     "ssearch36 bitscore of the consensus aligned "
-                         "against itself (raw bitscore)."),
-    ("Threshold/Self",   "Threshold (in bits, divided back by 100) "
-                         "/ RealSelfBits. Roughly the minimum fractional "
-                         "similarity to consensus a copy must reach."),
+                         "against itself (one alignment, not summed)."),
+    ("Threshold/Self",   "Threshold divided by 10 (one cycle) / RealSelfBits. Roughly the minimum "
+                         "fraction of the consensus self-score a copy must reach (0.45 of the best copies' score). "
+                         "Before 2026-10-05 this column divided by 100 and read ten times too low."),
 ]
 
 LEG_FLAGS = [
@@ -1677,13 +1678,15 @@ def thresholds_table(stats_rows: List[List[str]],
         rb = real.get(sf)
         ratio = ""
         if thr is not None and rb:
-            ratio = f"{(thr / 100.0) / rb:.3f}"
+            # step2 bitscores are summed over the 10 voting cycles (step2_asSINEment.sh: bitscore_sum);
+            # one cycle's score is the sum / 10. Measured on hs21: a copy at 3092 (sum) scores 330 once.
+            ratio = f"{(thr / 10.0) / rb:.3f}"
         rows.append([sf,
                      f"{thr:,}" if thr is not None else "",
                      f"{rb:.1f}" if rb is not None else "",
                      ratio])
     return render_table(
-        ["Subfamily", "Threshold (x100)", "RealSelfBits", "Threshold/Self"],
+        ["Subfamily", "Threshold (10-cycle sum)", "RealSelfBits", "Threshold/Self"],
         rows, max_rows=10000,
         col_titles={k: _strip_html(v) for k, v in LEG_THRESHOLDS})
 
@@ -2599,9 +2602,10 @@ def build_html(run_root: Path,
   <details class="card" id="thresholds">
     <summary><h2>Bitscore thresholds vs consensus self-bits</h2></summary>
     <div class="card-body">
-      <p class="intro">Threshold is stored as integer bits&times;100; real
-      self-bits = ssearch36 score of the consensus vs itself.
-      Threshold/Self &asymp; minimum fractional similarity to pass.</p>
+      <p class="intro">Step2 bitscores are summed over the 10 voting cycles (a copy scoring 310 bits
+      once has 3,100 here); the threshold is 0.45 &times; the N-th best copy's sum. Real self-bits =
+      ssearch36 score of the consensus vs itself, one alignment.
+      Threshold/Self (one cycle's share) &asymp; the minimum fraction of the consensus self-score a copy must reach.</p>
       {render_legend(LEG_THRESHOLDS)}
       {thresholds_table(stats_rows, sbr_rows)}
     </div>
