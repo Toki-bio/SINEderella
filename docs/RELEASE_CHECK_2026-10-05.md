@@ -41,7 +41,8 @@ What the numbers say:
 * `--add`, `--exclude`, `--resume` and the publish flow completed without error; the only warning in all runs is the assembly-quality
   one (chr21 has N-rich edges). Two defects were found by looking at the outputs rather than the exit codes: the resume rebuilt
   `results/` without the satellites link (D25) and, worse, deleted the publish alignments and the report while doing so (D26); both
-  fixed and re-verified on this run the same night (`--resume`, then a report-only publish: Satellites table present, plates intact).
+  fixed and re-verified on this run the same night: full publish (9 plates, 142 s), `--resume` (alignment listing identical before and
+  after, `report.html` kept, satellites link present), report-only publish exit 0 with the Satellites, alignments and thresholds tables.
 * Satellite stage on Alu (D24): every Alu consensus was flagged `SAT_B` by the uniform-null share test (20.4–20.6 % excess) with 0 of
   ~550 regularly spaced runs verified by unit identity, 0 hits excluded. Alu is clustered in GC-rich isochores; the share flag is not
   evidence of arrays and the report now says so. Kind A found 2–6 small Alu-derived tandem loci per consensus (10–34 monomers).
