@@ -272,6 +272,11 @@ consensus of which the monomer covers the largest share; ties -> the shorter con
 (the whole r2, 136 of 146 bp), the 136 bp x 4.6 locus likewise r2, the 59 bp x 4 locus r3. A first version of the rule read the wrong column
 (score as identity) and changed nothing; found by recomputing the pick by hand on the per-consensus records.
 
+**rsi_sat with both rules (tables v5, `rsi_sat/satellites/`):** 34 kind-A loci: 17 P18-derived (61-124 bp monomers of the r10-r8 junction
+region), 4 r2 (the 136-143 bp whole-r2 satellites, 58 + 3 x 4-5 copies), 3 r3, 3 C11, 3 MEG-T2, 1 each r8, r7, P1, r10. Kind B: 42 verified
+arrays (MEG-RS 21, MEG-TR 1, r9 15, r4 2, r10, r7, P26 1 each) against 1 862 runs that are copies; verified mode would remove 2 243 hits
+(the run itself, in flagged mode, removed 2 066: the 177 more are the small r-family arrays, 92 of them r7, 176 r9, 44 r4).
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
