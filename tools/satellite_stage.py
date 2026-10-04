@@ -109,8 +109,10 @@ def main():
         if os.path.exists(pref + ".loci.tsv"):
             for l in list(open(pref + ".loci.tsv"))[1:]:
                 f = l.rstrip("\n").split("\t")
-                # contig start end period copies cons_start cons_end score(aln_len x identity)
-                A.append((f[0], int(f[1]), int(f[2]), int(f[3]), float(f[4]), int(f[9]), int(f[10]), int(f[7]) * float(f[8])))
+                # contig start end period copies cons_start cons_end score identity monomer_cov cons_cov
+                per_, aln_, pid_, cs_, ce_ = int(f[3]), int(f[7]), float(f[8]), int(f[9]), int(f[10])
+                A.append((f[0], int(f[1]), int(f[2]), per_, float(f[4]), cs_, ce_, aln_ * pid_, pid_, min(1.0, aln_ / float(per_)),
+                          (ce_ - cs_ + 1) / float(len(cons[q]))))
         allA.extend((q,) + x for x in A)
         if os.path.exists(pref + ".units.fa"):
             units.append(open(pref + ".units.fa").read())
@@ -133,8 +135,8 @@ def main():
         if a.no_exclude:
             continue
         ex = collections.defaultdict(list)
-        for c, s, e, per, cop, cs, ce, sc in A:
-            ex[c].append((s, e))
+        for rec in A:
+            ex[rec[0]].append((rec[1], rec[2]))
         if a.exclude_b == "all" or (a.exclude_b in ("flagged", "long") and flagB):
             for c, s, e, n, gap in B:
                 ex[c].append((s, e))
@@ -161,21 +163,30 @@ def main():
             excluded += [q + "\t" + l for l in drop]
             print("satellite_stage: %s: %d of %d full hits removed from %s (kept in .before_satellites)" % (q, len(drop), len(keep) + len(drop), os.path.basename(bed)), flush=True)
     # one locus, one consensus: the same array is found through every consensus that shares its head (rsi: a 140 bp monomer
-    # matched all 17 r-families); attribute it to the best alignment (aligned length x identity), note the others
-    allA.sort(key=lambda x: -x[7])
-    taken = collections.defaultdict(list)
-    attributed, also = [], collections.defaultdict(set)
-    for q, c, s, e, per, cop, cs, ce, sc in allA:
-        hit = None
-        for i, (ts, te) in enumerate(taken[c]):
-            if min(te, e) - max(ts, s) > 0.5 * min(te - ts, e - s):
-                hit = i
+    # matched all 17 r-families). Derivation rule (tested on the rsi shared loci, docs/SATELLITES.md 5h): group the records of one
+    # locus; among the consensuses within 3 identity points of the best and covered by the monomer over >= 90 % of the alignment
+    # (if none, all of them), take the consensus of which the monomer covers the largest share (a whole r2 beats the r2 part of a
+    # composite); ties -> the shorter consensus. The others are listed as also_matches.
+    groups = []      # [contig, start, end, [records]]
+    for rec in sorted(allA, key=lambda x: (x[1], x[2])):
+        c, s, e = rec[1], rec[2], rec[3]
+        for g in groups:
+            if g[0] == c and min(g[2], e) - max(g[1], s) > 0.5 * min(g[2] - g[1], e - s):
+                g[3].append(rec)
+                g[1], g[2] = min(g[1], s), max(g[2], e)
                 break
-        if hit is None:
-            taken[c].append((s, e))
-            attributed.append((q, c, s, e, per, cop, cs, ce))
         else:
-            also[(c, taken[c][hit][0])].add(q)
+            groups.append([c, s, e, [rec]])
+    attributed, also = [], collections.defaultdict(set)
+    for c, gs, ge, recs in groups:
+        best_id = max(r[8] for r in recs)
+        cand = [r for r in recs if r[8] >= best_id - 3.0 and r[9] >= 0.9] or [r for r in recs if r[8] >= best_id - 3.0]
+        pick = max(cand, key=lambda r: (r[10], -len(cons[r[0]])))
+        q, _, s, e, per, cop, cs, ce = pick[:8]
+        attributed.append((q, c, s, e, per, cop, cs, ce))
+        for r in recs:
+            if r[0] != q:
+                also[(c, s)].add(r[0])
     per_q = collections.Counter(x[0] for x in attributed)
     mono_q = collections.defaultdict(float)
     big_q = collections.defaultdict(float)
