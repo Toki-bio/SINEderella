@@ -253,6 +253,25 @@ consensus position, from the aligned SINE part), a monomers-per-locus histogram 
 min monomers, contig). Checked on the cobra (block at 34-110 of Squam3C) and rle (MEG-RS arrays of ~2 100, ~880 and ~1 500 bp units) data.
 Not yet in it: per-locus monomer alignments and the per-locus analysis of the 2023 paper (needs the characterisation step, section 4.3).
 
+## 5h. The two rules under test, settled by data (2026-10-04)
+
+**Kind-B exclusion.** `tools/satellite_kindB_verify.py` cuts the units of every regularly spaced run from hit start to hit start and aligns
+each unit with the next one and the one after (the rsi MEG-RS array is dimeric: 2 155 and 1 460 bp units alternate and share only ~800 bp,
+so neighbours alone read as unrelated). Verdict ARRAY when the median unit identity is >= 85 %. Results: rsi MEG-RS 18 of 21 runs ARRAY at
+92-99.8 % (the 3 others 88.7-89.3 %, arrays too under the 85 % rule), MEG-TR 1/1 (a 5.8 kb unit holding both heads), a 26-unit 2.6 kb array
+at NC_142508.1:42.84-42.93 Mb carrying r9/r4/r7/r10 heads, and **1 850 of 1 862 five-to-nine-unit runs of the r-families are ordinary copies**
+(25-55 % unit identity); rle MEG-RS 26 of 35 ARRAY (all 25 of the >= 20-unit runs), MEG-TR 28/28. So neither the family share (misses rle) nor
+the run length (would take 1 850 clusters of copies in rsi) is the criterion: the unit sequence is. The stage now runs the unit check on every
+run and excludes verified arrays (`--exclude-b verified`, default; the SAT_B share flag stays as information). Cost: a few minutes for rsi.
+
+**Attribution of shared kind-A loci.** Per-consensus identity, monomer coverage and consensus coverage were tabulated for every shared locus
+(`rsi_sat/satellites/attribution_test.tsv`). For the 140 bp x 58 locus: C11 95.2 % identity but only 45 % of C11 covered; r2 92.7 % with 93 %
+of r2 covered; r1 92.1 % but only 56 % of the monomer; r4 84.9 %. The alignment-length rule picked C11 (the longest composite) for 16 of 17
+shared loci. Rule now: among consensuses within 3 identity points of the best and covered by the monomer over >= 90 % of the alignment, the
+consensus of which the monomer covers the largest share; ties -> the shorter consensus. The 140 bp satellite is then an **r2-derived satellite**
+(the whole r2, 136 of 146 bp), the 136 bp x 4.6 locus likewise r2, the 59 bp x 4 locus r3. A first version of the rule read the wrong column
+(score as identity) and changed nothing; found by recomputing the pick by hand on the per-consensus records.
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
