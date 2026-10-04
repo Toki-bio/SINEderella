@@ -148,20 +148,44 @@ def _satellites(run_root):
                "No hits were removed.") + "".join(rows) + "</tbody></table>")
 
 
-def section(run_root):
-    bank = _bank(run_root)
-    if bank is None:
-        return ""
+def _import_blocks():
+    """tools/consensus_blocks.py: next to this file (repo, or a run dir with tools/ copied), under SINEDERELLA_TOOLS / SINEDERELLA_BIN,
+    or next to the running step6 script. Returns (module, reason-string when missing)."""
     here = os.path.dirname(os.path.abspath(__file__))
-    sys.path.insert(0, os.path.join(here, "tools"))
+    cands = [os.path.join(here, "tools"), os.environ.get("SINEDERELLA_TOOLS", ""),
+             os.path.join(os.environ.get("SINEDERELLA_BIN", ""), "tools"),
+             os.path.join(os.path.dirname(os.path.abspath(sys.argv[0] or ".")), "tools")]
+    for d in cands:
+        if d and os.path.exists(os.path.join(d, "consensus_blocks.py")) and d not in sys.path:
+            sys.path.insert(0, d)
     try:
         import consensus_blocks as cb
+        return cb, ""
     except Exception as e:
-        sys.stderr.write("WARNING: similarity blocks skipped (%s)\n" % e)
-        return ""
+        return None, "consensus_blocks not importable (%s)" % e
+
+
+def section(run_root):
+    # the four decision tables (length versions, arrays, satellites, consensus audit) are shown whenever their files exist, with
+    # or without the block matrix: before 2026-10-05 a missing consensus_blocks.py or a one-consensus bank dropped them all
+    tables = _length_versions(run_root) + _arrays(run_root) + _satellites(run_root) + _consensus_audit(run_root)
+    bank = _bank(run_root)
+    cb, why = _import_blocks()
+    names = cb.rd(str(bank))[0] if (bank is not None and cb is not None) else []
+    if bank is None or cb is None or len(names) < 2:
+        if cb is None:
+            sys.stderr.write("WARNING: similarity blocks skipped (%s); the decision tables are still shown\n" % why)
+        if not tables:
+            return ""
+        reason = ("the bank has one consensus" if (bank is not None and cb is not None) else
+                  "no consensus file" if bank is None else why)
+        return ("<section class=\"card\" id=\"blocks\">\n  <h2>Sequence similarity between consensuses</h2>\n"
+                "  <p style='opacity:.75'>No block matrix: %s.</p>\n  %s\n</section>\n" % (html.escape(reason), tables))
+    return _blocks_section(run_root, bank, cb, tables)
+
+
+def _blocks_section(run_root, bank, cb, tables):
     names, seqs = cb.rd(str(bank))
-    if len(names) < 2:
-        return ""
     note = ""
     if len(names) > MAXN:
         keep = sorted(range(len(names)), key=lambda i: -len(seqs[i]))[:MAXN]
@@ -238,4 +262,4 @@ A.onchange=B.onchange=draw;document.querySelectorAll('td.bc').forEach(function(t
   <p style="font-size:12px;opacity:.75">All blocks (&ge; 20 bp, &ge; 78 %%) are in <code>results/consensus_blocks.tsv</code>.</p>
   %s
 </section>
-""" % (note, "".join(rows), js, _length_versions(run_root) + _arrays(run_root) + _satellites(run_root) + _consensus_audit(run_root))
+""" % (note, "".join(rows), js, tables)

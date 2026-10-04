@@ -87,6 +87,9 @@ cp -f "$SINEDERELLA_BIN/step6_report.py" "$RUN_ROOT/"
 # its helper modules too (report_hierarchy, report_profile, report_flank_uniqueness, ...): step6 runs from
 # the run dir, and a helper it cannot import silently drops its panel (rsi_v3: no hierarchy section)
 cp -f "$SINEDERELLA_BIN"/report_*.py "$RUN_ROOT/" 2>/dev/null || true
+# report_blocks imports tools/consensus_blocks.py from the run dir; without it the whole similarity section (with the
+# length-version, array, satellite and audit tables) was dropped with a one-line warning (toy run 2026-10-05)
+mkdir -p "$RUN_ROOT/tools" && cp -f "$SINEDERELLA_BIN/tools/consensus_blocks.py" "$RUN_ROOT/tools/" 2>/dev/null || true
 mkdir -p "$RUN_ROOT/results"
 OUT_HTML="$RUN_ROOT/results/report.html"
 

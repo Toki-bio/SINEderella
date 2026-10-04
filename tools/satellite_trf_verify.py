@@ -108,7 +108,10 @@ def faidx_regions(genome, regions, samtools=None):
         for c, s, e in regions:
             tmp.write("%s:%d-%d\n" % (c, s + 1, e))
         tmp.close()
-        r = subprocess.run([sam, "faidx", "-r", tmp.name, genome], capture_output=True, text=True)
+        try:
+            r = subprocess.run([sam, "faidx", "-r", tmp.name, genome], capture_output=True, text=True)
+        except OSError:          # samtools path given but not runnable: streaming fallback
+            return None
     finally:
         os.unlink(tmp.name)
     if r.returncode != 0:
