@@ -236,7 +236,7 @@ Two measures:
   loci for top100, the 100 drawn rows for rand100 (`--limit`). The first version clustered all loci of
   a subfamily; an abundant family (100,000 copies in 2 Gb, one per ~20 kb) then had nearly every copy
   marked — 98 of 100 dispersed top100 copies in a test at genome density
-  (`tests/toy/test_array_order.py`). The toy run caught it before the bat republish.
+  (`tests/toy/toy_array_order.py`). The toy run caught it before the bat republish.
 - **step8a continuation**: ` [array]` rows do not count when deciding to re-extract (above).
 - **verdict** (`verdict.py`, from the plate row names) reports `TANDEM_ARRAY` when ≥ 10 % of the copies
   are in such clusters, and caps the call when ≥ 50 % are (`overall.py` counts it as negative
@@ -295,7 +295,7 @@ term code in advance on toy example"). `tests/toy/`:
 |---|---|
 | `make_toy.py DIR` | builds a SINEderella run dir in seconds: a random 3 Mb + 2 × 100 kb genome, consensuses, `step2_output/assigned.fasta`, `unassigned.tsv` |
 | `run_toy.sh` | runs step8a and `publish/align_for_publish.sh` on it, with PASS/FAIL checks; `SD=` / `DISCD=` point it at test copies of SINEderella / SINE-discriminator |
-| `test_array_order.py tools/array_order.py` | tandem-array selection at genome density (100,000 random loci over 2 Gb + a 20-unit array) |
+| `toy_array_order.py tools/array_order.py` | tandem-array selection at genome density (100,000 random loci over 2 Gb + a 20-unit array) |
 
 Toy families, one per branch: **TOYS** — dispersed + 5-unit array + soft copies (array marks, soft
 top-up); **TOYA** — 8 array units sharing 300 bp + 4 independent copies (must NOT re-extract);

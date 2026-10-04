@@ -45,11 +45,12 @@ def main():
     cands = find_length_variant_pairs(cons, min_id=a.min_id)
     pairs = [p for p in cands if n_assigned.get(p["short"], 0) >= MIN_ASSIGNED and n_assigned.get(p["long"], 0) >= MIN_ASSIGNED]
     untested = [p for p in cands if p not in pairs]
+    capped = []
     out = os.path.join(run, "results", "length_variants")
     os.makedirs(out, exist_ok=True)
     if len(pairs) > a.max_pairs:
-        print("length_variants_run: %d candidate pairs, testing the first %d (--max-pairs)" % (len(pairs), a.max_pairs))
-        pairs = pairs[:a.max_pairs]
+        print("length_variants_run: %d candidate pairs, testing the first %d (--max-pairs); the rest are listed as NOT_TESTED" % (len(pairs), a.max_pairs))
+        pairs, capped = pairs[:a.max_pairs], pairs[a.max_pairs:]
     rows = []
     for p in pairs:
         tag = "%s__%s" % (p["short"], p["long"])
@@ -81,14 +82,14 @@ def main():
         })
         import shutil
         shutil.rmtree(os.path.join(out, tag + ".work"), ignore_errors=True)
+    empty = {"copies_5prime_complete": "", "mode_ends": "", "valley_ratio": "", "linkage_index": "", "diagnostic_columns": "", "tsd_excess_points": ""}
+    for p in capped:     # beyond --max-pairs: listed, so that no candidate pair disappears from the table (2026-10-05)
+        rows.append(dict(empty, short=p["short"], long=p["long"], consensus_identity=p["identity"], extra_bp=p["extra"], verdict="NOT_TESTED",
+                         notes="beyond --max-pairs %d: rerun with LENGTH_VARIANTS_MAX_PAIRS raised, or by hand (tools/length_variants.py)" % a.max_pairs))
     for p in untested:   # a candidate pair with too few copies: flagged, to be tested on a species that has more
-        rows.append({
-            "short": p["short"], "long": p["long"], "consensus_identity": p["identity"], "extra_bp": p["extra"],
-            "verdict": "NOT_TESTED", "copies_5prime_complete": "", "mode_ends": "", "valley_ratio": "", "linkage_index": "",
-            "diagnostic_columns": "", "tsd_excess_points": "",
-            "notes": "too few assigned copies (%s: %d, %s: %d; need %d each): test on another species with more copies" % (
-                p["short"], n_assigned.get(p["short"], 0), p["long"], n_assigned.get(p["long"], 0), MIN_ASSIGNED),
-        })
+        rows.append(dict(empty, short=p["short"], long=p["long"], consensus_identity=p["identity"], extra_bp=p["extra"], verdict="NOT_TESTED",
+                         notes="too few assigned copies (%s: %d, %s: %d; need %d each): test on another species with more copies" % (
+                             p["short"], n_assigned.get(p["short"], 0), p["long"], n_assigned.get(p["long"], 0), MIN_ASSIGNED)))
     cols = ["short", "long", "consensus_identity", "extra_bp", "verdict", "copies_5prime_complete", "mode_ends", "valley_ratio",
             "linkage_index", "diagnostic_columns", "tsd_excess_points", "notes"]
     with open(os.path.join(out, "summary.tsv"), "w") as o:

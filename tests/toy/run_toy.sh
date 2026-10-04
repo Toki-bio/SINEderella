@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Toy end-to-end test of step8a and align_for_publish (seconds). Run BEFORE any real publish on changed code.
 # Usage: [SD=<SINEderella dir>] [DISCD=<SINE_discriminator/site>] bash tests/toy/run_toy.sh
-# Unit test of tandem-array selection at realistic density: python3 tests/toy/test_array_order.py tools/array_order.py
+# Unit test of tandem-array selection at realistic density: python3 tests/toy/toy_array_order.py tools/array_order.py
 source ~/miniforge3/etc/profile.d/conda.sh; conda activate sinederella
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/SINEderella:$HOME/SINEderella/bin:$HOME/SubFam:$PATH" TMPDIR=$HOME/tmp
@@ -16,7 +16,7 @@ echo "--- plates"; for f in $A/*.aln.fa; do printf "%-24s rows %3d soft %2d arra
 echo "--- checks"
 chk() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; fi; }
 chk "TOYS top100: 5 array units marked"                 '[ $(grep -c "\[array\]" $A/toy_TOYS_top100.aln.fa) -eq 5 ]'
-# selection of one unit per array into top100 is covered by test_array_order.py (plate row order is MAFFT's)
+# selection of one unit per array into top100 is covered by toy_array_order.py (plate row order is MAFFT's)
 chk "TOYS: 4 soft rows"                                 '[ $(grep -c "\[soft\]" $A/toy_TOYS_top100.aln.fa) -eq 4 ]'
 chk "TOYB/TOYC/TOYL: no array marks"                    '[ $(cat $A/toy_TOYB_*.aln.fa $A/toy_TOYC_*.aln.fa $A/toy_TOYL_*.aln.fa | grep -c "\[array\]") -eq 0 ]'
 chk "TOYC soft-only plates exist, 3 soft rows"          '[ $(grep -c "\[soft\]" $A/toy_TOYC_top100.aln.fa) -eq 3 ]'

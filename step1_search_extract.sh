@@ -124,7 +124,8 @@ cd ..
 
 # --- SATELLITE SCREEN (docs/SATELLITES.md): SINE-derived satellites and SINE-containing tandem arrays, found from the hits
 #     and TRF on the hit windows, before extraction / SubFam / assignment see them. SKIP_SATELLITES=1 skips it;
-#     SATELLITE_EXCLUDE=0 writes the tables but removes nothing; SATELLITE_EXCLUDE_B=flagged|all|none for kind-B arrays.
+#     SATELLITE_EXCLUDE=0 writes the tables but removes nothing; SATELLITE_EXCLUDE_B=verified|flagged|long|all|none for kind-B
+#     arrays (default verified: runs whose units are near-identical, docs/SATELLITES.md 5h; the tool's own default is the same).
 _TOOLS="${SINEDERELLA_TOOLS:-$(dirname "$(readlink -f "$0")")/tools}"
 if [[ "${SKIP_SATELLITES:-0}" == "1" ]]; then
     echo "[$(date)] SKIP_SATELLITES=1 - satellite screen skipped"
@@ -132,7 +133,7 @@ elif [[ -f "$_TOOLS/satellite_stage.py" ]] && command -v trf >/dev/null 2>&1; th
     echo "[$(date)] Satellite screen (tools/satellite_stage.py) on searches/"
     _SAT_ARGS=(--searches searches --genome "$GENOME" --cons "$CONSENSUS" --out satellites --threads "${THREADS:-$(nproc 2>/dev/null || echo 8)}")
     [[ "${SATELLITE_EXCLUDE:-1}" == "0" ]] && _SAT_ARGS+=(--no-exclude)
-    _SAT_ARGS+=(--exclude-b "${SATELLITE_EXCLUDE_B:-flagged}")
+    _SAT_ARGS+=(--exclude-b "${SATELLITE_EXCLUDE_B:-verified}")
     python3 "$_TOOLS/satellite_stage.py" "${_SAT_ARGS[@]}" 2>&1 | tee satellites.log >&2         || echo "[$(date)] WARNING: satellite screen failed (see satellites.log); continuing with the unfiltered hits" >&2
 else
     echo "[$(date)] Satellite screen skipped (tools/satellite_stage.py or trf not found)"
@@ -278,7 +279,7 @@ echo "[$(date)] Aligning $CLUSTERS clusters with consensus using MAFFT..."
 
 cat input_reps.fasta "$CONSENSUS_PATH" > combined_input.fasta
 
-mafft --thread "$(nproc)" --threadit 0 \
+mafft --thread "${THREADS:-$(nproc)}" --threadit 0 \
       --localpair \
       --maxiterate 1000 \
       --ep 0.123 \

@@ -44,7 +44,9 @@ SIM_SCORES="$OUT/sim_scores.tsv"
 ALL="$OUT/all_sines.bedlike.ALL.tsv"
 SUMMARY="$OUT/summary.by_subfam.tsv"
 
-tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/postprocess_tmp.XXXXXX")
+# temp under the run directory, as step 2 and step 8a do: /tmp is RAM on some hosts (therioserver) and the per-subfamily copies.fa
+# and all_sim.m8 of a million-copy run are hundreds of MB (2026-10-05). TMPDIR, when set, still wins.
+tmpdir=$(mktemp -d "${TMPDIR:-$RUN_ROOT}/.postprocess_tmp.XXXXXX")
 mkdir -p "$tmpdir"
 trap 'rm -rf "$tmpdir"' EXIT
 

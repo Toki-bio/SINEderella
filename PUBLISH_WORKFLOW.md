@@ -74,7 +74,7 @@ SINEderella --publish genome.fa consensi.fa
 | `LENGTH_VARIANTS_MAX_PAIRS` | optional (12) | cap on candidate pairs tested per run |
 | `SKIP_SATELLITES` | optional (0) | `1` skips the satellite screen inside step 1 (SINE-derived satellites and SINE-containing tandem arrays; docs/SATELLITES.md) |
 | `SATELLITE_EXCLUDE` | optional (1) | `0` writes the satellite tables but removes no hits |
-| `SATELLITE_EXCLUDE_B` | optional (flagged) | kind-B arrays removed for flagged consensuses only, `all`, or `none` |
+| `SATELLITE_EXCLUDE_B` | optional (verified) | which kind-B (regularly spaced) runs leave the SINE analysis: `verified` = runs whose units are near-identical (median unit identity ≥ 85 %, the rule settled on rsi/rle, docs/SATELLITES.md 5h); `flagged` = all runs of consensuses with ≥ 20 % excess over chance; `long` = flagged plus runs of ≥ 10 units above the chance-calibrated minimum; `all`; `none` |
 | `SKIP_CONSENSUS_AUDIT` | optional (0) | `1` skips the consensus audit (each consensus rebuilt from its assigned copies; see docs/CONSENSUS_AUDIT.md) |
 | `CONSENSUS_AUDIT_JOBS` | optional (8) | parallel rebuilds in the consensus audit |
 

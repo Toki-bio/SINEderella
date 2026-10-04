@@ -736,7 +736,7 @@ mode_full(){
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
   for _tool in orient_consensus_bank.py orient_publish_aln.py \
-               satellite_stage.py satellite_screen.py satellite_trf_verify.py array_order.py; do   # the last four: satellite screen inside step1
+               satellite_stage.py satellite_screen.py satellite_trf_verify.py satellite_kindB_verify.py array_order.py; do   # the last five: satellite screen inside step1 (tests/test_run_tools_copy.py checks this list against the imports)
     [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
       cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
   done
@@ -891,7 +891,7 @@ mode_add(){
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
   for _tool in orient_consensus_bank.py orient_publish_aln.py \
-               satellite_stage.py satellite_screen.py satellite_trf_verify.py array_order.py; do   # the last four: satellite screen inside step1
+               satellite_stage.py satellite_screen.py satellite_trf_verify.py satellite_kindB_verify.py array_order.py; do   # the last five: satellite screen inside step1 (tests/test_run_tools_copy.py checks this list against the imports)
     [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
       cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
   done
@@ -1058,7 +1058,7 @@ mode_exclude(){
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
   for _tool in orient_consensus_bank.py orient_publish_aln.py \
-               satellite_stage.py satellite_screen.py satellite_trf_verify.py array_order.py; do   # the last four: satellite screen inside step1
+               satellite_stage.py satellite_screen.py satellite_trf_verify.py satellite_kindB_verify.py array_order.py; do   # the last five: satellite screen inside step1 (tests/test_run_tools_copy.py checks this list against the imports)
     [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p "$RUN/tools" && \
       cp -f "$SCRIPT_DIR/tools/$_tool" "$RUN/tools/"
   done
@@ -1189,6 +1189,12 @@ mode_resume(){
   for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" ./
   done
+  for _tool in orient_consensus_bank.py orient_publish_aln.py \
+               satellite_stage.py satellite_screen.py satellite_trf_verify.py satellite_kindB_verify.py array_order.py; do   # the last five: satellite screen inside step1 (tests/test_run_tools_copy.py checks this list against the imports)
+    [[ -f "$SCRIPT_DIR/tools/$_tool" ]] && mkdir -p ./tools && \
+      cp -f "$SCRIPT_DIR/tools/$_tool" ./tools/
+  done
+  export SINEDERELLA_TOOLS="$(pwd -P)/tools"
   [[ -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ]] && \
     cp -f "$SCRIPT_DIR/tools/audit_consensus_bank.py" ./
   chmod +x ./step1_search_extract.sh ./step2_asSINEment.sh \
