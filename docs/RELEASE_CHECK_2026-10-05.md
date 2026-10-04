@@ -39,7 +39,15 @@ What the numbers say:
 * **Subfamily agreement** between SINEderella's firm label and RepeatMasker's name is 99–100 % for AluJb and AluSx; AluY 89.5 % (190 of
   1,836 firm AluY loci carry a RepeatMasker AluS* name, mostly AluSx/AluSc copies near the Y/S boundary).
 * `--add`, `--exclude`, `--resume` and the publish flow completed without error; the only warning in all runs is the assembly-quality
-  one (chr21 has N-rich edges).
+  one (chr21 has N-rich edges). Two defects were found by looking at the outputs rather than the exit codes: the resume rebuilt
+  `results/` without the satellites link (D25) and, worse, deleted the publish alignments and the report while doing so (D26); both
+  fixed and re-verified on this run the same night (`--resume`, then a report-only publish: Satellites table present, plates intact).
+* Satellite stage on Alu (D24): every Alu consensus was flagged `SAT_B` by the uniform-null share test (20.4–20.6 % excess) with 0 of
+  ~550 regularly spaced runs verified by unit identity, 0 hits excluded. Alu is clustered in GC-rich isochores; the share flag is not
+  evidence of arrays and the report now says so. Kind A found 2–6 small Alu-derived tandem loci per consensus (10–34 monomers).
+* Consensus audit on the add run: AluSx and AluY rebuild within 4 mismatches of the Dfam consensus (MATCH); AluJb rebuilds DIVERGED
+  (its chr21 copies are 17 % diverged and the pool holds AluJo/AluJr copies labelled AluJb), as the audit is meant to show.
+* Length-version test: no candidate pair (the three Alus are the same length), so no table.
 
 ## 3. Mouse chr19 (mm39, 61.4 Mb), B1_Mus1 (148 bp) and B2_Mm2 (195 bp)
 

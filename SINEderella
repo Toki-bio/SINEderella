@@ -419,8 +419,15 @@ rebuild_consensus_bank(){
 build_results_links(){
   local OUT_STEP2="$1" f      # step2 output dir, relative to the run dir (cwd)
   log "Creating results/ directory"
-  rm -rf results
+  # Only the entries this function makes are replaced. `rm -rf results` here used to take the publish
+  # alignments (results/alignments, hours of MAFFT on a big run) and report.html with it on every
+  # --resume of a finished run (found on the chr21 release check, 2026-10-05).
   mkdir -p results
+  for f in summary.by_subfam.tsv all_sines.bedlike.ALL.tsv unassigned.tsv assignment_stats.tsv assignment_full.tsv \
+           all_votes.tsv self_bits.tsv self_bits_real.tsv sim_scores.tsv assigned.fasta unassigned.fasta subfamilies plots \
+           extracted.fasta all_hits.labeled.bed regions.by_subfam.bed satellites consensuses.fa assembly_qc.tsv; do
+    [[ -L "results/$f" || -f "results/$f" ]] && rm -f "results/$f"
+  done
   for f in summary.by_subfam.tsv all_sines.bedlike.ALL.tsv unassigned.tsv \
            assignment_stats.tsv assignment_full.tsv all_votes.tsv self_bits.tsv \
            self_bits_real.tsv sim_scores.tsv assigned.fasta unassigned.fasta; do
