@@ -70,8 +70,34 @@ The run is correct; the bank is incomplete for the question "all B1/B2 copies of
 
 ## 4. Tal-page species (rsi, tbr, rle)
 
-Running at the time of writing (`~/tmp/release_check/tal/`): rsi with the 21-consensus bank (reference `~/rhin/rsi_fresh2/run_20261002_112935`),
-then tbr and rle with `chiro_bank.fa` (references: the 2026-09-27 `run_add_*` runs). Results are appended here when they finish.
+### rsi, *Rhinolophus sinicus* (2.1 Gb), 21-consensus bank `bank21.fa`; reference `~/rhin/rsi_fresh2/run_20261002_112935` (2026-10-02, before the satellite stage)
+
+Full run 84 min (step 1 with the satellite stage 61 min, step 2 12 min, step 3 1 min, step 4 4 min, length versions 1 min, audit 3 min);
+66,569 loci; 59 publish plates. No warning in any step.
+
+| Family | new | reference | | Family | new | reference |
+|---|---|---|---|---|---|---|
+| r1_r3_P1 | 14,526 | 14,482 | | r6_210seqs | 6,888 | 6,585 |
+| r1_r3_P2 | 6,890 | 6,894 | | r9_15seqs | 6,846 | 6,844 |
+| r5_r6_P26 | 5,670 | 5,662 | | r7_133seqs | 6,847 | 6,849 |
+| r10_r8_P18 | 4,235 | 4,239 | | r8_83seqs | 3,382 | 3,356 |
+| r1_r2_r3_r3_C11 | 2,926 | 2,922 | | r5_27seqs | 1,885 | 1,892 |
+| r5_r3_P34 | 1,617 | 1,616 | | r10_19seqs | 775 | 783 |
+| r5_r5_P48 | 498 | 470 | | **MEG-RS** | **129** | **1,715** |
+| MEG-T2 | 109 | 112 | | MEG-TR | 21 | 21 |
+
+Every family is within the `-z 11` noise (± 1 %) or explained: **MEG-RS 1,715 → 129** is the satellite stage removing its 21 verified
+arrays before assignment (2,243 hits excluded in all: 42 verified kind-B arrays, 34 kind-A loci; 1,856 regularly spaced runs were
+ordinary copies and stayed), exactly the rsi_sat v5 numbers of docs/SATELLITES.md 5h; r6 +4.6 % and r5_r5_P48 +6 % are the two families
+that share copies with the removed MEG-RS/MEG-RL loci and the re-vote. Length-version verdicts (7 pairs) and consensus-audit verdicts
+(21 families) are identical to the reference. The satellite table reproduces rsi_sat (MEG-RS SAT_B 21/21 arrays verified, MEG-TR 1/1,
+r9 15 small arrays, r4 2, r10/r7/r5_r6 1 each; kind A after attribution: 17 P18-type, 4 r2, 3 r3, 3 C11, 3 MEG-T2, ...). The regression
+test passes.
+
+### tbr, rle (bats, `chiro_bank.fa`)
+
+Running from the fresh clone updated to `d0d975d` (the first driver died with its SSH session after the rsi publish; relaunched detached
+with `setsid nohup`). Results appended when done.
 
 ## 5. Scoring
 
