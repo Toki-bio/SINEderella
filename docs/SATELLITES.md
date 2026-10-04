@@ -1,7 +1,9 @@
 # SINE-derived satellites and SINE-containing tandem arrays: a screen before the SINE analysis
 
-Design note for a separate sub-task (2026-10-03). Nothing in this document is implemented yet, apart from the
-tandem-array flag described under "What SINEderella does today". The sub-task brief is at the end.
+Design note of 2026-10-03, then the record of the implementation (sections 5b–5h). Sections 1–4 are the design as written before any
+code; what runs today is `tools/satellite_stage.py` inside step 1 (5e), with the kind-A gate + windowed TRF (5d), the kind-B unit check
+(5h) and the Tal viewer (5g). Not implemented: the characterisation of 4.3 (monomer as a SINE candidate, per-locus analysis).
+Status 2026-10-05: the stage is wired in every mode (`--add` screens the added consensuses with `--only`); audit in `docs/AUDIT_2026-10-05.md`.
 
 ## 1. Why a separate stage
 

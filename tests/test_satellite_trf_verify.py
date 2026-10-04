@@ -50,11 +50,32 @@ class Trf(unittest.TestCase):
         g = os.path.join(d, "g.fa")
         open(g, "w").write(">c1 desc\n" + "ACGT" * 100 + "\n>c2\n" + "TTGA" * 100 + "\n")
         out = os.path.join(d, "w.fa")
-        n = sv.extract_windows(g, [("c1", 0, 200, 2), ("c2", 100, 400, 2)], out)
+        n = sv.extract_windows(g, [("c1", 0, 200, 2), ("c2", 100, 400, 2)], out, samtools="/no/such/samtools")   # streaming path
         self.assertEqual(n, 2)
         txt = open(out).read().split(">")[1:]
         self.assertTrue(txt[0].startswith("c1:0-200"))
         self.assertEqual(len(txt[1].split("\n", 1)[1].strip()), 300)
+
+    def test_faidx_regions_equals_streaming(self):
+        """the samtools path (audit D10) must give the streaming path's sequences, ends past the contig clamped; skipped without samtools"""
+        import shutil
+        sam = shutil.which("samtools")
+        d = tempfile.mkdtemp()
+        g = os.path.join(d, "g.fa")
+        s1, s2 = "".join("ACGT"[(i * 7) % 4] for i in range(1000)), "".join("TTGAC"[(i * 3) % 5] for i in range(700))
+        open(g, "w").write(">c1 desc\n" + "\n".join(s1[i:i + 60] for i in range(0, 1000, 60)) + "\n>c2\n" + s2 + "\n")
+        regions = [("c1", 0, 200), ("c1", 950, 1200), ("c2", 100, 400), ("c1", 10, 20)]
+        self.assertIsNone(sv.faidx_regions(g, regions, samtools="/no/such/samtools"))
+        if not sam:
+            self.skipTest("needs samtools")
+        got = sv.faidx_regions(g, regions, samtools=sam)
+        want = [s1[0:200], s1[950:1000], s2[100:400], s1[10:20]]
+        self.assertEqual(got, want)
+        out1, out2 = os.path.join(d, "w1.fa"), os.path.join(d, "w2.fa")
+        wins = [(c, s, e, 1) for c, s, e in regions]
+        sv.extract_windows(g, wins, out1, samtools="/no/such/samtools")
+        sv.extract_windows(g, wins, out2, samtools=sam)
+        self.assertEqual(open(out1).read(), open(out2).read())
 
 
 if __name__ == "__main__":

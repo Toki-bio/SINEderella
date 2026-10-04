@@ -83,13 +83,17 @@ def main():
     ap.add_argument("--no-exclude", action="store_true")
     ap.add_argument("--exclude-b", choices=["verified", "flagged", "long", "all", "none"], default="verified")
     ap.add_argument("--long-min-units", type=int, default=10, help="with --exclude-b long: a run counts on its own only with at least this many units and more than the chance-calibrated minimum")
+    ap.add_argument("--only", default="", help="comma list of consensus names: screen only these (SINEderella --add: the new consensuses) and merge their rows into the existing tables of OUT")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     cons = read_fa(a.cons)
+    only = set(x for x in a.only.split(",") if x)
     beds = sorted(glob.glob(os.path.join(a.searches, "gen-*.bed")))
     beds = [b for b in beds if not b.endswith(".before_satellites")]
+    if only:
+        beds = [b for b in beds if query_name(b) in only or query_name(b).replace("|", "_") in {x.replace("|", "_") for x in only}]
     if not beds:
-        print("satellite_stage: no gen-*.bed in %s, nothing to do" % a.searches)
+        print("satellite_stage: no gen-*.bed in %s%s, nothing to do" % (a.searches, " for %s" % ",".join(sorted(only)) if only else ""))
         return 0
     verify = os.path.join(HERE, "satellite_trf_verify.py")
     rows, loci, units, excluded, allA = [], [], [], [], []
@@ -216,17 +220,43 @@ def main():
         big_q[q] = max(big_q[q], cop)
         loci.append(("A", q, c, s, e, per, cop, "%d-%d" % (cs, ce), ",".join(sorted(also.get((c, s), ()))) or "-"))
     rows = [(r[0], r[1], r[2], per_q.get(r[0], 0), int(mono_q.get(r[0], 0)), big_q.get(r[0], 0)) + r[6:12] + ("SAT_A" if per_q.get(r[0], 0) else "-", r[13]) for r in rows]
+    HDR = "consensus\tcons_len\tfull_hits\tkindA_loci\tkindA_monomers\tkindA_largest\tkindB_runs\tkindB_pct\tkindB_excess_pct\tkindB_long_min\tkindB_long_runs\tkindB_verified_arrays\tflag_A\tflag_B\n"
+    LHDR = "#kind\tconsensus\tcontig\tstart\tend\tperiod_or_unit\tmonomers_or_hits\tsine_part\talso_matches_or_unit_check\n"
+    done = {r[0] for r in rows}
+
+    def kept_rows(path, header, col):
+        """with --only: the rows of the existing table for the consensuses not screened now (same header only; another format is
+        set aside as .prev and reported)"""
+        if not only or not os.path.exists(path):
+            return []
+        lines = open(path).read().splitlines(True)
+        if not lines or lines[0] != header:
+            os.replace(path, path + ".prev")
+            print("satellite_stage: %s had another format; kept as .prev, rewritten with the screened consensuses only" % os.path.basename(path))
+            return []
+        return [l for l in lines[1:] if l.split("\t")[col] not in done]
+
+    old_ind = kept_rows(os.path.join(a.out, "indication.tsv"), HDR, 0)
+    old_loci = kept_rows(os.path.join(a.out, "loci.bed"), LHDR, 1)
     with open(os.path.join(a.out, "indication.tsv"), "w") as o:
-        o.write("consensus\tcons_len\tfull_hits\tkindA_loci\tkindA_monomers\tkindA_largest\tkindB_runs\tkindB_pct\tkindB_excess_pct\tkindB_long_min\tkindB_long_runs\tkindB_verified_arrays\tflag_A\tflag_B\n")
+        o.write(HDR)
+        o.writelines(old_ind)
         for r in rows:
             o.write("%s\t%d\t%d\t%d\t%d\t%.0f\t%d\t%.1f\t%.1f\t%s\t%d\t%d\t%s\t%s\n" % r)
     with open(os.path.join(a.out, "loci.bed"), "w") as o:
-        o.write("#kind\tconsensus\tcontig\tstart\tend\tperiod_or_unit\tmonomers_or_hits\tsine_part\talso_matches_or_unit_check\n")
+        o.write(LHDR)
+        o.writelines(old_loci)
         for l in sorted(loci, key=lambda x: (x[2], x[3])):
             l = l if len(l) == 9 else l + ("-",)
             o.write("\t".join(str(x) for x in l) + "\n")
+    if only:      # units of every consensus screened so far: rebuilt from the per-consensus files
+        units = [open(f).read() for f in sorted(glob.glob(os.path.join(a.out, "*.kindA.units.fa")))]
     open(os.path.join(a.out, "units.fa"), "w").write("".join(units))
-    with open(os.path.join(a.out, "excluded_hits.bed"), "w") as o:
+    exf = os.path.join(a.out, "excluded_hits.bed")
+    old_ex = [l for l in open(exf)] if (only and os.path.exists(exf)) else []
+    old_ex = [l for l in old_ex if l.split("\t")[0] not in done]
+    with open(exf, "w") as o:
+        o.writelines(old_ex)
         o.writelines(excluded)
     na = sum(r[3] for r in rows)
     print("satellite_stage: %d consensuses, %d kind-A loci (%d distinct; %d found through more than one consensus), %d consensuses SAT_B, %d hits excluded -> %s" % (

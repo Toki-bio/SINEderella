@@ -25,6 +25,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))     # same directory in the repo and in a run's tools/
+import satellite_trf_verify as sv  # noqa: E402  (faidx_regions)
+
 MAX_UNITS = 12
 MIN_ID = 85.0
 
@@ -61,14 +64,21 @@ def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_I
         hs.sort()
         for k in range(min(len(hs) - 1, max_units)):
             regions.append((i, k, c, hs[k][0], hs[k + 1][0]))
-    by_c = collections.defaultdict(list)
-    for r in regions:
-        by_c[r[2]].append(r)
     tmp = tempfile.mkdtemp(prefix="kindB_", dir=workdir)
     seqs = {}
-    for name, seq in read_fasta_stream(genome):
-        for i, k, c, s, e in by_c.get(name, ()):
-            seqs[(i, k)] = seq[s:e]
+    # random access through samtools faidx when available (one genome pass per consensus was the cost of the stage, audit D10);
+    # the streaming path below gives the same sequences
+    got = sv.faidx_regions(genome, [(c, s, e) for i, k, c, s, e in regions])
+    if got is not None:
+        for (i, k, c, s, e), sq in zip(regions, got):
+            seqs[(i, k)] = sq
+    else:
+        by_c = collections.defaultdict(list)
+        for r in regions:
+            by_c[r[2]].append(r)
+        for name, seq in read_fasta_stream(genome):
+            for i, k, c, s, e in by_c.get(name, ()):
+                seqs[(i, k)] = seq[s:e]
     results = {}
     for i, run in enumerate(sel):
         units = [(k, seqs[(i, k)]) for k in range(max_units) if (i, k) in seqs and len(seqs[(i, k)]) >= 50]

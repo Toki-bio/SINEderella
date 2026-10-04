@@ -90,12 +90,53 @@ def read_fasta_stream(path):
         yield name, "".join(buf)
 
 
-def extract_windows(genome, wins, out_fa):
-    by = collections.defaultdict(list)
-    for w in wins:
-        by[w[0]].append(w)
+def faidx_regions(genome, regions, samtools=None):
+    """[(contig, start0, end)] -> [sequence] through `samtools faidx -r` (random access through the .fai index; the index is made
+    when missing, next to the genome, as step 1 does). Returns None when samtools is not available, so that callers fall back to
+    streaming the FASTA. Sequences come back in the order of the regions; an end past the contig is clamped by samtools, like the
+    streaming path's seq[s:min(e, len)]. Reading the whole genome once per consensus was the cost of the stage (audit D10, 2026-10-05)."""
+    sam = samtools or shutil.which("samtools")
+    if not sam or not regions:
+        return None
+    if not os.path.exists(genome + ".fai"):
+        try:
+            subprocess.run([sam, "faidx", genome], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (subprocess.CalledProcessError, OSError):
+            return None
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".regions", delete=False)
+    try:
+        for c, s, e in regions:
+            tmp.write("%s:%d-%d\n" % (c, s + 1, e))
+        tmp.close()
+        r = subprocess.run([sam, "faidx", "-r", tmp.name, genome], capture_output=True, text=True)
+    finally:
+        os.unlink(tmp.name)
+    if r.returncode != 0:
+        return None
+    out, cur = [], None
+    for line in r.stdout.splitlines():
+        if line.startswith(">"):
+            cur = []
+            out.append(cur)
+        elif cur is not None:
+            cur.append(line.strip())
+    seqs = ["".join(x) for x in out]
+    return seqs if len(seqs) == len(regions) else None
+
+
+def extract_windows(genome, wins, out_fa, samtools=None):
     n = 0
+    seqs = faidx_regions(genome, [(c, s, e) for c, s, e, k in wins], samtools)
     with open(out_fa, "w") as fh:
+        if seqs is not None:
+            for (c, s, e, k), sub in zip(wins, seqs):
+                if len(sub) >= 100:
+                    fh.write(">%s:%d-%d\n%s\n" % (c, s, s + len(sub), sub))
+                    n += 1
+            return n
+        by = collections.defaultdict(list)
+        for w in wins:
+            by[w[0]].append(w)
         for name, seq in read_fasta_stream(genome):
             for c, s, e, k in by.get(name, ()):
                 sub = seq[s:min(e, len(seq))]

@@ -11,6 +11,7 @@ A reproducible Bash pipeline for genome-wide identification, classification, and
 | 3 | `step3_postprocess.sh` | Postprocess assignments: compute per-subfamily statistics, generate summary tables |
 | 4 | `step4_plots.sh` | Generate divergence plots and conservation statistics per subfamily |
 | 5 | `step5_align_subfamilies.sh` | Cross-species subfamily alignment against consensus bank |
+| 6 | `step6_report.sh` / `step6_report.py` | HTML report (`results/report.html`): subfamily table, divergence, plates, element hierarchy, similarity blocks with the length-version, array, satellite and consensus-audit tables |
 | 7 | `step7_boundary_refine.sh` | Standalone/modular: per-subfamily boundary refinement — stepwise flank extension until a fraction-of-pairs-above-threshold test confirms background-level identity (or hits a 1000bp cap), writes `boundary_refinement.tsv` |
 | 8a | `step8a_extract_alignments.sh` | Standalone/modular: builds real top100/rand100/subfam alignments per subfamily, using `boundary_refinement.tsv` (if present) to size each subfamily's flanks |
 | 8b | `step8b_publish_report.sh` | Standalone/modular: wires step8a's alignments into an existing `report.html` as MSA-viewer links |
@@ -50,6 +51,11 @@ design philosophy behind this.
 | `tools/length_variants_run.py` | After assignment: is a consensus that is the 5′ part of a longer one a separate SINE or the same element with a worn 3′ end (end modes, linkage, TSD on the copies); [docs/LENGTH_VARIANTS.md](docs/LENGTH_VARIANTS.md) |
 | `tools/array_flag.py`, `tools/array_order.py` | Tandem arrays: copies in runs of regular spacing, a per-family flag and plate selection that takes independent copies first; [docs/ARRAYS.md](docs/ARRAYS.md) |
 | `tools/consensus_audit.py` | After assignment: every consensus rebuilt from its own assigned copies and compared with the bank; uses `tools/vendor/sine_consensus.sh` (seeded copy of the current SINE_consensus bootstrap builder); [docs/CONSENSUS_AUDIT.md](docs/CONSENSUS_AUDIT.md) |
+| `tools/satellite_stage.py` (+ `satellite_screen.py`, `satellite_trf_verify.py`, `satellite_kindB_verify.py`) | Inside step 1, before extraction: SINE-derived satellites (hit windows → TRF → unit vs consensus) and tandem arrays of a longer unit (regular spacing, unit identity) leave the hit set as loci, recorded in `results/satellites/`; [docs/SATELLITES.md](docs/SATELLITES.md) |
+| `tools/consensus_blocks.py`, `report_blocks.py` | Similarity blocks between consensuses (matrix + pair view in the report) |
+| `tools/tsd_curve.py` | TSD share of a plate's copies against shuffled pairs, by minimum length |
+| `canonicalize_consensus_bank.py`, `consensus_bank_lib.py` | Bank cleaning before step 1: RC duplicates merged (same-orientation pairs only at 98 %, lengths within 90 %), simple-repeat tail oriented 3′; length-version candidate pairs |
+| `flankscan/` | Flank analysis in bash/awk: tandem repeats around copies, composites from junction peaks, candidate elements, chains, hierarchy, singletons/TSD, flank twins; `flankscan/HANDOFF.md` |
 | `import_squamata_run.py` | Import SINEderella run results into SINEdb data format (requires sine-kb models) |
 
 ## Dependencies
@@ -60,7 +66,9 @@ design philosophy behind this.
 - `samtools`
 - `seqkit`
 - `cons` (EMBOSS)
-- Python 3 with matplotlib (for plots)
+- `trf` (Tandem Repeats Finder; the satellite stage is skipped with a log line without it), `gawk` (consensus audit, flankscan), `dustmasker` (flankscan)
+- Python 3 with numpy and matplotlib (plots, report panels, consensus blocks)
+- Tests: `python -m pytest` from the repo root (`pytest.ini`; the end-to-end tests need mafft, gawk, samtools and are skipped without them)
 
 ## Documentation
 

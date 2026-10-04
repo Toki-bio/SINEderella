@@ -702,6 +702,29 @@ build_mask(){
   export SEARCH_GENOME="$run/genome.masked.fa"
 }
 
+###############################################################################
+# HELPER: satellite screen for the consensuses added by --add (docs/SATELLITES.md). Step 1 screens every consensus of a full
+# run; a family added later would otherwise never be screened (audit D9, 2026-10-05). Same env vars as step 1; the stage's
+# --only merges the new rows into the tables copied from the source run and removes satellite hits from the new BEDs only.
+###############################################################################
+satellite_stage_add(){
+  local run="$1" names="$2"     # names: comma list
+  local tools="${SINEDERELLA_TOOLS:-$run/tools}"
+  if [[ "${SKIP_SATELLITES:-0}" == "1" ]]; then
+    log "SKIP_SATELLITES=1 - satellite screen skipped for the added consensuses"; return 0
+  fi
+  if [[ ! -f "$tools/satellite_stage.py" ]] || ! command -v trf >/dev/null 2>&1; then
+    log "Satellite screen skipped for the added consensuses (tools/satellite_stage.py or trf not found)"; return 0
+  fi
+  log "Satellite screen (tools/satellite_stage.py --only $names)"
+  local -a args=(--searches "$run/genome.clean_step1/searches" --genome "$run/genome.clean.fa" --cons "$run/consensuses.clean.fa"
+                 --out "$run/genome.clean_step1/satellites" --threads "$THREADS" --only "$names" --exclude-b "${SATELLITE_EXCLUDE_B:-verified}")
+  [[ "${SATELLITE_EXCLUDE:-1}" == "0" ]] && args+=(--no-exclude)
+  python3 "$tools/satellite_stage.py" "${args[@]}" 2>&1 | tee -a "$run/genome.clean_step1/satellites.log" >&2 \
+    || log "WARNING: satellite screen failed for the added consensuses (see genome.clean_step1/satellites.log); their hits stay unfiltered"
+  return 0
+}
+
 mode_full(){
   [[ -f "$GENOME_IN" && -s "$GENOME_IN" ]] || die "GENOME_FASTA must be a non-empty regular file: $GENOME_IN"
   [[ -f "$CONS_IN"   && -s "$CONS_IN"   ]] || die "CONSENSUS_FASTA must be a non-empty regular file: $CONS_IN"
@@ -972,6 +995,9 @@ mode_add(){
   rm -f *.2k.bnk *.2k.bnk.fai *.2k.part_* *.2k.part_*.bnk.fai *_s.fai 2>/dev/null || true
 
   cd "$RUN" || die "Cannot cd back to run dir"
+
+  # Satellite screen of the new consensuses only (the old BEDs are the source run's, already screened)
+  satellite_stage_add "$RUN" "$(echo "$truly_new" | paste -sd, -)"
 
   # Rebuild all BED/extracted data from combined searches
   rebuild_from_searches "$(pwd -P)/genome.clean_step1" "$CONS_EXT"
