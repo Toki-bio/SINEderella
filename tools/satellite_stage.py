@@ -9,7 +9,10 @@ Design: docs/SATELLITES.md (sections 4 and 5). Per consensus:
           full-length hits (gen-<q>.bed); the family is SAT_B when the excess over chance is >= 20 % of its hits.
 Writes OUT/indication.tsv (per consensus), OUT/loci.bed (kind, consensus, locus, monomers, SINE part), OUT/units.fa, OUT/<q>.kindA.loci.tsv.
 Exclusion (default on; --no-exclude writes the tables only): hits of gen-<q>.bed that overlap a kind-A locus, or a kind-B run that counts
-as a satellite locus, are removed. --exclude-b decides which kind-B runs count: `flagged` (default) = runs of SAT_B consensuses only;
+as a satellite locus, are removed. --exclude-b decides which kind-B runs count: `verified` (default) = runs whose units are near-identical
+(satellite_kindB_verify: units cut from hit to hit, neighbours and next-but-one aligned, median identity >= 85 %; rsi: 18 of 21 MEG-RS runs,
+the 26-unit 2.6 kb array at NC_142508.1, and 1 850 of 1 862 five-to-nine-unit runs of the r-families are NOT arrays); `flagged` = runs of
+SAT_B consensuses only;
 `long` = those plus, in any consensus, runs with at least --long-min-units (10) units and at least the chance-calibrated minimum (the smallest
 length chance cannot explain: rle MEG-RS 5, tbr VES 50). Kind-B runs are geometric only (no sequence check of the units yet), and in rsi the
 calibrated minimum was 5 for most r-families, which would have counted hundreds of 5-unit clusters of ordinary copies: hence the 10-unit floor
@@ -30,6 +33,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import satellite_screen as ss  # noqa: E402
+import satellite_kindB_verify as kb  # noqa: E402
 
 FLAG_PCT = 20.0
 
@@ -77,7 +81,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--threads", type=int, default=16)
     ap.add_argument("--no-exclude", action="store_true")
-    ap.add_argument("--exclude-b", choices=["flagged", "long", "all", "none"], default="flagged")
+    ap.add_argument("--exclude-b", choices=["verified", "flagged", "long", "all", "none"], default="verified")
     ap.add_argument("--long-min-units", type=int, default=10, help="with --exclude-b long: a run counts on its own only with at least this many units and more than the chance-calibrated minimum")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -121,15 +125,28 @@ def main():
         brows, bsum = ss.screen(full)
         flagB = bsum["excess_B"] >= FLAG_PCT
         B = [(r[1], r[2], r[3], r[4], r[7]) for r in brows if r[0] == "B"]      # contig start end hits median_gap
+        # the unit check of every run (sequence, not geometry): verified arrays are satellite loci whatever the family share
+        verdicts = {}
+        if B and a.exclude_b != "none":
+            runs = [(q, c, s, e, gap, n) for c, s, e, n, gap in B]
+            st = {q: collections.defaultdict(list)}
+            for c, s, e in full:
+                st[q][c].append((s, e))
+            for c in st[q]:
+                st[q][c].sort()
+            res = kb.verify_runs(runs, st, a.genome, a.out, threads=a.threads)
+            verdicts = {(runs[i][1], runs[i][2]): res[i] for i in res}
+        arrB = [x for x in B if verdicts.get((x[0], x[1]), (0, None, None, "-"))[3] == "ARRAY"]
         lmin = bsum.get("long_min")
         longB = [x for x in B if lmin is not None and x[3] >= max(lmin, a.long_min_units)]
         mono = int(sum(x[4] for x in A))
         rows.append((q, len(cons[q]), len(full), len(A), mono, max((x[4] for x in A), default=0), len(B), bsum["pct_B"], bsum["excess_B"],
-                     lmin if lmin is not None else "-", len(longB), "SAT_A" if A else "-", "SAT_B" if flagB else "-"))   # flag_A re-set below
+                     lmin if lmin is not None else "-", len(longB), len(arrB), "SAT_A" if A else "-", "SAT_B" if flagB else "-"))   # flag_A re-set below
         for c, s, e, n, gap in B:
-            loci.append(("B", q, c, s, e, gap, n, "-"))
-        print("satellite_stage: %s: %d full hits; kind A %d loci (%d monomers); kind B %d runs (%d long, >= %s units), excess %.1f %% %s%s" % (
-            q, len(full), len(A), mono, len(B), len(longB), lmin if lmin is not None else "-", bsum["excess_B"],
+            v = verdicts.get((c, s), (0, None, None, "-"))
+            loci.append(("B", q, c, s, e, gap, n, "-", v[3] + ("" if v[1] is None else " id%.0f" % v[1])))
+        print("satellite_stage: %s: %d full hits; kind A %d loci (%d monomers); kind B %d runs (%d verified arrays, %d long), excess %.1f %% %s%s" % (
+            q, len(full), len(A), mono, len(B), len(arrB), len(longB), bsum["excess_B"],
             "SAT_A " if A else "", "SAT_B" if flagB else ""), flush=True)
         # exclusion
         if a.no_exclude:
@@ -142,6 +159,9 @@ def main():
                 ex[c].append((s, e))
         elif a.exclude_b == "long":
             for c, s, e, n, gap in longB:
+                ex[c].append((s, e))
+        elif a.exclude_b == "verified":
+            for c, s, e, n, gap in arrB:
                 ex[c].append((s, e))
         if not ex:
             continue
@@ -194,13 +214,13 @@ def main():
         mono_q[q] += cop
         big_q[q] = max(big_q[q], cop)
         loci.append(("A", q, c, s, e, per, cop, "%d-%d" % (cs, ce), ",".join(sorted(also.get((c, s), ()))) or "-"))
-    rows = [(r[0], r[1], r[2], per_q.get(r[0], 0), int(mono_q.get(r[0], 0)), big_q.get(r[0], 0)) + r[6:11] + ("SAT_A" if per_q.get(r[0], 0) else "-", r[12]) for r in rows]
+    rows = [(r[0], r[1], r[2], per_q.get(r[0], 0), int(mono_q.get(r[0], 0)), big_q.get(r[0], 0)) + r[6:12] + ("SAT_A" if per_q.get(r[0], 0) else "-", r[13]) for r in rows]
     with open(os.path.join(a.out, "indication.tsv"), "w") as o:
-        o.write("consensus\tcons_len\tfull_hits\tkindA_loci\tkindA_monomers\tkindA_largest\tkindB_runs\tkindB_pct\tkindB_excess_pct\tkindB_long_min\tkindB_long_runs\tflag_A\tflag_B\n")
+        o.write("consensus\tcons_len\tfull_hits\tkindA_loci\tkindA_monomers\tkindA_largest\tkindB_runs\tkindB_pct\tkindB_excess_pct\tkindB_long_min\tkindB_long_runs\tkindB_verified_arrays\tflag_A\tflag_B\n")
         for r in rows:
-            o.write("%s\t%d\t%d\t%d\t%d\t%.0f\t%d\t%.1f\t%.1f\t%s\t%d\t%s\t%s\n" % r)
+            o.write("%s\t%d\t%d\t%d\t%d\t%.0f\t%d\t%.1f\t%.1f\t%s\t%d\t%d\t%s\t%s\n" % r)
     with open(os.path.join(a.out, "loci.bed"), "w") as o:
-        o.write("#kind\tconsensus\tcontig\tstart\tend\tperiod_or_unit\tmonomers_or_hits\tsine_part\talso_matches\n")
+        o.write("#kind\tconsensus\tcontig\tstart\tend\tperiod_or_unit\tmonomers_or_hits\tsine_part\talso_matches_or_unit_check\n")
         for l in sorted(loci, key=lambda x: (x[2], x[3])):
             l = l if len(l) == 9 else l + ("-",)
             o.write("\t".join(str(x) for x in l) + "\n")
@@ -209,7 +229,7 @@ def main():
         o.writelines(excluded)
     na = sum(r[3] for r in rows)
     print("satellite_stage: %d consensuses, %d kind-A loci (%d distinct; %d found through more than one consensus), %d consensuses SAT_B, %d hits excluded -> %s" % (
-        len(rows), na, len(attributed), len(also), sum(1 for r in rows if r[12] == "SAT_B"), len(excluded), a.out))
+        len(rows), na, len(attributed), len(also), sum(1 for r in rows if r[13] == "SAT_B"), len(excluded), a.out))
     return 0
 
 
