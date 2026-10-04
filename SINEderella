@@ -413,6 +413,35 @@ rebuild_consensus_bank(){
 }
 
 ###############################################################################
+# HELPER: the results/ directory of a run: symlinks to the step1/step2/step3 outputs (one list, used by every mode
+# including --resume; it must run BEFORE step 6 / publish, which write results/report.html)
+###############################################################################
+build_results_links(){
+  local OUT_STEP2="$1" f      # step2 output dir, relative to the run dir (cwd)
+  log "Creating results/ directory"
+  rm -rf results
+  mkdir -p results
+  for f in summary.by_subfam.tsv all_sines.bedlike.ALL.tsv unassigned.tsv \
+           assignment_stats.tsv assignment_full.tsv all_votes.tsv self_bits.tsv \
+           self_bits_real.tsv sim_scores.tsv assigned.fasta unassigned.fasta; do
+    [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
+  done
+  [[ -d "$OUT_STEP2/subfamilies" ]] && ln -sfn "../$OUT_STEP2/subfamilies" "results/subfamilies"
+  [[ -d "$OUT_STEP2/plots" ]] && ln -sfn "../$OUT_STEP2/plots" "results/plots"
+  [[ -f genome.clean_step1/extracted.fasta ]] && \
+    ln -sf ../genome.clean_step1/extracted.fasta results/extracted.fasta
+  [[ -f genome.clean_step1/searches/all_hits.labeled.bed ]] && \
+    ln -sf ../genome.clean_step1/searches/all_hits.labeled.bed results/all_hits.labeled.bed
+  [[ -f genome.clean_step1/searches/regions.by_subfam.bed ]] && \
+    ln -sf ../genome.clean_step1/searches/regions.by_subfam.bed results/regions.by_subfam.bed
+  [[ -d genome.clean_step1/satellites ]] && \
+    ln -sfn ../genome.clean_step1/satellites results/satellites
+  [[ -f consensuses.clean.fa ]] && ln -sf ../consensuses.clean.fa results/consensuses.fa
+  [[ -f genome.clean_assembly_qc.tsv ]] && ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
+  return 0
+}
+
+###############################################################################
 # HELPER: run step2 + step3 (shared by all modes)
 ###############################################################################
 run_step2_step3(){
@@ -490,43 +519,7 @@ run_step2_step3(){
     log "Step4 plots skipped (step4_plots.sh or plot_subfamily.py not found in run dir)"
   fi
 
-  log "Creating results/ directory"
-  rm -rf results
-  mkdir -p results
-
-  # Stats & tables
-  for f in summary.by_subfam.tsv all_sines.bedlike.ALL.tsv unassigned.tsv \
-           assignment_stats.tsv assignment_full.tsv all_votes.tsv self_bits.tsv \
-           self_bits_real.tsv sim_scores.tsv; do
-    [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
-  done
-
-  # Sequence files
-  for f in assigned.fasta unassigned.fasta; do
-    [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
-  done
-
-  # Subfamilies directory
-  [[ -d "$OUT_STEP2/subfamilies" ]] && ln -sf "../$OUT_STEP2/subfamilies" "results/subfamilies"
-
-  # Plots directory
-  [[ -d "$OUT_STEP2/plots" ]] && ln -sf "../$OUT_STEP2/plots" "results/plots"
-
-  # Genomic data from step1
-  [[ -f genome.clean_step1/extracted.fasta ]] && \
-    ln -sf ../genome.clean_step1/extracted.fasta results/extracted.fasta
-  [[ -f genome.clean_step1/searches/all_hits.labeled.bed ]] && \
-    ln -sf ../genome.clean_step1/searches/all_hits.labeled.bed results/all_hits.labeled.bed
-  [[ -f genome.clean_step1/searches/regions.by_subfam.bed ]] && \
-    ln -sf ../genome.clean_step1/searches/regions.by_subfam.bed results/regions.by_subfam.bed
-  [[ -d genome.clean_step1/satellites ]] && \
-    ln -sfn ../genome.clean_step1/satellites results/satellites
-
-  # Consensus used
-  [[ -f consensuses.clean.fa ]] && ln -sf ../consensuses.clean.fa results/consensuses.fa
-
-  # Assembly QC
-  [[ -f genome.clean_assembly_qc.tsv ]] && ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
+  build_results_links "$OUT_STEP2"
 
   array_flag_step "$(pwd -P)"
   length_variants_step "$(pwd -P)"
@@ -1306,35 +1299,10 @@ mode_resume(){
       log "Step4 skipped (step4_plots.sh or plot_subfamily.py not found)"
     fi
 
-    # ── Rebuild results/ symlinks ────────────────────────────────────────────
+    # ── Rebuild results/ symlinks (the same list as a fresh run: a second copy of it here had no
+    #    satellites link, and a --resume on a finished run silently dropped results/satellites, 2026-10-05) ──
     log "Rebuilding results/ symlinks"
-    local OUT_STEP2="$existing_s2out"
-    rm -rf results
-    mkdir -p results
-    for f in summary.by_subfam.tsv all_sines.bedlike.ALL.tsv unassigned.tsv \
-             assignment_stats.tsv assignment_full.tsv all_votes.tsv self_bits.tsv \
-             self_bits_real.tsv sim_scores.tsv; do
-      [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
-    done
-    for f in assigned.fasta unassigned.fasta; do
-      [[ -f "$OUT_STEP2/$f" ]] && ln -sf "../$OUT_STEP2/$f" "results/$f"
-    done
-    [[ -d "$OUT_STEP2/subfamilies" ]] && \
-      ln -sf "../$OUT_STEP2/subfamilies" "results/subfamilies"
-    [[ -d "$OUT_STEP2/plots" ]] && \
-      ln -sf "../$OUT_STEP2/plots" "results/plots"
-    [[ -f genome.clean_step1/extracted.fasta ]] && \
-      ln -sf ../genome.clean_step1/extracted.fasta results/extracted.fasta
-    [[ -f genome.clean_step1/searches/all_hits.labeled.bed ]] && \
-      ln -sf ../genome.clean_step1/searches/all_hits.labeled.bed \
-             results/all_hits.labeled.bed
-    [[ -f genome.clean_step1/searches/regions.by_subfam.bed ]] && \
-      ln -sf ../genome.clean_step1/searches/regions.by_subfam.bed \
-             results/regions.by_subfam.bed
-    [[ -f consensuses.clean.fa ]] && \
-      ln -sf ../consensuses.clean.fa results/consensuses.fa
-    [[ -f genome.clean_assembly_qc.tsv ]] && \
-      ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
+    build_results_links "$existing_s2out"
 
     array_flag_step "$(pwd -P)"
     length_variants_step "$(pwd -P)"
