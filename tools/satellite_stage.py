@@ -19,7 +19,8 @@ calibrated minimum was 5 for most r-families, which would have counted hundreds 
 and `flagged` as default. `all` = every run; `none`. They are removed from gen-<q>.bed (the original is kept as gen-<q>.bed.before_satellites and the
 removed hits in OUT/excluded_hits.bed), so that extraction, SubFam (the peel input) and assignment never see them. Nothing is deleted.
 
-Usage: satellite_stage.py --searches DIR --genome G.fa --cons CONSENSUSES.fa --out OUT [--threads 16] [--no-exclude] [--exclude-b flagged|all|none]
+Usage: satellite_stage.py --searches DIR --genome G.fa --cons CONSENSUSES.fa --out OUT [--threads 16] [--no-exclude]
+       [--exclude-b verified|flagged|long|all|none] [--max-verify-runs 2000] [--only NAME,...]
 """
 import argparse
 import collections
@@ -83,6 +84,7 @@ def main():
     ap.add_argument("--no-exclude", action="store_true")
     ap.add_argument("--exclude-b", choices=["verified", "flagged", "long", "all", "none"], default="verified")
     ap.add_argument("--long-min-units", type=int, default=10, help="with --exclude-b long: a run counts on its own only with at least this many units and more than the chance-calibrated minimum")
+    ap.add_argument("--max-verify-runs", type=int, default=2000, help="per consensus, the unit check (ssearch36 per run) is done on at most this many regularly spaced runs, the longest first; the others stay 'untested' and are not excluded")
     ap.add_argument("--only", default="", help="comma list of consensus names: screen only these (SINEderella --add: the new consensuses) and merge their rows into the existing tables of OUT")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -132,7 +134,15 @@ def main():
         # the unit check of every run (sequence, not geometry): verified arrays are satellite loci whatever the family share
         verdicts = {}
         if B and a.exclude_b != "none":
-            runs = [(q, c, s, e, gap, n) for c, s, e, n, gap in B]
+            # one ssearch36 call per run: a hit-dense family (tbr VES, one copy per 3 kb) has tens of thousands of chance runs of
+            # 5-9 copies, so only the --max-verify-runs longest runs are checked; the rest keep the geometric verdict "untested"
+            # and are never excluded (2026-10-05). Real arrays are long and come first.
+            ordered = sorted(B, key=lambda x: -x[3])
+            todo, rest = ordered[:a.max_verify_runs], ordered[a.max_verify_runs:]
+            if rest:
+                print("satellite_stage: %s: %d regularly spaced runs, unit check on the %d longest (--max-verify-runs); %d runs of <= %d hits untested"
+                      % (q, len(B), len(todo), len(rest), rest[0][3]), flush=True)
+            runs = [(q, c, s, e, gap, n) for c, s, e, n, gap in todo]
             st = {q: collections.defaultdict(list)}
             for c, s, e, _strand in full:
                 st[q][c].append((s, e))
@@ -140,6 +150,8 @@ def main():
                 st[q][c].sort()
             res = kb.verify_runs(runs, st, a.genome, a.out, threads=a.threads)
             verdicts = {(runs[i][1], runs[i][2]): res[i] for i in res}
+            for c, s, e, n, gap in rest:
+                verdicts[(c, s)] = (0, None, None, "untested")
         arrB = [x for x in B if verdicts.get((x[0], x[1]), (0, None, None, "-"))[3] == "ARRAY"]
         lmin = bsum.get("long_min")
         longB = [x for x in B if lmin is not None and x[3] >= max(lmin, a.long_min_units)]
