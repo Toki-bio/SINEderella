@@ -130,7 +130,7 @@ def main():
         if B and a.exclude_b != "none":
             runs = [(q, c, s, e, gap, n) for c, s, e, n, gap in B]
             st = {q: collections.defaultdict(list)}
-            for c, s, e in full:
+            for c, s, e, _strand in full:
                 st[q][c].append((s, e))
             for c in st[q]:
                 st[q][c].sort()
