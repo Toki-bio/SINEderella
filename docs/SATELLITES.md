@@ -313,6 +313,20 @@ and its E-value straddles `MAX_E` = 0.01 under the random shuffles of `-z 11` (1
 Kind A was not changed; a locus that sits on both cut-offs is in or out by chance from run to run (with it come 1 excluded hit, 1 region,
 the r10_r8_P18 indication row and 1 unit in `units.fa`).
 
+The current code (2b4d35a: ed86b68's narrow runs verified as well) on the same inputs (`~/tmp/kbspeed/e2e_head/`): **717 s**; the narrow
+runs cost almost nothing more, their unit pairs are those of the wide runs that contain them. It verifies 11 narrow arrays inside wide runs
+that fail, among them the **2 168 bp MEG-RS array on NC_142509.1 (134 hits, 89 %)** that the 7f32adb run judged COPIES inside a wide run
+(the mini-genome case of ed86b68, now on the whole genome); excluded hits 2 404 -> 2 543. The kind B of a run grows with `--threads`
+(`THREADS`): every ssearch36 call is single-threaded and independent.
+
+**Not done: a k-mer screen in front of ssearch36.** Skipping a pair is safe only when its identity is known to be below 70 (a median of 85
+needs both middle values >= 2 x 85 - 100). On 8 005 real pairs (all 47 ARRAY runs and 700 random COPIES runs of rsi; therioserver
+`~/tmp/kbspeed/calib.tsv`) the share of the shorter unit covered by shared k-mers does not give that: 31 of the 625 pairs scoring >= 70
+have < 1 % of their positions in shared 16-mers, 7 share no 12-mer at all (scores 70.8-73.4, units 91-146 bp). At 70-85 % identity spread
+along the unit the mismatches are 3-7 bp apart and no 12-20-mer survives, and an old, evenly diverged array with long units would fall
+through the same way. A screen at 5 % cover would have skipped 68 % of the pairs (76 % of the Smith-Waterman cost), about 2x on top of
+the above, without a guarantee; left out.
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
