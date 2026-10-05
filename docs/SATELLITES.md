@@ -319,6 +319,10 @@ that fail, among them the **2 168 bp MEG-RS array on NC_142509.1 (134 hits, 89 %
 (the mini-genome case of ed86b68, now on the whole genome); excluded hits 2 404 -> 2 543. The kind B of a run grows with `--threads`
 (`THREADS`): every ssearch36 call is single-threaded and independent.
 
+In a real orchestrated run (rsi, `d2d9e6a`, THREADS 32 on 32 pinned CPUs, therioserver `~/tmp/kbspeed/rsi_fast/run_20261006_000626`)
+the stage ran **00:25:07-00:36:40, 11 min 33 s**; 2 543 hits excluded, the 2 168 bp MEG-RS array verified as a narrow run (ARRAY 89 %)
+inside the wide run it was joined to (COPIES 82 %).
+
 **Not done: a k-mer screen in front of ssearch36.** Skipping a pair is safe only when its identity is known to be below 70 (a median of 85
 needs both middle values >= 2 x 85 - 100). On 8 005 real pairs (all 47 ARRAY runs and 700 random COPIES runs of rsi; therioserver
 `~/tmp/kbspeed/calib.tsv`) the share of the shorter unit covered by shared k-mers does not give that: 31 of the 625 pairs scoring >= 70
