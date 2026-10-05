@@ -387,6 +387,21 @@ array_flag_step(){
 }
 
 ###############################################################################
+# HELPER: flank twins (flankscan stage 9 over all firmly assigned copies of every family: copies whose flanks are shared with
+# other copies are not independent insertions; results/flank_twins.tsv and per-family copy_status.tsv, read by step8a for the
+# [twin] marks and the plate order). FS9_SKIP=1 skips it. Genomes over 300 Mb need jellyfish on PATH (20-mer repeat mask).
+###############################################################################
+flank_twins_step(){
+  local rundir="$1"
+  local sh="$SCRIPT_DIR/flankscan/fs9_run.sh"
+  [[ "${FS9_SKIP:-0}" == "1" ]] && { log "FS9_SKIP=1 - flank twins skipped"; return 0; }
+  [[ -f "$sh" ]] || { log "WARNING: $sh missing — flank twins skipped"; return 0; }
+  bash "$sh" "$rundir" "${THREADS:-16}" > "$rundir/flank_twins.log" 2>&1 || log "WARNING: fs9_run.sh failed (see flank_twins.log)"
+  [[ -s "$rundir/results/flank_twins.tsv" ]] && log "Flank twins: $(grep -c . "$rundir/results/flank_twins.tsv" | awk '{print $1-1}') families -> results/flank_twins.tsv"
+  return 0
+}
+
+###############################################################################
 # HELPER: consensus audit (rebuild each consensus from its assigned copies, compare with the bank; tools/consensus_audit.py)
 ###############################################################################
 consensus_audit_step(){
@@ -529,6 +544,7 @@ run_step2_step3(){
   build_results_links "$OUT_STEP2"
 
   array_flag_step "$(pwd -P)"
+  flank_twins_step "$(pwd -P)"
   length_variants_step "$(pwd -P)"
   consensus_audit_step "$(pwd -P)"
 
@@ -1312,6 +1328,7 @@ mode_resume(){
     build_results_links "$existing_s2out"
 
     array_flag_step "$(pwd -P)"
+    flank_twins_step "$(pwd -P)"
     length_variants_step "$(pwd -P)"
     consensus_audit_step "$(pwd -P)"
 

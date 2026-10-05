@@ -264,10 +264,11 @@ extract_flank_align() {
     bedtools getfasta -fi "$GENOME" -bed "$TMPDIR/cur_slop.bed" -s \
         > "$TMPDIR/cur_extracted.fa" 2>/dev/null || return 1
 
-    # Mark soft-assigned rows (loci column 7 == "soft"); getfasta keeps BED order
-    # and loci in tandem clusters (column 8 == "array", tools/array_order.py)
-    awk -F'\t' 'NR==FNR{ soft[NR] = ($7 == "soft"); arr[NR] = ($8 == "array"); next }
-        /^>/ { k++; tag = (soft[k] ? " [soft]" : "") (arr[k] ? " [array]" : "")
+    # Mark soft-assigned rows (loci column 7 == "soft"); getfasta keeps BED order;
+    # loci in tandem clusters (column 8 == "array", tools/array_order.py) and copies whose flanks are shared with other
+    # copies of the family (column 8 == "twin", flankscan stage 9 through array_order --twins)
+    awk -F'\t' 'NR==FNR{ soft[NR] = ($7 == "soft"); arr[NR] = ($8 == "array"); twn[NR] = ($8 == "twin"); next }
+        /^>/ { k++; tag = (soft[k] ? " [soft]" : "") (arr[k] ? " [array]" : "") (twn[k] ? " [twin]" : "")
                if (tag != "") { print $0 tag; next } }
         { print }' "$loci_tsv" "$TMPDIR/cur_extracted.fa" > "$TMPDIR/cur_marked.fa" || return 1
     mv "$TMPDIR/cur_marked.fa" "$TMPDIR/cur_extracted.fa"
@@ -414,8 +415,11 @@ while IFS=$'\t' read -r subfam count; do
         sort -t$'\t' -k2,2nr "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"
         echo "  $subfam: $count firm copies; top100/rand100 filled with soft copies (marked [soft])" >&2
     fi
-    # independent loci first: one copy per tandem cluster before any second one (tools/array_order.py)
-    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/sorted_${idx}.tsv" \
+    # independent loci first: one copy per tandem cluster and per twin group before any second one (tools/array_order.py;
+    # twin groups from flankscan stage 9, results/flank_twins/<subfam>/copy_status.tsv, when the run has them)
+    TWIN_ARGS=()
+    [[ -s "$RUN_ROOT/results/flank_twins/$subfam/copy_status.tsv" ]] && TWIN_ARGS=(--twins "$RUN_ROOT/results/flank_twins/$subfam/copy_status.tsv")
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/sorted_${idx}.tsv" "${TWIN_ARGS[@]}" \
         > "$TMPDIR/sorted_${idx}.ord" && mv "$TMPDIR/sorted_${idx}.ord" "$TMPDIR/sorted_${idx}.tsv"
     head -100 "$TMPDIR/sorted_${idx}.tsv" > "$TMPDIR/top100_${idx}.tsv"
 
@@ -441,7 +445,7 @@ while IFS=$'\t' read -r subfam count; do
     if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
         seeded_shuf "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/shuffled_${idx}.tsv"
     fi
-    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/shuffled_${idx}.tsv" --mark-only --limit 100 \
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/shuffled_${idx}.tsv" --mark-only --limit 100 "${TWIN_ARGS[@]}" \
         > "$TMPDIR/shuffled_${idx}.ord" && mv "$TMPDIR/shuffled_${idx}.ord" "$TMPDIR/shuffled_${idx}.tsv"
     head -100 "$TMPDIR/shuffled_${idx}.tsv" > "$TMPDIR/rand100_${idx}.tsv"
 

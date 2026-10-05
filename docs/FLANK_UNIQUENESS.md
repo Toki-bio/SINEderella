@@ -211,3 +211,15 @@ k-mer above GCAP). The twin shares above (0.3-2.5 % per family) were measured wi
 Also found on the rsi_sat MEG-RS top-100 plate (numeric check of the published plate, 2026-10-05): of the 50 rows that are not
 array units, 16 share a flank at 96-100 % with a row on another contig (unplaced NW_ scaffolds, chromosome ends), i.e. the
 segmental-duplication case this stage is for; the stage is still not wired into the plates.
+
+## Wired into the run (2026-10-05, after the MEG-RS case)
+
+`flankscan/fs9_run.sh RUN_DIR [THREADS] [MIN_COPIES=20]` runs stage 9 over every family with >= 20 firmly assigned copies of a
+run; the orchestrator calls it after assignment (`flank_twins_step`, `FS9_SKIP=1` skips). Output `results/flank_twins.tsv`
+(family copies twin1 twin2 array masked untestable unique pct_twin) and `results/flank_twins/<family>/copy_status.tsv`.
+The run's `genome.clean.fa` has no soft-masking (upper case), so the 20-mer repeat mask is the only filter: for genomes over
+300 Mb `fs9_run.sh` counts canonical 20-mers once with jellyfish (`genome.clean.fa.k20gt20.tsv`, kept) - jellyfish is now a
+dependency (conda `kmer-jellyfish`). step8a reads the family's copy_status.tsv through `tools/array_order.py --twins`: twin
+copies are marked `[twin]` on the plates and the top100 takes one copy per twin group first, as for arrays. Toy: the planted
+segmental duplication of tests/make_toy_satellite.py (3 copies present twice) gives exactly 6 twin1 copies, 0 false twins among
+217 others.

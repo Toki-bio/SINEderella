@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""array_order.py LOCI.tsv [--mark-only] [--limit N] > OUT.tsv
+"""array_order.py LOCI.tsv [--mark-only] [--limit N] [--twins copy_status.tsv] > OUT.tsv
+
+--twins: flankscan stage 9 output for the family (results/flank_twins/<family>/copy_status.tsv): twin copies get column 8 =
+"twin" (an array mark wins) and are clustered by their twin group, so the top100 takes one copy per group first.
 
 step8a loci rows: subfamily, score, ctg, start, end, strand[, soft]. Loci that sit in a TANDEM
 cluster - >= MIN_COPIES on one contig with neighbours <= GAP bp apart - get column 8 = "array"
@@ -31,6 +34,8 @@ consecutive copies on one contig, each gap <= REG_GAP (6 kb) and within a factor
 neighbours in a dispersed family have gaps of very different size and almost never form such a run. The union of both
 rules is used. `regular_runs` is also used by tools/array_flag.py.
 """
+import os
+import re
 import sys
 
 GAP = 50000     # hla MEG-RL: an array with a ~27 kb period
@@ -88,10 +93,25 @@ def regular_runs_wide(loci):
     return out
 
 
+def read_twins(path):
+    """flankscan stage 9 copy_status.tsv (copy status n_partners group): {(contig, start, end): group} for twin copies.
+    Copy names are contig:start-end(strand), the names of assignment_full.tsv / assigned.fasta."""
+    out = {}
+    for line in open(path):
+        f = line.rstrip("\n").split("\t")
+        if len(f) < 4 or f[1] not in ("twin1", "twin2"):
+            continue
+        m = re.match(r"^(.+):(\d+)-(\d+)\([+\-,]+\)$", f[0])
+        if m:
+            out[(m.group(1), m.group(2), m.group(3))] = f[3] if f[3] != "-" else f[0]
+    return out
+
+
 def main(argv):
     path = argv[1]
     mark_only = "--mark-only" in argv
     limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else LIMIT
+    twins = read_twins(argv[argv.index("--twins") + 1]) if "--twins" in argv and os.path.exists(argv[argv.index("--twins") + 1]) else {}
     rows = [l.rstrip("\n").split("\t") for l in open(path) if l.strip()]
     for r in rows:
         while len(r) < 8:
@@ -114,6 +134,16 @@ def main(argv):
     for i, rid in reg.items():
         rows[i][7] = "array"
         cluster[i] = ("r", rid)
+    # copies whose flanks are shared with other copies (flankscan stage 9, --twins): not independent insertions either.
+    # Marked "twin" (an array mark wins) and clustered by their twin group, so the plate takes one copy per group first.
+    for i, r in enumerate(rows):
+        g = twins.get((r[2], r[3], r[4]))
+        if g is None:
+            continue
+        if r[7] != "array":
+            r[7] = "twin"
+        if i not in cluster:
+            cluster[i] = ("t", g)
     if mark_only:
         out = range(len(rows))
     else:
