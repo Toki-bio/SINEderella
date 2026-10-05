@@ -39,10 +39,14 @@ LIMIT = 300
 REG_GAP = 6000     # regular-spacing rule (all loci)
 REG_MIN = 5
 REG_RATIO = 5.0
+WIDE_GAP = 30000   # arrays of long period (rsi MEG-RS, 7 kb unit, was missed at 6 kb): only runs of >= WIDE_MIN copies count
+WIDE_MIN = 10
 
 
-def regular_runs(loci):
+def regular_runs(loci, reg_gap=None, reg_min=None):
     """loci: list of (contig, start). Returns {index: run id} for the copies in tandem runs of regular spacing."""
+    reg_gap = REG_GAP if reg_gap is None else reg_gap
+    reg_min = REG_MIN if reg_min is None else reg_min
     order = sorted(range(len(loci)), key=lambda i: (loci[i][0], loci[i][1]))
     runs, out = 0, {}
     k = 0
@@ -50,7 +54,7 @@ def regular_runs(loci):
         j, gaps = k, []
         while j + 1 < len(order) and loci[order[j + 1]][0] == loci[order[j]][0]:
             g = loci[order[j + 1]][1] - loci[order[j]][1]
-            if g > REG_GAP or g <= 0:
+            if g > reg_gap or g <= 0:
                 break
             if gaps:
                 med = sorted(gaps)[len(gaps) // 2]
@@ -58,11 +62,29 @@ def regular_runs(loci):
                     break
             gaps.append(g)
             j += 1
-        if j - k + 1 >= REG_MIN:
+        if j - k + 1 >= reg_min:
             for m in order[k:j + 1]:
                 out[m] = runs
             runs += 1
-        k = j + 1 if j - k + 1 >= REG_MIN else (j if j > k else k + 1)
+        k = j + 1 if j - k + 1 >= reg_min else (j if j > k else k + 1)
+    return out
+
+
+def regular_runs_wide(loci):
+    """regular_runs plus long-period runs: >= WIDE_MIN copies with gaps up to WIDE_GAP replace the narrow runs they contain.
+    Returns {index: run id}."""
+    out = regular_runs(loci)
+    nxt = max(out.values(), default=-1) + 1
+    wide = {}
+    for i, r in regular_runs(loci, WIDE_GAP, WIDE_MIN).items():
+        wide.setdefault(r, []).append(i)
+    for members in wide.values():
+        old = {out[i] for i in members if i in out}
+        for i in [i for i, r in out.items() if r in old]:
+            del out[i]
+        for i in members:
+            out[i] = nxt
+        nxt += 1
     return out
 
 

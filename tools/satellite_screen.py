@@ -93,7 +93,7 @@ def null_b(hits, nperm=NPERM, seed=1):
             lo = ext[c][0]
             for _ in range(k):
                 loci.append((c, lo + rnd.randint(0, sp)))
-        runs = ao.regular_runs(loci)
+        runs = ao.regular_runs_wide(loci)
         tot.append(100.0 * len(runs) / max(len(loci), 1))
         for l in collections.Counter(runs.values()).values():
             lens[l] += 1
@@ -116,7 +116,7 @@ def screen(hits, min_mono=MIN_MONO, mono_gap=MONO_GAP, min_span=MIN_SPAN, nperm=
     """returns rows of runs and the summary dict for one consensus"""
     a_runs, a_member = monomer_runs(hits, min_mono, mono_gap, min_span)
     rest = [i for i in range(len(hits)) if i not in a_member]
-    reg = ao.regular_runs([(hits[i][0], hits[i][1]) for i in rest])
+    reg = ao.regular_runs_wide([(hits[i][0], hits[i][1]) for i in rest])
     b_groups = collections.defaultdict(list)
     for pos, rid in reg.items():
         b_groups[rid].append(rest[pos])

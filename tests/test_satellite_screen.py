@@ -54,7 +54,8 @@ class Screen(unittest.TestCase):
                 p += int(R.expovariate(1 / 30000.0)) + 300
                 h.append(("c%d" % c, p, p + 250, R.choice("+-")))
         rows, s = ss.screen(h)
-        self.assertLess((s["hits_in_A"] + s["hits_in_B"]) / len(h), 0.01)
+        self.assertLess((s["hits_in_A"] + s["hits_in_B"]) / len(h), 0.02)  # chance runs of the 30 kb rule; the null absorbs them
+        self.assertLess(s["excess_B"], 3.0)
 
     def test_dense_dispersed_family_chance_is_subtracted(self):
         # one hit per ~12 kb (like gja Squam3A): regular spacing occurs by chance, the null must absorb it

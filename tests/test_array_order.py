@@ -17,6 +17,12 @@ class Regular(unittest.TestCase):
         loci = [("c1", 1000 + i * 2050 + R.randint(-30, 30)) for i in range(20)]
         self.assertEqual(len(ao.regular_runs(loci)), 20)
 
+    def test_array_of_7kb_period(self):
+        # rsi MEG-RS NC_142507.1:29.8-30.6 Mb: 50 copies ~7.0 kb apart, missed with the 6 kb cap
+        loci = [("c1", 29819634 + i * 7020 + R.randint(-40, 40)) for i in range(50)]
+        self.assertEqual(len(ao.regular_runs(loci)), 0)
+        self.assertEqual(len(ao.regular_runs(loci, ao.WIDE_GAP, ao.WIDE_MIN)), 50)
+
     def test_array_with_unit_length_variants(self):
         gaps = [2000, 2050, 1400, 2300, 2040, 1450, 2060, 2300]
         pos, loci = 5000, []
