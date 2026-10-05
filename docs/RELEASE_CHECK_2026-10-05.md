@@ -94,10 +94,23 @@ that share copies with the removed MEG-RS/MEG-RL loci and the re-vote. Length-ve
 r9 15 small arrays, r4 2, r10/r7/r5_r6 1 each; kind A after attribution: 17 P18-type, 4 r2, 3 r3, 3 C11, 3 MEG-T2, ...). The regression
 test passes.
 
-### tbr, rle (bats, `chiro_bank.fa`)
+### tbr, rle (bats, `chiro_bank.fa` = VES + Rhin-1; references are the 2026-09-27 `run_add_*` runs that added the four MEG consensuses)
 
-Running from the fresh clone updated to `d0d975d` (the first driver died with its SSH session after the rsi publish; relaunched detached
-with `setsid nohup`). Results appended when done.
+Fresh clone at `d0d975d`, detached driver (the first driver died with its SSH session after the rsi publish).
+
+| | tbr (*Taphozous*, 54 min + 2 min publish) | rle (*Rousettus*, 4 min + publish) |
+|---|---|---|
+| VES new / reference | 620,384 / 621,128 (−0.1 %) | 14 / 14 |
+| Rhin-1 new / reference | 372 / 437 (−15 %) | 9 / 9 |
+| satellite stage | VES: 40,858 regularly spaced runs, **35 verified arrays**, 1,565 long; kind A 23 loci; Rhin-1 kind A 8 loci; 2,023 hits excluded | nothing |
+| array_flag (before D27) | **VES flagged ARRAY: 56.2 % of copies in regular runs** | — |
+| consensus audit | both DIVERGED | both SKIPPED |
+
+VES reproduces. Rhin-1 (437 → 372) is a small family whose copies were re-voted without the MEG consensuses of the reference and after
+the kind-A exclusion; both runs are within what the reference's own `--add` re-vote changed. The VES array flag is wrong (D27): one copy
+per 3 kb forms regularly spaced runs by chance, and the flag had no chance null; fixed and re-run on this tbr run (below). The
+`chiro_bank` alone does not contain the MEG families, so the positive controls (tbr MEG-RS satellite, rle MEG-RS/MEG-RL length versions)
+need the `--add MEG.resolved.fa` step the reference runs had: launched on both new runs (results below when done).
 
 ## 5. Scoring
 

@@ -1975,7 +1975,8 @@ def read_array_flags(run_root: Path) -> Dict[str, dict]:
             r = dict(zip(h, l))
             if r.get("flag") == "ARRAY":
                 out[r["family"]] = {"pct": float(r["pct_in_arrays"]), "copies": int(r["copies"]),
-                                    "arrays": int(r["arrays"]), "spacing": int(r["median_spacing_bp"])}
+                                    "arrays": int(r["arrays"]), "spacing": int(r["median_spacing_bp"]),
+                                    "null": float(r.get("null_pct") or 0.0)}
     except (OSError, ValueError, KeyError, IndexError):
         return {}
     return out
@@ -2075,9 +2076,9 @@ def build_alignment_section(
         vd = verdicts.get(sf) or {}
         af = array_flags.get(sf) or array_flags.get(remote_sf)
         overall = (_vchip("Tandem array", "warn",
-                          "%.0f%% of the %d firm copies sit in %d tandem arrays (median spacing %d bp): not independent insertions, "
-                          "their flanks align; judge the family on copies outside the arrays (results/array_flag.tsv)."
-                          % (af["pct"], af["copies"], af["arrays"], af["spacing"]))
+                          "%.0f%% of the %d firm copies sit in %d regularly spaced runs (median spacing %d bp; %.0f%% expected by chance): "
+                          "not independent insertions, their flanks align; judge the family on copies outside the arrays (results/array_flag.tsv)."
+                          % (af["pct"], af["copies"], af["arrays"], af["spacing"], af.get("null", 0.0)))
                    if af else status_overall(vd.get('verdict')))
         verdict_cells = (
             f"<td>{status_flanks(vd.get('verdict'))}</td>"

@@ -100,14 +100,16 @@ def _arrays(run_root):
     for l in lines[1:]:
         r = dict(zip(h, l))
         flag = "<b>tandem array</b>" if r.get("flag") == "ARRAY" else "&ndash;"
-        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td>%s</td></tr>" % (
+        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td>%s</td></tr>" % (
             html.escape(lab(r["family"])), html.escape(r["copies"]), html.escape(r["copies_in_arrays"]), html.escape(r["pct_in_arrays"]),
-            html.escape(r["arrays"]), html.escape(r["median_spacing_bp"]), flag))
+            html.escape(r.get("null_pct", "")), html.escape(r.get("excess_pct", "")), html.escape(r["arrays"]), html.escape(r["median_spacing_bp"]), flag))
     return ("<h3 style='margin-top:16px'>Do the copies sit in tandem arrays?</h3><p>Copies in a run of at least five on one contig with regular spacing "
-            "(gaps up to 6 kb, within a factor of 5 of the run's median) are units of an array, not independent insertions. A family with 20 % or more of its "
-            "copies in arrays is marked, and its plates take independent copies first (<code>tools/array_flag.py</code>).</p>"
-            "<table class='tbl'><thead><tr><th>Family</th><th class='n'>Copies</th><th class='n'>In arrays</th><th class='n'>In arrays %</th><th class='n'>Arrays</th>"
-            "<th class='n'>Median spacing bp</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
+            "(gaps up to 6 kb, within a factor of 5 of the run's median) are units of an array, not independent insertions. The share is compared with "
+            "the same copies spread at random over the contigs (chance): a dense family forms regular runs by chance (VES in <i>Taphozous</i>, one copy per "
+            "3 kb, 56 % of its copies in runs, nearly all chance). A family whose share exceeds chance by 20 points or more is marked, and its plates take "
+            "independent copies first (<code>tools/array_flag.py</code>).</p>"
+            "<table class='tbl'><thead><tr><th>Family</th><th class='n'>Copies</th><th class='n'>In arrays</th><th class='n'>In arrays %</th><th class='n'>Chance %</th>"
+            "<th class='n'>Excess</th><th class='n'>Arrays</th><th class='n'>Median spacing bp</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
 def _satellites(run_root):
