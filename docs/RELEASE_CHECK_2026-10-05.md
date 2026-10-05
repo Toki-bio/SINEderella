@@ -111,7 +111,32 @@ the kind-A exclusion; both runs are within what the reference's own `--add` re-v
 per 3 kb forms regularly spaced runs by chance, and the flag had no chance null; fixed and re-run on this tbr run: VES 56.2 % in
 runs, 47.4 % expected by chance, excess 8.8 points, not flagged (rsi MEG-RS stays flagged at 92.8 % against a null near 0). The
 `chiro_bank` alone does not contain the MEG families, so the positive controls (tbr MEG-RS satellite, rle MEG-RS/MEG-RL length versions)
-need the `--add MEG.resolved.fa` step the reference runs had: launched on both new runs (results below when done).
+need the `--add MEG.resolved.fa` step the reference runs had; run on both new runs from the clone at `e1e6116`:
+
+| `--add MEG.resolved.fa` | tbr (9 min + 3 min publish, 14 plates) | rle (8 min + 2 min publish, 16 plates) |
+|---|---|---|
+| VES / Rhin-1 new vs reference | 621,052 / 621,128; 416 / 437 | 14 / 14; 9 / 9 |
+| MEG-RL | 10 / 9 | 9,688 / 9,710 |
+| **MEG-RS** | **66 / 249** | **5,949 / 6,718** |
+| MEG-T2 | 90 / 92 | 2,153 / 2,159 |
+| MEG-TR | 24 / 24 | 2,721 / 2,703 |
+| satellite stage | MEG-RS **SAT_B, 2 of 2 runs verified** (the 81- and 109-unit ~910-bp arrays of docs/SATELLITES.md 5f); MEG-T2 15 kind-A loci; 2,213 hits excluded | MEG-RS 26 of 35 runs verified, MEG-TR 28 of 28 (docs 5h: 26 and 28), 1,850 hits excluded; no family flag |
+| array_flag with the null | nothing flagged (VES 56.2 % vs 47.4 % chance) | nothing flagged (MEG-RS 1.4 %) |
+| length versions | MEG-RS / MEG-RL NOT_TESTED (too few copies) | MEG-RS / MEG-RL **TWO_VERSIONS** (the positive control of docs/LENGTH_VARIANTS.md) |
+| consensus audit | RS and T2 SHORTER, TR UNSTABLE (24 copies), Rhin-1 and VES DIVERGED | RL, RS, TR MATCH; T2 DIVERGED |
+
+The only differences from the references are the MEG-RS counts, and both are the satellite stage removing the verified arrays before
+assignment (tbr: the two long arrays; rle: 26 MEG-RS and 28 MEG-TR arrays), in the numbers docs/SATELLITES.md 5f and 5h recorded
+for these genomes. Everything else is within the `-z 11` noise. The Tal regression passes on rsi, tbr and rle.
+
+## 4b. Summary of the release check
+
+All modes (`full`, `--add`, `--exclude`, `--resume`, `publish_run.sh`) ran from a fresh clone on five genomes without an error exit;
+the outside answers (RepeatMasker) and the project's own earlier runs are reproduced within the documented noise, and every difference
+has a stated cause. The checks found four defects by reading outputs rather than exit codes (D24 Alu share flag, D25/D26 resume,
+D27 VES array flag), all fixed and re-verified the same night. What the checks did not cover: the talpid species (genomes not on
+therioserver), `SINEderella_multi`, the flankscan stages on real data (toy suites only), and `--mask-bed` / `--mask-run`
+(`tests/test_mask.sh` exists and was not run here).
 
 ## 5. Scoring
 
