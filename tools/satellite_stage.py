@@ -28,11 +28,13 @@ import glob
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import array_order as ao  # noqa: E402
 import satellite_screen as ss  # noqa: E402
 import satellite_kindB_verify as kb  # noqa: E402
 
@@ -131,13 +133,30 @@ def main():
         brows, bsum = ss.screen(full)
         flagB = bsum["excess_B"] >= FLAG_PCT
         B = [(r[1], r[2], r[3], r[4], r[7]) for r in brows if r[0] == "B"]      # contig start end hits median_gap
+        # The wide tier (>= 10 copies, gaps <= 30 kb) replaces the narrow runs it contains. When it joins a real array with
+        # dispersed copies beside it, the median unit identity of the joined run can fall under the cut and the whole array
+        # stays in (rsi MEG-RS, mini genome 2026-10-05: a 2 168 bp array verified at 89 % on its own became one 144-hit run with
+        # the copies 2-35 kb beyond its end, 82 %, COPIES). So the narrow runs (6 kb rule) are verified as well, on their own, and
+        # a verified narrow run is excluded even when the wide run that contains it is not.
+        nar = ao.regular_runs([(c, s) for c, s, e, _st in full])
+        ngroups = collections.defaultdict(list)
+        for i, rid in nar.items():
+            ngroups[rid].append(full[i])
+        have = {(x[0], x[1], x[2]) for x in B}
+        Bn = []
+        for v in ngroups.values():
+            v.sort(key=lambda h: h[1])
+            gaps = [v[t + 1][1] - v[t][1] for t in range(len(v) - 1)]
+            rec = (v[0][0], v[0][1], v[-1][2], len(v), int(statistics.median(gaps)) if gaps else 0)
+            if (rec[0], rec[1], rec[2]) not in have:
+                Bn.append(rec)
         # the unit check of every run (sequence, not geometry): verified arrays are satellite loci whatever the family share
         verdicts = {}
         if B and a.exclude_b != "none":
             # one ssearch36 call per run: a hit-dense family (tbr VES, one copy per 3 kb) has tens of thousands of chance runs of
             # 5-9 copies, so only the --max-verify-runs longest runs are checked; the rest keep the geometric verdict "untested"
             # and are never excluded (2026-10-05). Real arrays are long and come first.
-            ordered = sorted(B, key=lambda x: -x[3])
+            ordered = sorted(B + Bn, key=lambda x: -x[3])
             todo, rest = ordered[:a.max_verify_runs], ordered[a.max_verify_runs:]
             if rest:
                 print("satellite_stage: %s: %d regularly spaced runs, unit check on the %d longest (--max-verify-runs); %d runs of <= %d hits untested"
@@ -153,6 +172,10 @@ def main():
             for c, s, e, n, gap in rest:
                 verdicts[(c, s)] = (0, None, None, "untested")
         arrB = [x for x in B if verdicts.get((x[0], x[1]), (0, None, None, "-"))[3] == "ARRAY"]
+        # narrow runs verified inside a wide run that failed: excluded too, listed in loci.bed with sine_part "narrow"
+        arrN = [x for x in Bn if verdicts.get((x[0], x[1]), (0, None, None, "-"))[3] == "ARRAY"
+                and not any(w[0] == x[0] and w[1] <= x[1] and x[2] <= w[2] for w in arrB)]
+        arrB = arrB + arrN
         lmin = bsum.get("long_min")
         longB = [x for x in B if lmin is not None and x[3] >= max(lmin, a.long_min_units)]
         mono = int(sum(x[4] for x in A))
@@ -161,6 +184,9 @@ def main():
         for c, s, e, n, gap in B:
             v = verdicts.get((c, s), (0, None, None, "-"))
             loci.append(("B", q, c, s, e, gap, n, "-", v[3] + ("" if v[1] is None else " id%.0f" % v[1])))
+        for c, s, e, n, gap in arrN:
+            v = verdicts.get((c, s), (0, None, None, "-"))
+            loci.append(("B", q, c, s, e, gap, n, "narrow", v[3] + ("" if v[1] is None else " id%.0f" % v[1])))
         print("satellite_stage: %s: %d full hits; kind A %d loci (%d monomers); kind B %d runs (%d verified arrays, %d long), excess %.1f %% %s%s" % (
             q, len(full), len(A), mono, len(B), len(arrB), len(longB), bsum["excess_B"],
             "SAT_A " if A else "", "SAT_B" if flagB else ""), flush=True)
