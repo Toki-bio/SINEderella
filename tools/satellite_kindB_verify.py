@@ -13,10 +13,15 @@ ordinary copies at 25-55 %).
 Input: loci.bed of satellite_stage (kind B rows) and the per-consensus hit beds (gen-*.bed, the pre-exclusion .before_satellites if present).
 Output: PREFIX.kindB.tsv (consensus, locus, unit_bp, hits, units_tested, median_id, frac_pairs_ge_min, verdict) and a summary per consensus.
 
-Usage: satellite_kindB_verify.py LOCI.bed --searches DIR --genome G.fa --out PREFIX [--max-units 12] [--min-id 90] [--threads 8]
+Usage: satellite_kindB_verify.py LOCI.bed --searches DIR --genome G.fa --out PREFIX [--max-units 12] [--min-id 85] [--threads 8] [--serial]
+
+Speed (2026-10-06, docs/SATELLITES.md 5i): only the lag-1/lag-2 pairs are aligned, each once, by --threads ssearch36 processes at once,
+without statistics (-z -1); --serial runs the earlier all-against-all implementation (13 h 24 min vs 9.5 min on rsi, same verdicts).
 """
 import argparse
+import bisect
 import collections
+import concurrent.futures
 import glob
 import os
 import re
@@ -53,8 +58,10 @@ def bed_for(searches, q):
     return None
 
 
-def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_ID, threads=8):
-    """runs: list of (consensus, contig, start, end, unit, hits); starts: {consensus: {contig: sorted [(hit start, hit end)]}}.
+def verify_runs_serial(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_ID, threads=8):
+    """The reference implementation (until 2026-10-06): one all-against-all ssearch36 call per run, runs one after the other.
+    Kept for validation (--serial, SATELLITE_KINDB_SERIAL=1); verify_runs gives the same verdicts and identities.
+    runs: list of (consensus, contig, start, end, unit, hits); starts: {consensus: {contig: sorted [(hit start, hit end)]}}.
     Returns {run index: (units_tested, median_identity or None, frac_ge_min or None, verdict)}."""
     sel = runs
     # regions to cut: unit i = [start_i, start_{i+1})
@@ -116,6 +123,125 @@ def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_I
     return results
 
 
+# --- fast path (2026-10-06) ------------------------------------------------------------------------------------------------------
+# The verdict needs only the identity of each unit with the next one and the one after (lags 1 and 2). The serial path aligned every
+# unit with every unit of its run (132 alignments for 12 units, 21 used) in one ssearch36 call per run, one run after the other. With
+# the 30 kb array tier (13093c9) units grew to 30 kb and the stage took 13 h 24 min on rsi (2 739 runs; 23 min before the tier).
+# Here each needed pair is aligned once (a pair shared by a narrow run and the wide run that contains it, or met again for another
+# consensus at the same coordinates, is not aligned again), each query unit against its lag-1/lag-2 partners in its own ssearch36
+# call, the calls in parallel, with -z -1 (no statistics: the verdict never reads an E-value). Without statistics ssearch36 reports the
+# best alignment of each strand and stops; with them it went on searching alternative, non-overlapping local alignments of the pair
+# (24 lines for one 26 x 20 kb pair of a real rsi array: 56 s; -z -1: 2 lines, 5.5 s, the same best alignment 99.92 % over 13 445 bp).
+# The best alignment is what the identity of a real array comes from, so ARRAY identities are unchanged; a pair of unrelated units can
+# score a little lower (an alternative local match no longer listed), which only lowers COPIES numbers far below the threshold.
+SSEARCH_OPTS = ["-m", "8", "-E", "10", "-z", "-1"]
+_PAIR_CACHE = {}          # (genome, query region, partner region) -> best score of the pair, None when ssearch36 reported no line
+
+
+def _hits_in(lst, s, e):
+    """the (start, end) hits of a sorted list whose start lies in [s, e]; the serial path's linear scan, by bisection"""
+    return lst[bisect.bisect_left(lst, (s,)):bisect.bisect_right(lst, (e, float("inf")))]
+
+
+def _align_query(qseq, partners, tmpdir, ssearch="ssearch36"):
+    """partners: [(region, sequence)]. One ssearch36 call of the query against its partners.
+    Returns ({partner region: best score or None}, return code)."""
+    fd, qf = tempfile.mkstemp(suffix=".q.fa", dir=tmpdir)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(">q\n%s\n" % qseq)
+    fd, lf = tempfile.mkstemp(suffix=".l.fa", dir=tmpdir)
+    with os.fdopen(fd, "w") as fh:
+        for j, (pr, ps) in enumerate(partners):
+            fh.write(">p%d\n%s\n" % (j, ps))
+    try:
+        r = subprocess.run([ssearch] + SSEARCH_OPTS + ["-T", "1", qf, lf], capture_output=True, text=True)
+    finally:
+        os.unlink(qf)
+        os.unlink(lf)
+    out = {pr: None for pr, _ in partners}
+    for line in r.stdout.splitlines():
+        f = line.split("\t")
+        if len(f) < 12 or not f[1].startswith("p"):
+            continue
+        pr, ps = partners[int(f[1][1:])]
+        pid, aln = float(f[2]), int(f[3])
+        L = min(len(qseq), len(ps))
+        score = pid * min(aln / float(L), 1.0)                # identity over the shorter unit (as in the serial path)
+        if out[pr] is None or score > out[pr]:
+            out[pr] = score
+    return out, r.returncode
+
+
+def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_ID, threads=8):
+    """runs: list of (consensus, contig, start, end, unit, hits); starts: {consensus: {contig: sorted [(hit start, hit end)]}}.
+    Returns {run index: (units_tested, median_identity or None, frac_ge_min or None, verdict)}, as verify_runs_serial does (same
+    verdicts; COPIES identities can be lower, see SSEARCH_OPTS). threads = ssearch36 processes at once, each single-threaded."""
+    if os.environ.get("SATELLITE_KINDB_SERIAL") == "1":
+        return verify_runs_serial(runs, starts, genome, workdir, max_units, min_id, threads)
+    cuts = []
+    for q, c, s, e, unit, nh in runs:
+        hs = _hits_in(starts.get(q, {}).get(c, []), s, e)
+        cuts.append([(c, hs[k][0], hs[k + 1][0]) for k in range(min(len(hs) - 1, max_units))])
+    uniq = list(dict.fromkeys(r for cut in cuts for r in cut))
+    seq = {}
+    got = sv.faidx_regions(genome, uniq)
+    if got is not None:
+        seq = dict(zip(uniq, got))
+    else:
+        by_c = collections.defaultdict(list)
+        for r in uniq:
+            by_c[r[0]].append(r)
+        for name, sq in read_fasta_stream(genome):
+            for r in by_c.get(name, ()):
+                seq[r] = sq[r[1]:r[2]]
+    gk = os.path.abspath(genome)
+    kept = []                                                # per run: [(unit index, region)] of the units >= 50 bp
+    need = collections.defaultdict(set)                      # query region -> partner regions still to align
+    for cut in cuts:
+        units = [(k, r) for k, r in enumerate(cut) if len(seq.get(r, "")) >= 50]
+        kept.append(units)
+        byk = dict(units)
+        for k1, r1 in units[:-1]:
+            for lag in (1, 2):                               # neighbour or the one after (dimeric arrays)
+                r2 = byk.get(k1 + lag)
+                if r2 is not None and (gk, r1, r2) not in _PAIR_CACHE:
+                    need[r1].add(r2)
+    failed = 0
+    if need:
+        tmp = tempfile.mkdtemp(prefix="kindB_", dir=workdir)
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, threads)) as ex:
+                # the most expensive calls first, so that the short ones fill the cores at the end
+                order = sorted(need, key=lambda r: -(r[2] - r[1]) * sum(p[2] - p[1] for p in need[r]))
+                futs = {ex.submit(_align_query, seq[r1], [(r2, seq[r2]) for r2 in sorted(need[r1])], tmp): r1 for r1 in order}
+                for fu in concurrent.futures.as_completed(futs):
+                    r1 = futs[fu]
+                    res, rc = fu.result()
+                    failed += rc != 0
+                    for r2, sc in res.items():
+                        _PAIR_CACHE[(gk, r1, r2)] = sc
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+    if failed:
+        print("kindB_verify: WARNING: %d ssearch36 calls exited with an error (their pairs count as unaligned)" % failed, file=sys.stderr)
+    results = {}
+    for i, units in enumerate(kept):
+        if len(units) < 2:
+            results[i] = (len(units), None, None, "-")
+            continue
+        byk = dict(units)
+        ids = []
+        for k1, r1 in units[:-1]:
+            sc = [_PAIR_CACHE.get((gk, r1, byk[k1 + lag])) for lag in (1, 2) if (k1 + lag) in byk]
+            sc = [x for x in sc if x is not None]
+            ids.append(max(sc) if sc else 0.0)
+        med = statistics.median(ids)
+        frac = sum(1 for x in ids if x >= min_id) / float(len(ids))
+        results[i] = (len(units), med, frac, "ARRAY" if med >= min_id else "COPIES")
+    return results
+
+
 def load_starts(searches, consensuses):
     starts = {}
     for q in consensuses:
@@ -142,6 +268,7 @@ def main():
     ap.add_argument("--min-id", type=float, default=MIN_ID)
     ap.add_argument("--threads", type=int, default=8)
     ap.add_argument("--max-runs-per-consensus", type=int, default=400)
+    ap.add_argument("--serial", action="store_true", help="the reference implementation (one all-against-all ssearch36 call per run, one run at a time)")
     a = ap.parse_args()
     runs = []
     for line in open(a.loci):
@@ -158,7 +285,7 @@ def main():
             keep[r[0]] += 1
             sel.append(r)
     starts = load_starts(a.searches, per)
-    results = verify_runs(sel, starts, a.genome, os.path.dirname(os.path.abspath(a.out)) or ".", a.max_units, a.min_id, a.threads)
+    results = (verify_runs_serial if a.serial else verify_runs)(sel, starts, a.genome, os.path.dirname(os.path.abspath(a.out)) or ".", a.max_units, a.min_id, a.threads)
     summ = collections.defaultdict(lambda: [0, 0, 0])
     with open(a.out + ".kindB.tsv", "w") as o:
         o.write("consensus\tcontig\tstart\tend\tunit_bp\thits\tunits_tested\tmedian_unit_identity\tfrac_pairs_ge_%d\tverdict\n" % int(a.min_id))

@@ -279,6 +279,40 @@ region), 4 r2 (the 136-143 bp whole-r2 satellites, 58 + 3 x 4-5 copies), 3 r3, 3
 arrays (MEG-RS 21, MEG-TR 1, r9 15, r4 2, r10, r7, P26 1 each) against 1 862 runs that are copies; verified mode would remove 2 243 hits
 (the run itself, in flagged mode, removed 2 066: the 177 more are the small r-family arrays, 92 of them r7, 176 r9, 44 r4).
 
+## 5i. Speed of the kind-B unit check (2026-10-06)
+
+**What was slow.** The focused rsi run of 2026-10-05 (`run_20261005_085343`, code 7f32adb) spent **13 h 24 min** in the satellite stage; the
+run of the night before, without the 30 kb array tier, 23 min. All of it was the kind-B unit check; kind A (windowed TRF) took seconds per
+consensus. TRF cannot take over kind B: TRF 4.10.0-rc.2 refuses a maximum period above 2 000 bp ("Value must be between 1 and 2000"), and
+toy arrays of 2 500 and 7 000 bp units give no record, while the rsi MEG-RS unit is 2 155 bp and the wide tier allows 30 kb. Three costs
+multiplied: (1) the 30 kb tier made 733 long runs (36 before) with units up to 30 kb, and Smith-Waterman grows with the product of the
+lengths; (2) the check aligned every unit with every unit of its run (132 alignments for 12 units, of which the verdict uses the 21 at
+lags 1 and 2), one run after the other; (3) with statistics on (`-z 11`, and equally `-z 1`, `-z 0` or the default) ssearch36 goes on
+searching alternative, non-overlapping local alignments of each pair: one real 26 x 20 kb array pair gave 24 lines in 56 s, and with
+`-z -1` (no statistics) 2 lines in 5.5 s with the same best alignment (99.92 % over 13 445 bp). Times per pair, -z 11 vs -z -1: 56 vs
+5.5 s, 1.9 vs 0.13 s, 0.36 vs 0.03 s, 1.3 vs 0.09 s.
+
+**What changed (`tools/satellite_kindB_verify.py`).** `verify_runs` aligns only the lag-1 and lag-2 pairs, each query unit against its
+partners in its own `ssearch36 -z -1 -T 1` call, the calls in parallel (`--threads` processes), and keeps every pair it has aligned (a
+narrow run inside the wide run that contains it, and repeated calls, align nothing new). The hits of a run are found by bisection instead
+of a scan of the contig. The previous implementation stays as `verify_runs_serial` (`--serial`, or `SATELLITE_KINDB_SERIAL=1` for the
+stage). One known difference: without the alternative alignments an unrelated pair can score lower (one rsi pair: 85.6 % over 215 bp
+instead of 89.6 % over 303 bp), so COPIES identities can come out lower; the best alignment, which is what a real array's identity comes
+from, is the same.
+
+**Checks.** Toy (`tests/test_satellite_kindB_verify.py`, needs ssearch36): planted single-unit, dimeric (MEG-RS-like 2 155 / 1 460 bp),
+7 kb-unit and near-threshold arrays, a diverged array and a run of ordinary copies give the expected verdicts with both implementations,
+ARRAY identities within 0.5 point; no pair is aligned twice. Real data: all 2 739 kind-B runs of the 13-h rsi run (therioserver
+`~/tmp/kbspeed/val/validate_rsi.tsv`): **9.5 min with 32 processes instead of 13 h 24 min; 0 verdicts changed (47 ARRAY, 2 692 COPIES);
+the 47 ARRAY identities identical**; COPIES identities identical in 1 753 runs, the others -40 to +8 points (all below 85).
+
+End to end (`~/tmp/kbspeed/e2e_7f32/`): the whole stage on copies of that run's step-1 inputs, with its own tool copies (7f32adb) and only
+the verifier replaced, **718 s instead of 13 h 24 min**. Every kind-B row and verdict reproduces. The one row that differs is a kind-A
+locus (r10_r8_P18, NC_142516.1:2 177 953-2 178 498, period 71): its 69 bp unit aligns to P18 over exactly 45 bp (`MIN_ALN` = 45) at 71 %,
+and its E-value straddles `MAX_E` = 0.01 under the random shuffles of `-z 11` (10 repeats: 0.023-0.039; the 13-h run drew one <= 0.01).
+Kind A was not changed; a locus that sits on both cut-offs is in or out by chance from run to run (with it come 1 excluded hit, 1 region,
+the r10_r8_P18 indication row and 1 unit in `units.fa`).
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
