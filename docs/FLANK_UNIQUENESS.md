@@ -201,3 +201,13 @@ flank of the copy). The numbers move with the thresholds; the range over the thr
 **Not done yet:** plate marks `[twin]` / `[dup-region]` and the verdict line (the stage is not wired into fs_all.sh or the publish step); the threshold sweep;
 the real positives of other species (tbr MEG-RS satellite, nle MEG-TR, ttr MEG-RS); scale test on 600 000 copies (the pair step is awk and sort; memory
 untested); a gapped confirmation (an indel inside the 80 bp cuts the segment).
+
+## Correction 2026-10-05: the KCOUNT repeat filter was off in the 2026-10-01 rsi runs
+
+`fs9_twins.sh` read the jellyfish dump with `-F'\t'`, but `jellyfish dump -c` separates k-mer and count with a space, so `$2` was
+empty, `rep20.tsv` was empty (0 bytes in every `~/tmp/fs9_rsi/*/`) and the genome-repeat mask was silently absent; only the
+soft-masking of the assembly protected the flanks. Fixed (whitespace split, and the stage now stops when the dump yields no
+k-mer above GCAP). The twin shares above (0.3-2.5 % per family) were measured without the k-mer mask and should be re-measured.
+Also found on the rsi_sat MEG-RS top-100 plate (numeric check of the published plate, 2026-10-05): of the 50 rows that are not
+array units, 16 share a flank at 96-100 % with a row on another contig (unplaced NW_ scaffolds, chromosome ends), i.e. the
+segmental-duplication case this stage is for; the stage is still not wired into the plates.

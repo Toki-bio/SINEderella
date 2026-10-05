@@ -373,3 +373,10 @@ fs8 final (raw-flank method, 3' slack 45; fs_rsi14, singles with a TSD at the ca
 Open: per-copy end rule (last base inside the conserved block) is not built; rsi_v6 report plates not rebuilt with these numbers.
 Per-copy end trim (fs8 ENDTRIM=1: each copy's ends at its last/first base agreeing with the column majority): tested on S groups, TSD with min 14 excess points vs default: r7 54.5 vs 56.0, r8 58.5 vs 60.0, r5 49.0 vs 44.5, r6 30.5 vs 51.0. No gain, r6 clearly worse -> left OFF (default 0), kept as an option.
 Bank cleaning (consensuses.clean.aliases.tsv in the rsi_v6 run): r9_15seqs -> r7_133seqs (89.5 % direct), r4_32seqs -> r2_3seqs (83.3 %), MEG-RS -> MEG-RL (97 %); that is why the report has no plates for r9, r4, MEG-RS.
+
+## 2026-10-05: fs9 KCOUNT parsing bug (repeat filter was off), MEG-RS focus
+- `fs9_twins.sh` split the jellyfish dump on tabs; the dump is space-separated, so rep20.tsv was empty in all rsi runs of 10-01
+  (every `~/tmp/fs9_rsi/*/rep20.tsv` is 0 bytes). Fixed; the stage now refuses an empty rep20. KCOUNT for rsi: `~/tmp/fs9_rsi/rsi20.gt20.tsv`
+  (jellyfish in conda env `jf`, `~/tmp/fs9_rsi/jf_install.log`). Twin shares of 10-01 to be re-measured.
+- His decision: fix one case completely before the next. Case 1 = rsi MEG-RS: arrays (satellite stage, 13093c9 wide tier), then
+  stage 9 on the remaining copies (16 of 50 non-array rows of the rsi_sat top-100 plate share flanks across contigs), then plates.

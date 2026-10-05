@@ -54,7 +54,11 @@ gawk -F'\t' -v M=$MINFL 'FILENAME == ARGV[1] { c[$4]; next } { if (length($3) >=
 
 # repeat filter: 20-mers seen more than GCAP times in the genome mask the flank bases they cover
 GK=20
-if [[ -n "${KCOUNT:-}" && -s "${KCOUNT:-}" ]]; then gawk -F'\t' -v C=$GCAP '$2 > C { print $1 }' "$KCOUNT" > rep20.tsv
+if [[ -n "${KCOUNT:-}" && -s "${KCOUNT:-}" ]]; then
+    # jellyfish dump -c writes "KMER COUNT" separated by a SPACE; the first version split on tabs only, so $2 was empty,
+    # rep20.tsv came out empty and the repeat filter was silently off in every run with a KCOUNT (rsi, 2026-10-01)
+    gawk -v C=$GCAP 'NF >= 2 && $2 + 0 > C { print toupper($1) }' "$KCOUNT" > rep20.tsv
+    [[ -s rep20.tsv ]] || { echo "fs9: KCOUNT $KCOUNT gave no 20-mers above $GCAP: wrong file or format (expect 'KMER COUNT' lines)" >&2; exit 1; }
 else
     SZ=$(gawk '{ s += $2 } END { print s + 0 }' "$G.fai")
     (( SZ <= 300000000 )) || { echo "fs9: genome > 300 Mb: give KCOUNT (jellyfish dump -c, k=20, canonical)" >&2; exit 1; }
