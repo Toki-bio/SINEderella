@@ -108,7 +108,8 @@ Fresh clone at `d0d975d`, detached driver (the first driver died with its SSH se
 
 VES reproduces. Rhin-1 (437 → 372) is a small family whose copies were re-voted without the MEG consensuses of the reference and after
 the kind-A exclusion; both runs are within what the reference's own `--add` re-vote changed. The VES array flag is wrong (D27): one copy
-per 3 kb forms regularly spaced runs by chance, and the flag had no chance null; fixed and re-run on this tbr run (below). The
+per 3 kb forms regularly spaced runs by chance, and the flag had no chance null; fixed and re-run on this tbr run: VES 56.2 % in
+runs, 47.4 % expected by chance, excess 8.8 points, not flagged (rsi MEG-RS stays flagged at 92.8 % against a null near 0). The
 `chiro_bank` alone does not contain the MEG families, so the positive controls (tbr MEG-RS satellite, rle MEG-RS/MEG-RL length versions)
 need the `--add MEG.resolved.fa` step the reference runs had: launched on both new runs (results below when done).
 
