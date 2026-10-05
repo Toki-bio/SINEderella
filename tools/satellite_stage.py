@@ -98,7 +98,7 @@ def main():
         print("satellite_stage: no gen-*.bed in %s%s, nothing to do" % (a.searches, " for %s" % ",".join(sorted(only)) if only else ""))
         return 0
     verify = os.path.join(HERE, "satellite_trf_verify.py")
-    rows, loci, units, excluded, allA = [], [], [], [], []
+    rows, loci, units, excluded, allA, regions = [], [], [], [], [], []
     for bed in beds:
         q = query_name(bed)
         if q not in cons:
@@ -183,6 +183,11 @@ def main():
             continue
         for c in ex:
             ex[c].sort()
+            # the same spans go to exclude_regions.bed: step 1 removes every MERGED locus inside them, whatever consensus found
+            # it. Filtering only this consensus' own hits let array units re-enter through another consensus' hit at the same
+            # place (rsi MEG-RS 2026-10-05: 6 of the 129 copies left after the screen lay inside verified array spans).
+            kindA = {(s, e) for s, e in ((rec[1], rec[2]) for rec in A if rec[0] == c)}
+            regions += ["%s\t%d\t%d\t%s\t%s\n" % (c, s, e, "A" if (s, e) in kindA else "B", q) for s, e in ex[c]]
         keep, drop = [], []
         for line in open(bed):
             f = line.rstrip("\n").split("\t")
@@ -270,6 +275,11 @@ def main():
     with open(exf, "w") as o:
         o.writelines(old_ex)
         o.writelines(excluded)
+    rgf = os.path.join(a.out, "exclude_regions.bed")       # contig start end kind(A|B) consensus; read by step 1 after the merge
+    old_rg = [l for l in open(rgf)] if (only and os.path.exists(rgf)) else []
+    old_rg = [l for l in old_rg if l.rstrip("\n").split("\t")[4] not in done]
+    with open(rgf, "w") as o:
+        o.writelines(sorted(old_rg + regions, key=lambda l: (l.split("\t")[0], int(l.split("\t")[1]))))
     na = sum(r[3] for r in rows)
     print("satellite_stage: %d consensuses, %d kind-A loci (%d distinct; %d found through more than one consensus), %d consensuses SAT_B, %d hits excluded -> %s" % (
         len(rows), na, len(attributed), len(also), sum(1 for r in rows if r[13] == "SAT_B"), len(excluded), a.out))

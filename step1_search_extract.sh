@@ -215,6 +215,18 @@ cat "${BED_FILES[@]}" | bedtools sort -i - | \
 BED_COUNT=$(wc -l < merged_hits.bed)
 echo "[$(date)] Merged into $BED_COUNT unique intervals"
 
+# --- SATELLITE REGIONS ON THE MERGED LOCI: the screen above filtered each consensus' own hit list, but a locus inside a verified
+#     array can come back through another consensus' hit at the same place (rsi MEG-RS: 6 of 129 remaining copies sat inside
+#     excluded spans, 2026-10-05). Remove every merged interval that overlaps an excluded region (kind-A loci, verified arrays).
+if [[ "${SATELLITE_EXCLUDE:-1}" != "0" && -s satellites/exclude_regions.bed ]]; then
+    cp merged_hits.bed merged_hits.bed.before_satellites
+    bedtools intersect -v -a merged_hits.bed -b satellites/exclude_regions.bed > merged_hits.bed.tmp
+    mv merged_hits.bed.tmp merged_hits.bed
+    _after=$(wc -l < merged_hits.bed)
+    echo "[$(date)] Satellite regions: $((BED_COUNT - _after)) of $BED_COUNT merged intervals lie in excluded regions (satellites/exclude_regions.bed) and were removed (kept in merged_hits.bed.before_satellites)"
+    BED_COUNT=$_after
+fi
+
 echo "[$(date)] Extracting sequences..."
 bedtools getfasta -s -fi "$GENOME" -bed merged_hits.bed > extracted.fasta
 

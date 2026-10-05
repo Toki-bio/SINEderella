@@ -27,7 +27,8 @@
 #
 # In : GENOME.fa (+ .fai made if missing; soft-masked if possible), COPIES.bed (bed6, strand = element orientation)
 # Out: OUT/flank_groups.tsv  copy_a copy_b side identity length tier class     (one row per pair and side)
-#      OUT/copy_status.tsv   copy status (twin1 twin2 array untestable unique) n_partners group
+#      OUT/copy_status.tsv   copy status (twin1 twin2 array untestable masked unique) n_partners group
+#                            (masked = fewer than MINFL testable bases in a flank after the repeat filter: nothing to compare)
 #      OUT/summary.txt       counts and shares
 # Env: MK1=6 MK2=3 (shared seeds needed in pass 1 / 2) W=100 IW=80 MINFL=50 MINLEN=50 START=20 BAND=3 CAP=20 GCAP=20 ID1=85 ID2=70 ARRKB=2000
 #      KCOUNT=<file "20-mer TAB count" of the genome, canonical, e.g. jellyfish dump -c>; counted here up to 300 Mb
@@ -40,13 +41,18 @@ mkdir -p "$OUT"; G=$(readlink -f "$G"); B=$(readlink -f "$B"); cd "$OUT"
 export LC_ALL=C
 RC='function rc(s,   r, i, c) { r = ""; for (i = length(s); i >= 1; i--) { c = substr(s, i, 1); r = r (c == "A" ? "T" : c == "C" ? "G" : c == "G" ? "C" : c == "T" ? "A" : "N") } return r }'
 
-# 1) flanks, outward from the junction (5' flank reversed), masked bases -> N
+# 1) flanks, outward from the junction (5' flank reversed). SOFTMASK=1 turns soft-masked (lower-case) bases into N as the first
+#    version did; the default keeps them as bases, because an assembly masked by RepeatMasker is lower case over most of its
+#    length (rsi: 79 %), which made the flanks of copies that sit in duplicated repeats untestable and reported them as "unique"
+#    (rsi MEG-RS 2026-10-05: 11 copies with 96-100 % identical flanks on other contigs, all-N in both flanks). The k-mer filter
+#    below (GCAP) still masks the hot spots: a 20-mer seen more than GCAP times in the genome is never evidence of a shared flank.
+SOFTMASK=${SOFTMASK:-0}
 bedtools flank -i "$B" -g "$G.fai" -l $W -r 0 -s | bedtools getfasta -fi "$G" -bed - -s -nameOnly 2> /dev/null > f5.fa
 bedtools flank -i "$B" -g "$G.fai" -l 0 -r $W -s | bedtools getfasta -fi "$G" -bed - -s -nameOnly 2> /dev/null > f3.fa
 for S in 5 3; do
-    gawk -v S=$S 'function rev(s,   r, i) { r = ""; for (i = length(s); i >= 1; i--) r = r substr(s, i, 1); return r }
+    gawk -v S=$S -v SM=$SOFTMASK 'function rev(s,   r, i) { r = ""; for (i = length(s); i >= 1; i--) r = r substr(s, i, 1); return r }
         /^>/ { n = substr($0, 2); sub(/\([+-]\)$/, "", n); next }
-        { x = $0; gsub(/[acgtn]/, "N", x); x = toupper(x); print n "\t" S "\t" (S == 5 ? rev(x) : x) }' "f$S.fa"
+        { x = $0; if (SM == 1) gsub(/[acgtn]/, "N", x); x = toupper(x); gsub(/[^ACGT]/, "N", x); print n "\t" S "\t" (S == 5 ? rev(x) : x) }' "f$S.fa"
 done > seqs.tsv
 # untestable: a copy with a missing or short flank (contig end) on either side
 gawk -F'\t' -v M=$MINFL 'FILENAME == ARGV[1] { c[$4]; next } { if (length($3) >= M) ok[$1 SUBSEP $2] = 1 }
@@ -73,6 +79,9 @@ gawk -F'\t' -v K=$GK "$RC"'
       for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue; r = rc(m); if (r < m) m = r; if (m in rep) for (j = i; j < i + K; j++) mk[j] = 1 }
       o = ""; for (i = 1; i <= n; i++) o = o (mk[i] ? "N" : substr(s, i, 1)); print $1 "\t" $2 "\t" o }' rep20.tsv seqs.tsv > seqs.masked.tsv
 mv seqs.masked.tsv seqs.tsv
+# masked: a copy with fewer than MINFL testable (non-N) bases in a flank after masking has nothing to compare on that side; it is
+# reported as "masked", never as "unique" (the first version called such copies unique)
+gawk -F'\t' -v M=$MINFL '{ s = $3; nn = gsub(/N/, "", s); if (length(s) < M) print $1 }' seqs.tsv | sort -u > masked.txt
 
 # 2-4) one pass: pass_run PATTERN MINKEYS IDMIN TAG
 pass_run() {
@@ -131,14 +140,14 @@ gawk -F'\t' -v OFS='\t' -v KB=$ARRKB 'FILENAME == ARGV[1] { ctg[$4] = $1; pos[$4
     END { for (i = 1; i <= n; i++) { split(a[i], f, "\t"); cl = (f[1] in arr && f[2] in arr && root(f[1]) == root(f[2])) ? "array" : "twin"; print f[1], f[2], f[3], f[4], f[5], f[6], cl } }' "$B" pairs.body > flank_groups.body
 { printf "copy_a\tcopy_b\tside\tidentity\tlength\ttier\tclass\n"; cat flank_groups.body; } > flank_groups.tsv
 
-# per-copy status; precedence twin1 > twin2 > array > untestable > unique; groups = twin pairs joined
-gawk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { allc[$4]; next } FILENAME == ARGV[2] { unt[$1]; next }
+# per-copy status; precedence twin1 > twin2 > array > untestable > masked > unique; groups = twin pairs joined
+gawk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { allc[$4]; next } FILENAME == ARGV[2] { unt[$1]; next } FILENAME == ARGV[3] { msk[$1]; next }
     function root(x) { while (up[x] != x) x = up[x]; return x }
     { a = $1; b = $2; if (!(a in up)) up[a] = a; if (!(b in up)) up[b] = b
       st = ($7 == "array") ? "array" : ($6 == "T1" ? "twin1" : "twin2"); rank = (st == "twin1") ? 4 : (st == "twin2") ? 3 : 2
       for (v = 1; v <= 2; v++) { c = (v == 1) ? a : b; if (rank > R[c]) { R[c] = rank; S[c] = st }; np[c]++ }
       if ($7 == "twin") { ra = root(a); rb = root(b); if (ra != rb) up[ra] = rb } }
-    END { for (c in allc) { st = (c in S) ? S[c] : ((c in unt) ? "untestable" : "unique")
-              print c, st, np[c] + 0, ((c in S) && S[c] ~ /twin/ ? "G" root(c) : "-") } }' "$B" untestable.txt flank_groups.body | sort > copy_status.tsv
+    END { for (c in allc) { st = (c in S) ? S[c] : ((c in unt) ? "untestable" : ((c in msk) ? "masked" : "unique"))
+              print c, st, np[c] + 0, ((c in S) && S[c] ~ /twin/ ? "G" root(c) : "-") } }' "$B" untestable.txt masked.txt flank_groups.body | sort > copy_status.tsv
 gawk -F'\t' '{ n[$2]++; t++ } END { printf "copies\t%d\n", t; for (k in n) printf "%s\t%d\t%.1f%%\n", k, n[k], 100 * n[k] / t }' copy_status.tsv | sort > summary.txt
 cat summary.txt
