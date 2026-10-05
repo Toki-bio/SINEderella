@@ -2,7 +2,8 @@
 """array_flag.py RUN_DIR: how much of each family sits in tandem arrays?
 
 For every family of results/assignment_full.tsv (firmly assigned copies) the copies are checked with the regular-spacing rule of
-tools/array_order.py (>= 5 consecutive copies on one contig, gaps <= 6 kb and within a factor 5 of the run's median). Writes
+tools/array_order.py (>= 5 consecutive copies on one contig, gaps <= 6 kb and within a factor 5 of the run's median; since 13093c9
+also runs of >= 10 copies with gaps up to 30 kb, the rsi MEG-RS 7 kb-period array). Writes
 results/array_flag.tsv: family, copies, copies_in_arrays, pct_in_arrays, null_pct, excess_pct, arrays, largest_array,
 median_spacing_bp, flag.
 The share in regular runs is compared with the chance null of tools/satellite_screen.null_b (the same copies spread at random over
@@ -43,7 +44,7 @@ def main():
     out = os.path.join(run, "results", "array_flag.tsv")
     rows = []
     for name, loci in fam.items():
-        runs = ao.regular_runs([(c, s) for c, s, e in loci])
+        runs = ao.regular_runs_wide([(c, s) for c, s, e in loci])   # narrow (6 kb) + wide (30 kb, >= 10 copies) tiers, as the screen and its null
         by = collections.defaultdict(list)
         for i, rid in runs.items():
             by[rid].append(loci[i])

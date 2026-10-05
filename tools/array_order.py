@@ -110,7 +110,7 @@ def main(argv):
                 cluster[m] = k
                 rows[m][7] = "array"
         k = j + 1
-    reg = regular_runs([(r[2], int(r[3])) for r in rows])      # all loci, regular spacing
+    reg = regular_runs_wide([(r[2], int(r[3])) for r in rows])      # all loci, regular spacing (6 kb tier + 30 kb tier)
     for i, rid in reg.items():
         rows[i][7] = "array"
         cluster[i] = ("r", rid)
