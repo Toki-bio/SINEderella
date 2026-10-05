@@ -112,6 +112,45 @@ def _arrays(run_root):
             "<th class='n'>Excess</th><th class='n'>Arrays</th><th class='n'>Median spacing bp</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
+def _twins(run_root):
+    """table of results/flank_twins.tsv (flankscan/fs9_run.sh after assignment), '' if the run has none"""
+    p = Path(run_root) / "results" / "flank_twins.tsv"
+    if not p.exists():
+        return ""
+    lines = [l.rstrip(chr(10)).split(chr(9)) for l in open(p, encoding="utf-8")]
+    if len(lines) < 2:
+        return ""
+    h = lines[0]
+    rows = []
+    for l in lines[1:]:
+        r = dict(zip(h, l))
+        try:
+            pct = float(r.get("pct_twin", "0") or 0)
+            nt = int(r.get("twin1", "0") or 0) + int(r.get("twin2", "0") or 0)
+            nmask = int(r.get("masked", "0") or 0) + int(r.get("untestable", "0") or 0)
+            ncop = int(r.get("copies", "0") or 0)
+        except ValueError:
+            pct, nt, nmask, ncop = 0.0, 0, 0, 0
+        if nt == 0:
+            ans = "flanks unique" if nmask < 0.5 * ncop else "mostly untestable (repeat-masked flanks)"
+        elif pct >= 20:
+            ans = "<b>%d copies (%.0f %%) share flanks: not independent insertions, see the [twin] rows of the plates</b>" % (nt, pct)
+        else:
+            ans = "%d copies share flanks ([twin] on the plates); the rest are independent" % nt
+        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td>%s</td></tr>" % (
+            html.escape(lab(r["family"])), html.escape(r["copies"]), html.escape(r.get("twin1", "")), html.escape(r.get("twin2", "")),
+            html.escape(r.get("masked", "")), html.escape(r.get("untestable", "")), html.escape(r.get("pct_twin", "")), ans))
+    return ("<h3 style='margin-top:16px'>Are the flanks of the copies unique?</h3><p>Independent insertions have unrelated flanks. For every family "
+            "the 100 bp next to each copy, read outward from the junction, are compared between all its firmly assigned copies (flank scan stage 9, "
+            "<code>flankscan/fs9_twins.sh</code>); 20-mers that occur more than 20 times in the genome are masked first, so known repeats are never "
+            "evidence. Two copies are twins when a flank is colinear and at least 85 % identical (tier 1) or 70 % (tier 2) over at least 50 bp from "
+            "the junction on: segmental duplications, array units the satellite screen did not catch, copies carried inside another element. "
+            "A copy with too few testable bases after masking is <i>masked</i>, one with a flank cut by a contig end <i>untestable</i>. Twin copies are "
+            "marked [twin] on the plates and the top 100 takes one copy per twin group first.</p>"
+            "<table class='tbl'><thead><tr><th>Family</th><th class='n'>Copies</th><th class='n'>Twins (&ge; 85 %)</th><th class='n'>Twins (70-85 %)</th>"
+            "<th class='n'>Masked</th><th class='n'>Untestable</th><th class='n'>Twins %</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
+
+
 def _satellites(run_root):
     """table of results/satellites/indication.tsv (tools/satellite_stage.py, run inside step 1), '' if the run has none"""
     p = Path(run_root) / "results" / "satellites" / "indication.tsv"
@@ -180,7 +219,7 @@ def _import_blocks():
 def section(run_root):
     # the four decision tables (length versions, arrays, satellites, consensus audit) are shown whenever their files exist, with
     # or without the block matrix: before 2026-10-05 a missing consensus_blocks.py or a one-consensus bank dropped them all
-    tables = _length_versions(run_root) + _arrays(run_root) + _satellites(run_root) + _consensus_audit(run_root)
+    tables = _length_versions(run_root) + _arrays(run_root) + _satellites(run_root) + _twins(run_root) + _consensus_audit(run_root)
     bank = _bank(run_root)
     cb, why = _import_blocks()
     names = cb.rd(str(bank))[0] if (bank is not None and cb is not None) else []
