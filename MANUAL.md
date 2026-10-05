@@ -146,9 +146,11 @@ SINEderella --exclude Heno --run run_20260207_033350
 Added since 2026-10 (not in the diagram): before step 1, the bank is cleaned (`canonicalize_consensus_bank.py`, RC
 duplicates merged, simple-repeat tail oriented 3′); inside step 1, after the searches and before extraction, the **satellite
 screen** (`tools/satellite_stage.py`, docs/SATELLITES.md) takes SINE-derived satellite loci and verified tandem arrays out of
-the hit set; after step 3, three decision inputs are written and shown in the report: the tandem-array flag
-(`tools/array_flag.py`, docs/ARRAYS.md), the length-version test (`tools/length_variants_run.py`, docs/LENGTH_VARIANTS.md)
-and the consensus audit (`tools/consensus_audit.py`, docs/CONSENSUS_AUDIT.md). The publish flow (step 7, border loop,
+the hit set (and step 1 then removes every merged locus inside an excluded region, `satellites/exclude_regions.bed`); after
+step 3, four decision inputs are written and shown in the report: the tandem-array flag (`tools/array_flag.py`,
+docs/ARRAYS.md), the flank-twin check (`flankscan/fs9_run.sh`, docs/FLANK_UNIQUENESS.md: copies whose flanks are shared with
+other copies of the family, marked `[twin]` on the plates), the length-version test (`tools/length_variants_run.py`,
+docs/LENGTH_VARIANTS.md) and the consensus audit (`tools/consensus_audit.py`, docs/CONSENSUS_AUDIT.md). The publish flow (step 7, border loop,
 step 8a plates, step 6 report, discriminator overlay) is in PUBLISH_WORKFLOW.md; the flank analysis of composites and
 singletons is `flankscan/` (its HANDOFF.md is the record).
 

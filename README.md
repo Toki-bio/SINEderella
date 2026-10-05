@@ -52,6 +52,7 @@ design philosophy behind this.
 | `tools/array_flag.py`, `tools/array_order.py` | Tandem arrays: copies in runs of regular spacing, a per-family flag and plate selection that takes independent copies first; [docs/ARRAYS.md](docs/ARRAYS.md) |
 | `tools/consensus_audit.py` | After assignment: every consensus rebuilt from its own assigned copies and compared with the bank; uses `tools/vendor/sine_consensus.sh` (seeded copy of the current SINE_consensus bootstrap builder); [docs/CONSENSUS_AUDIT.md](docs/CONSENSUS_AUDIT.md) |
 | `tools/satellite_stage.py` (+ `satellite_screen.py`, `satellite_trf_verify.py`, `satellite_kindB_verify.py`) | Inside step 1, before extraction: SINE-derived satellites (hit windows → TRF → unit vs consensus) and tandem arrays of a longer unit (regular spacing, unit identity) leave the hit set as loci, recorded in `results/satellites/`; [docs/SATELLITES.md](docs/SATELLITES.md) |
+| `flankscan/fs9_run.sh` (+ `fs9_twins.sh`) | After assignment: the flanks of all firmly assigned copies of every family compared with one another; copies with shared flanks (segmental duplications, missed array units) are listed in `results/flank_twins.tsv`, marked `[twin]` on the plates and put after independent copies in the top 100; [docs/FLANK_UNIQUENESS.md](docs/FLANK_UNIQUENESS.md) |
 | `tools/consensus_blocks.py`, `report_blocks.py` | Similarity blocks between consensuses (matrix + pair view in the report) |
 | `tools/tsd_curve.py` | TSD share of a plate's copies against shuffled pairs, by minimum length |
 | `canonicalize_consensus_bank.py`, `consensus_bank_lib.py` | Bank cleaning before step 1: RC duplicates merged (same-orientation pairs only at 98 %, lengths within 90 %), simple-repeat tail oriented 3′; length-version candidate pairs |
@@ -79,6 +80,7 @@ did not re-test these.
 - `seqkit`
 - `cons` and `seqret` (EMBOSS; `SubFam` needs both)
 - `trf` (Tandem Repeats Finder; the satellite stage is skipped with a log line without it), `gawk` (consensus audit, flankscan), `dustmasker` (flankscan)
+- `jellyfish` (conda `kmer-jellyfish`): 20-mer counts for the flank-twin check on genomes over 300 Mb; without it that check is skipped with a log line on large genomes
 - Python 3 with numpy and matplotlib (plots, report panels, consensus blocks)
 - Tests: `python -m pytest` from the repo root (`pytest.ini`; the end-to-end tests need mafft, gawk, samtools and are skipped without them)
 
