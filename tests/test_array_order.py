@@ -75,3 +75,37 @@ class Order(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _regular_runs_wide_reference(loci):
+    """the implementation before 2026-10-06 (quadratic scan of all runs per wide run), kept as the oracle"""
+    out = ao.regular_runs(loci)
+    nxt = max(out.values(), default=-1) + 1
+    wide = {}
+    for i, r in ao.regular_runs(loci, ao.WIDE_GAP, ao.WIDE_MIN).items():
+        wide.setdefault(r, []).append(i)
+    for members in wide.values():
+        old = {out[i] for i in members if i in out}
+        for i in [i for i, r in out.items() if r in old]:
+            del out[i]
+        for i in members:
+            out[i] = nxt
+        nxt += 1
+    return out
+
+
+def test_regular_runs_wide_equals_reference_on_random_loci():
+    import random
+    r = random.Random(5)
+    for trial in range(40):
+        loci = []
+        for c in range(r.randint(1, 4)):
+            pos = 0
+            for _ in range(r.randint(20, 600)):
+                mode = r.random()
+                # dense regular stretches (narrow arrays), long-period stretches (wide tier) and dispersed copies, mixed
+                step = r.choice([r.randint(1900, 2300), r.randint(6500, 7500), r.randint(100, 40000), r.randint(2000, 9000)])
+                pos += step
+                loci.append(("c%d" % c, pos))
+        r.shuffle(loci)
+        assert ao.regular_runs_wide(loci) == _regular_runs_wide_reference(loci), trial

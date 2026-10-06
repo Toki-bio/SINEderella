@@ -80,13 +80,18 @@ def regular_runs_wide(loci):
     Returns {index: run id}."""
     out = regular_runs(loci)
     nxt = max(out.values(), default=-1) + 1
+    by_run = {}                       # narrow run id -> its members; one pass, instead of scanning all of out for every wide run
+    for i, r in out.items():          # (that scan was quadratic: 6.7 h estimated for the 1.13 M DIP hits of Sicista, 2026-10-06)
+        by_run.setdefault(r, []).append(i)
     wide = {}
     for i, r in regular_runs(loci, WIDE_GAP, WIDE_MIN).items():
         wide.setdefault(r, []).append(i)
     for members in wide.values():
         old = {out[i] for i in members if i in out}
-        for i in [i for i, r in out.items() if r in old]:
-            del out[i]
+        for r in old:
+            for i in by_run.pop(r, ()):
+                if out.get(i) == r:
+                    del out[i]
         for i in members:
             out[i] = nxt
         nxt += 1

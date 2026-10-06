@@ -169,7 +169,7 @@ def _align_query(qseq, partners, tmpdir, ssearch="ssearch36"):
         score = pid * min(aln / float(L), 1.0)                # identity over the shorter unit (as in the serial path)
         if out[pr] is None or score > out[pr]:
             out[pr] = score
-    return out, r.returncode
+    return out, r.returncode, r.stderr.strip()[-300:]
 
 
 def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_ID, threads=8):
@@ -214,17 +214,33 @@ def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_I
                 # the most expensive calls first, so that the short ones fill the cores at the end
                 order = sorted(need, key=lambda r: -(r[2] - r[1]) * sum(p[2] - p[1] for p in need[r]))
                 futs = {ex.submit(_align_query, seq[r1], [(r2, seq[r2]) for r2 in sorted(need[r1])], tmp): r1 for r1 in order}
+                retry = []
                 for fu in concurrent.futures.as_completed(futs):
                     r1 = futs[fu]
-                    res, rc = fu.result()
-                    failed += rc != 0
+                    res, rc, err = fu.result()
+                    if rc != 0:
+                        retry.append(r1)
+                        continue
                     for r2, sc in res.items():
                         _PAIR_CACHE[(gk, r1, r2)] = sc
+            # a call that failed is run again, alone; only a second failure leaves its pairs unaligned (and is reported with its message)
+            errors = collections.Counter()
+            for r1 in retry:
+                res, rc, err = _align_query(seq[r1], [(r2, seq[r2]) for r2 in sorted(need[r1])], tmp)
+                if rc != 0:
+                    failed += 1
+                    errors["rc %d: %s" % (rc, " ".join(err.split())[:200])] += 1
+                for r2, sc in res.items():
+                    _PAIR_CACHE[(gk, r1, r2)] = sc
         finally:
             import shutil
             shutil.rmtree(tmp, ignore_errors=True)
+        if retry:
+            print("kindB_verify: %d of %d ssearch36 calls failed in parallel and were run again alone; %d failed again"
+                  % (len(retry), len(need), failed), file=sys.stderr)
     if failed:
-        print("kindB_verify: WARNING: %d ssearch36 calls exited with an error (their pairs count as unaligned)" % failed, file=sys.stderr)
+        print("kindB_verify: WARNING: %d ssearch36 calls exited with an error (their pairs count as unaligned); first errors: %s"
+              % (failed, "; ".join("%dx %s" % (n, e) for e, n in errors.most_common(3))), file=sys.stderr)
     results = {}
     for i, units in enumerate(kept):
         if len(units) < 2:
