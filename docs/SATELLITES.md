@@ -323,6 +323,18 @@ In a real orchestrated run (rsi, `d2d9e6a`, THREADS 32 on 32 pinned CPUs, therio
 the stage ran **00:25:07-00:36:40, 11 min 33 s**; 2 543 hits excluded, the 2 168 bp MEG-RS array verified as a narrow run (ARRAY 89 %)
 inside the wide run it was joined to (COPIES 82 %).
 
+**Two faults found on the Sicista hifiasm primary (2026-10-06; 3.0 Gb, 58-consensus Mammalia bank, DIP 1.13 M full hits).**
+(1) ssearch36 (FASTA 36.3.8g) cannot open a file whose path is longer than about 120 characters (118 opened, 122 gave "cannot open
+library"). Under `/home/toki/sine_runs/Sicista/primary_hifiasm/run_*/genome.clean_step1/satellites/` every kind-A and kind-B call failed:
+kind A reported 0 SINE-derived loci for all 58 consensuses (its exit code was never read) and kind B counted every pair as unaligned
+(0 arrays). The rsi runs passed only because their paths were shorter. Since `2fac340` both verifiers run ssearch36 inside the temp
+directory with bare names, failed calls are run again and reported with their message (`bd0f0d0`), and
+`tests/test_satellite_long_paths.py` runs both in a > 130-character directory. Other ssearch36 callers (consensus audit, length
+versions, step 4/6, composite scan) were under the limit in this run (longest 110 characters) but have the same weakness. (2)
+`array_order.regular_runs_wide` scanned all narrow runs for every wide run; with its chance null the DIP screen was estimated at
+6.7 h (100 k hits 67 s, x4 per doubling). Indexed once since `bd0f0d0`: identical output (randomized test against the old code; real
+DIP 100 k hits 5.3 s -> 0.29 s), the whole 1.13 M-hit DIP screen 38 s.
+
 **Not done: a k-mer screen in front of ssearch36.** Skipping a pair is safe only when its identity is known to be below 70 (a median of 85
 needs both middle values >= 2 x 85 - 100). On 8 005 real pairs (all 47 ARRAY runs and 700 random COPIES runs of rsi; therioserver
 `~/tmp/kbspeed/calib.tsv`) the share of the shorter unit covered by shared k-mers does not give that: 31 of the 625 pairs scoring >= 70
