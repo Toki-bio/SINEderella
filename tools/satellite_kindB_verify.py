@@ -99,7 +99,10 @@ def verify_runs_serial(runs, starts, genome, workdir, max_units=MAX_UNITS, min_i
                 fq.write(">u%d\n%s\n" % (k, sq))
             for k, sq in units:
                 fl.write(">u%d\n%s\n" % (k, sq))
-        res = subprocess.run(["ssearch36", "-m", "8", "-E", "10", "-z", "11", "-T", str(threads), qf, lf], capture_output=True, text=True).stdout
+        # ssearch36 cannot open a file whose path is longer than ~120 characters (FASTA36 file-name limit; Sicista 2026-10-06):
+        # run it inside the directory with the bare file names
+        res = subprocess.run(["ssearch36", "-m", "8", "-E", "10", "-z", "11", "-T", str(threads), os.path.basename(qf), os.path.basename(lf)],
+                             capture_output=True, text=True, cwd=tmp).stdout
         best = {}
         for line in res.splitlines():
             f = line.split("\t")
@@ -154,7 +157,10 @@ def _align_query(qseq, partners, tmpdir, ssearch="ssearch36"):
         for j, (pr, ps) in enumerate(partners):
             fh.write(">p%d\n%s\n" % (j, ps))
     try:
-        r = subprocess.run([ssearch] + SSEARCH_OPTS + ["-T", "1", qf, lf], capture_output=True, text=True)
+        # bare names inside tmpdir: ssearch36 cannot open a path longer than ~120 characters ("cannot open library"; every call
+        # failed in the Sicista runs under /home/toki/sine_runs/Sicista/primary_hifiasm/, 2026-10-06)
+        r = subprocess.run([ssearch] + SSEARCH_OPTS + ["-T", "1", os.path.basename(qf), os.path.basename(lf)], capture_output=True,
+                           text=True, cwd=tmpdir)
     finally:
         os.unlink(qf)
         os.unlink(lf)

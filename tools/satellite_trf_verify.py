@@ -219,12 +219,15 @@ def verify(recs, cons, ssearch, workdir, threads):
     with open(q, "w") as fh:
         for i, r in enumerate(recs):
             fh.write(">u%d\n%s\n" % (i, r[7] + r[7]))
-    cmd = [ssearch, "-m", "8", "-E", str(MAX_E), "-z", "11", "-T", str(threads), q, cons]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    # ssearch36 cannot open a file whose path is longer than ~120 characters (FASTA36 file-name limit): every kind-A call failed
+    # in the Sicista runs (2026-10-06). The consensus is copied next to the units and both are given by bare name inside workdir.
+    shutil.copyfile(cons, os.path.join(workdir, "cons.fa"))
+    cmd = [ssearch, "-m", "8", "-E", str(MAX_E), "-z", "11", "-T", str(threads), "units2.fa", "cons.fa"]
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
     if r.returncode != 0:
         # a failed call used to read as "no SINE-derived locus" (Sicista 2026-10-06: 0 loci in every consensus); run it once more,
         # and if it fails again say so instead of returning an empty answer silently
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
         if r.returncode != 0:
             print("satellite_trf_verify: WARNING: ssearch36 exited with %d twice; the TRF units of this consensus are untested: %s"
                   % (r.returncode, " ".join(r.stderr.split())[:300]), file=sys.stderr)
