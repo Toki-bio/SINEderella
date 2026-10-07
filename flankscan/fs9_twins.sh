@@ -101,14 +101,22 @@ pass_run() {
               for (i = 1; i < n; i++) for (j = i + 1; j <= n; j++) if (sd[i] == sd[j] && cp[i] != cp[j] && cnt[of[i]] <= CAP && cnt[of[j]] <= CAP) {
                   if (cp[i] < cp[j]) print sd[i], cp[i], cp[j], of[i] - of[j], of[i], of[j]; else print sd[i], cp[j], cp[i], of[j] - of[i], of[j], of[i] } } n = 0 }
         { if ($1 != last) { flush(); last = $1 } n++; of[n] = $2; cp[n] = $3; sd[n] = $4 } END { flush() }' "keys.$TAG.tsv" > "hits.$TAG.tsv"
-    # candidate pairs: >= MK seeds within one band of delta, first seed within START bp of the junction in both copies
-    gawk -F'\t' -v OFS='\t' -v MK=$MK -v BAND=$BAND -v START=$START -v SLACK=25 '
-        { p = $1 SUBSEP $2 SUBSEP $3; c[p, $4]++; if (!(p in seen)) { seen[p] = 1; order[++np] = p; ma[p] = 1e9; mb[p] = 1e9 }
-          dl[p] = dl[p] " " $4; if ($5 < ma[p]) ma[p] = $5; if ($6 < mb[p]) mb[p] = $6 }
-        END { for (q = 1; q <= np; q++) { p = order[q]; if (ma[p] > START + SLACK || mb[p] > START + SLACK) continue     # masked bases at the junction push the first seed outward; the confirmation applies START
-              nd = split(dl[p], D, " "); best = 0; bd = 0
-              for (a = 1; a <= nd; a++) { s = 0; for (d = D[a] - BAND; d <= D[a] + BAND; d++) s += c[p, d] + 0; if (s > best) { best = s; bd = D[a] } }
-              if (best >= MK) { split(p, f, SUBSEP); print f[1], f[2], f[3], bd, best } } }' "hits.$TAG.tsv" | sort -u > "cand.$TAG.tsv"
+    # candidate pairs: >= MK seeds within one band of delta, first seed within START bp of the junction in both copies.
+    # Streaming: the hits are sorted (stable) by side and copy pair, so that one pair's seeds are consecutive and the awk holds one pair at
+    # a time. The first version kept every pair of the whole family in memory and was killed by the system on 538 486 copies (Sicista
+    # B1) and 1 185 121 copies (DIP), 2026-10-06. Same output: the order of one pair's seeds is kept (sort -s), and the final sort -u
+    # does not depend on the order of the pairs.
+    sort -s -t$'\t' -k1,1 -k2,2 -k3,3 -T . "hits.$TAG.tsv" | gawk -F'\t' -v OFS='\t' -v MK=$MK -v BAND=$BAND -v START=$START -v SLACK=25 '
+        function flush(   nd, a, d, s, best, bd, f) {
+            if (cur == "") return
+            if (ma > START + SLACK || mb > START + SLACK) return     # masked bases at the junction push the first seed outward; the confirmation applies START
+            nd = split(dl, D, " "); best = 0; bd = 0
+            for (a = 1; a <= nd; a++) { s = 0; for (d = D[a] - BAND; d <= D[a] + BAND; d++) s += c[d] + 0; if (s > best) { best = s; bd = D[a] } }
+            if (best >= MK) { split(cur, f, SUBSEP); print f[1], f[2], f[3], bd, best } }
+        { p = $1 SUBSEP $2 SUBSEP $3
+          if (p != cur) { flush(); cur = p; delete c; dl = ""; ma = 1e9; mb = 1e9 }
+          c[$4]++; dl = dl " " $4; if ($5 < ma) ma = $5; if ($6 < mb) mb = $6 }
+        END { flush() }' | sort -u > "cand.$TAG.tsv"
     # confirmation: score the diagonal and BAND diagonals around it (offset in copy a = offset in copy b + delta)
     gawk -F'\t' -v OFS='\t' -v IDM=$IDM -v ML=$MINLEN -v START=$START -v BAND=$BAND -v TAG=$TAG '
         FILENAME == ARGV[1] { sq[$1 SUBSEP $2] = $3; next }
