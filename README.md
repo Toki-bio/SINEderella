@@ -14,6 +14,7 @@ A reproducible Bash pipeline for genome-wide identification, classification, and
 | 6 | `step6_report.sh` / `step6_report.py` | HTML report (`results/report.html`): subfamily table, divergence, plates, element hierarchy, similarity blocks with the length-version, array, satellite and consensus-audit tables |
 | 7 | `step7_boundary_refine.sh` | Standalone/modular: per-subfamily boundary refinement — stepwise flank extension until a fraction-of-pairs-above-threshold test confirms background-level identity (or hits a 1000bp cap), writes `boundary_refinement.tsv` |
 | 8a | `step8a_extract_alignments.sh` | Standalone/modular: builds real top100/rand100/subfam alignments per subfamily, using `boundary_refinement.tsv` (if present) to size each subfamily's flanks |
+| 1c | `step1c_deplete.sh` | Standalone/modular, after step2+3: removes the copies the bank explains (unassigned + each subfamily's copies below the P-th percentile of step3 `sim_ratio`), runs SubFam with bin size 20 on the residual, writes `step1c/subfam_input/input.clw.al` for the §6.1 review; for subfamilies too rare to fill a chunk in step1's 30k sample |
 | 8b | `step8b_publish_report.sh` | Standalone/modular: wires step8a's alignments into an existing `report.html` as MSA-viewer links |
 | — | `publish_run.sh` | **Full publish:** step4 (if needed) → `publish/align_for_publish.sh` → step6 → SINE-discriminator inject. See [PUBLISH_WORKFLOW.md](PUBLISH_WORKFLOW.md). |
 
