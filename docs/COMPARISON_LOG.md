@@ -36,3 +36,9 @@ not evidence against it. The fair regime is the simulation at 16,000 copies and 
 * SubFam 1.2.1 awk consensus vs EMBOSS `cons`: 3,600 runs, 0 different; MSF writer vs EMBOSS `seqret`: 80 files, 0 different.
 * `kmer_order.c` vs the Python/numpy ordering: 292 synthetic cases and real saq/toc sets, byte-identical; vs ViewAlign `kmer-tree.js`: identical on 10 comparisons.
 * Robustness suite (`SubFam/tests/test_robust.sh`): found a silent exit on protein input, an MSF header that embeds the output directory, and a final alignment that depends on thread timing; fixed on the SubFam branch `tests-robust`.
+
+### SubFam 1.2.2 reproducibility checks (2026-10-08, KIT)
+
+* `tests/test_robust.sh`: 24 of 24 pass after the fixes (1 record, 2 records, fewer records than the chunk size, `-n 2`, duplicate ids, ids with spaces and pipes, lower case / N / IUPAC, an empty record, CRLF, wrapped lines with blank lines and no final newline, 120 identical sequences, gapped input, sequences shorter than k, mixed strands with and without `-r`, protein input (now refused with a message), `-c`, an output directory with a space, and determinism).
+* Determinism on 3,000 real saq copies: the consensuses, the final alignment, the chunk table and the MSF file are byte-identical across runs with 1, 8, 8 and 16 threads (before `--threadit 0`, the final alignment differed between two 8-thread runs).
+* The sinederella wrapper (`SubFam input.fasta 50`) on the same 3,000 copies: 60 chunk files, 60 consensuses, `input.clw`, `input.msf`, `input.chunks.tsv`, as the pipeline expects.
