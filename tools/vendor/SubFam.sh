@@ -66,7 +66,7 @@ Outputs (in DIR):
   PREFIX.chunks.tsv   input id, consensus it went into, strand (- = reverse-complemented
                       by -r, relative to the first sequence of the order)
 
-Requires: mafft, awk, and python3 with numpy (not needed with -m/-P).
+Requires: mafft, awk, and Python >= 3.6 with numpy (not needed with -m/-P).
 EOF
 }
 
@@ -102,7 +102,14 @@ for tool in mafft awk; do
     command -v "$tool" >/dev/null 2>&1 || die "'$tool' not found in PATH"
 done
 if [ "$ORDER" = kmer ]; then
-    python3 -c 'import numpy' 2>/dev/null || die "k-mer ordering needs python3 with numpy (or use -m)"
+    # the ordering script uses f-strings: needs Python >= 3.6 with numpy (KIT's default python3 is 3.5)
+    PY=
+    for cand in "${PYTHON:-}" python3 python3.12 python3.11 python3.10 python3.9 python3.8 python3.7 python3.6; do
+        [ -n "$cand" ] || continue
+        if command -v "$cand" >/dev/null 2>&1 &&
+           "$cand" -c 'import sys, numpy; sys.exit(sys.version_info < (3, 6))' 2>/dev/null; then PY=$cand; break; fi
+    done
+    [ -n "$PY" ] || die "k-mer ordering needs Python >= 3.6 with numpy (set PYTHON=, or use -m)"
 fi
 [[ $N =~ ^[0-9]+$ ]] && [ "$N" -ge 2 ] || die "-n must be an integer >= 2"
 [[ $K =~ ^[0-9]+$ ]] && [ "$K" -ge 3 ] && [ "$K" -le 12 ] || die "-k must be an integer from 3 to 12"
@@ -424,7 +431,7 @@ echo "SubFam $VERSION: $TOTAL sequences -> $NCHUNK chunks of ~$N"
 T1=$(date +%s)
 if [ "$ORDER" = kmer ]; then
     echo "Ordering sequences along the $K-mer guide tree"
-    python3 -c "$KMER_ORDER_PY" "$IN" "$WORK/ordered.fasta" "$K" "${BOTH:-0}" "${BOTH:-0}"
+    "$PY" -c "$KMER_ORDER_PY" "$IN" "$WORK/ordered.fasta" "$K" "${BOTH:-0}" "${BOTH:-0}"
 else
     echo "Ordering sequences along the MAFFT guide tree"
     mafft --thread "$THREADS" --nuc --quiet --retree 0 --reorder $PARTTREE ${BOTH:+--adjustdirection} \
