@@ -19,11 +19,9 @@ cd "$W" || exit 1
 $PY "$HERE/prep_labeled.py" "$ALN" "$SP" copies
 N=$(grep -c '^>' copies.fa)
 
-# reference: plurality consensus of an alignment of all copies, degapped
+# reference: plurality consensus (colcons.awk) of an alignment of all copies, degapped
 mafft --thread "$THREADS" --auto --quiet copies.fa > copies.aln
-cons -sequence copies.aln -plurality $(( N / 4 )) -outseq ref.raw.fa -name ref -auto 2>/dev/null || \
-    cons -filter -plurality $(( N / 4 )) -name ref < copies.aln > ref.raw.fa
-awk '/^>/{print; next} {gsub(/[-nN]/,""); printf "%s", $0} END{print ""}' ref.raw.fa | awk 'NR==1{print;next}{printf "%s",$0} END{print ""}' > ref.fa
+awk -v plur=$(( N / 4 )) -v name=ref -f "$HERE/colcons.awk" copies.aln > ref.fa
 echo "reference: $(tail -n +2 ref.fa | tr -d '\n' | wc -c) bp"
 
 for mode in drop keep; do
@@ -47,5 +45,23 @@ for n in 50 20 10; do
     ( cd "$d" || exit 1; bash "$SUBFAM/SubFam" ../copies.fa "$n" > log.txt 2>&1 ) || echo "SubFam failed: $d"
     [ -f "$d/copies.chunks.tsv" ] && SPECS+=("$d/copies.chunks.tsv:SubFam_n$n")
 done
+
+# the SINEderella route: the peel (SINE-discriminator peel_features.py) on the SubFam chunk consensuses
+PEELPY=${PEELPY:-$HERE/../../../SINE-discriminator/peel_features.py}
+if [ -f "$PEELPY" ]; then
+    for n in 20 10; do
+        d="sf_n$n"
+        [ -f "$d/copies.chunks.tsv" ] || continue
+        $PY "$HERE/peel_labels.py" truth "$d/copies.chunks.tsv" copies.labels "$d/chunk_truth.json"
+        rm -rf "peel_n$n"; mkdir "peel_n$n"
+        $PY "$PEELPY" "$d/copies.clw" "peel_n$n" "$d/chunk_truth.json" > "peel_n$n/peel.log" 2>&1 || echo "peel failed: peel_n$n (see peel_n$n/peel.log)"
+        if [ -f "peel_n$n/peel_features.json" ]; then
+            $PY "$HERE/peel_labels.py" groups "$d/copies.chunks.tsv" "peel_n$n/peel_features.json" "peel_n$n/copy_groups.tsv"
+            SPECS+=("peel_n$n/copy_groups.tsv:SubFam+peel_n$n")
+        fi
+    done
+else
+    echo "peel_features.py not found at $PEELPY; the SubFam+peel arm is skipped"
+fi
 
 $PY "$HERE/score.py" copies.labels "${SPECS[@]}" | tee scores.txt
