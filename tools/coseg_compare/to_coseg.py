@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Align labelled copies to ONE reference and write COSEG input (NAME.seqs, NAME.ins, NAME.names).
 
-usage: to_coseg.py REF.fa COPIES.fa OUTPREFIX [drop|keep]
+usage: to_coseg.py REF.fa COPIES.fa OUTPREFIX [drop|keep] [JOBS]
 
 Pure Python (no Biopython). Affine-gap global alignment with free end gaps on both sequences
 (match 2, mismatch -3, gap open -5, gap extend -2: the settings used for the Konkel Alu run).
   drop (default): copies missing more than 5 reference bases at either end are left out, as in
                   Price et al. 2004 (the list of dropped copies goes to OUTPREFIX.dropped).
   keep:           all copies are written; missing ends are '-' like internal deletions.
+JOBS > 1 aligns copies in parallel (order of the output does not change).
 COSEG row format: one character per reference position (lower-case base, '-' = deletion or
 missing end); an insertion after reference position p is marked '+' in the row after that
 position and recorded in the .ins line as "p:bases".
@@ -16,6 +17,7 @@ import sys
 
 MATCH, MISMATCH, GAP_OPEN, GAP_EXT = 2, -3, -5, -2
 NEG = -10 ** 9
+_REF = ""
 
 
 def read_fa(path):
@@ -110,27 +112,55 @@ def to_row(cols, ref, q):
     return row, ins, lead, trail
 
 
+def init(ref):
+    global _REF
+    _REF = ref
+
+
+def one(rec):
+    """Worker: align one copy; returns (name, row string with '+' marks, ins string, lead, trail)."""
+    name, q = rec
+    cols = align(_REF, q)
+    row, ins, lead, trail = to_row(cols, _REF, q)
+    out_row, insl = [], []
+    for i, c in enumerate(row):
+        out_row.append(c)
+        if (i + 1) in ins:
+            out_row.append("+")
+            insl.append("%d:%s" % (i + 1, ins[i + 1]))
+    return name, "".join(out_row), " ".join(insl), lead, trail
+
+
 def main():
+    global _REF
     ref_fa, copies_fa, out = sys.argv[1:4]
     mode = sys.argv[4] if len(sys.argv) > 4 else "drop"
-    ref = "".join(s for _, s in read_fa(ref_fa)[:1])
-    L = len(ref)
+    jobs = int(sys.argv[5]) if len(sys.argv) > 5 else 1
+    _REF = "".join(s for _, s in read_fa(ref_fa)[:1])
+    recs = read_fa(copies_fa)
+    if jobs > 1:
+        import multiprocessing
+        with multiprocessing.Pool(jobs, initializer=init, initargs=(_REF,)) as pool:
+            results = pool.map(one, recs, chunksize=max(1, len(recs) // (jobs * 8)))
+    else:
+        results = [one(r) for r in recs]
     kept = dropped = 0
-    with open(out + ".seqs", "w") as fs, open(out + ".ins", "w") as fi, open(out + ".names", "w") as fn, \
-            open(out + ".dropped", "w") as fd:
-        for name, q in read_fa(copies_fa):
-            cols = align(ref, q)
-            row, ins, lead, trail = to_row(cols, ref, q)
-            if mode == "drop" and (lead > 5 or trail > 5):
-                dropped += 1; fd.write("%s\t%d\t%d\n" % (name, lead, trail)); continue
-            kept += 1
-            out_row, insl = [], []
-            for i, c in enumerate(row):
-                out_row.append(c)
-                if (i + 1) in ins:
-                    out_row.append("+"); insl.append("%d:%s" % (i + 1, ins[i + 1]))
-            fs.write("".join(out_row) + "\n"); fi.write(" ".join(insl) + "\n"); fn.write(name + "\n")
-    print("reference %d bp; %s: kept %d, dropped %d" % (L, mode, kept, dropped))
+    fs = open(out + ".seqs", "w")
+    fi = open(out + ".ins", "w")
+    fn = open(out + ".names", "w")
+    fd = open(out + ".dropped", "w")
+    for name, row, insl, lead, trail in results:
+        if mode == "drop" and (lead > 5 or trail > 5):
+            dropped += 1
+            fd.write("%s\t%d\t%d\n" % (name, lead, trail))
+            continue
+        kept += 1
+        fs.write(row + "\n")
+        fi.write(insl + "\n")
+        fn.write(name + "\n")
+    for f in (fs, fi, fn, fd):
+        f.close()
+    print("reference %d bp; %s: kept %d, dropped %d" % (len(_REF), mode, kept, dropped))
 
 
 if __name__ == "__main__":

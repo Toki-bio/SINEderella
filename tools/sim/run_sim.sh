@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Simulated benchmark with a known subfamily tree. Run on KIT.
 #   run_sim.sh OUTDIR [SEEDS="1 2 3"] [JOBS=4] [SCENARIOS=scenarios.tsv]
+# scenarios.tsv: name <TAB> simulator arguments [<TAB> seeds for this scenario only]
 # Each (scenario, seed) gets OUTDIR/<scenario>_s<seed>/ with copies.fa, copies.labels, the tree, and the
 # comparison of tools/coseg_compare/run_core.sh (COSEG, SubFam chunks, SubFam+peel). scores are collected by
 # aggregate.py into OUTDIR/summary.tsv.
@@ -14,9 +15,9 @@ PY=${PYTHON:-python3.12}
 mkdir -p "$OUT" || exit 1
 cd "$OUT" || exit 1
 : > jobs.txt
-while IFS=$'\t' read -r name args; do
+while IFS=$'\t' read -r name args seeds; do
     [ -n "$name" ] || continue
-    for s in $SEEDS; do echo "$name $s $args" >> jobs.txt; done
+    for s in ${seeds:-$SEEDS}; do echo "$name $s $args" >> jobs.txt; done
 done < "$SC"
 one() {
     name=$1; seed=$2; shift 2

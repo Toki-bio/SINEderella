@@ -14,6 +14,10 @@ THREADS=${THREADS:-16}
 cd "$W" || exit 1
 [ -s copies.fa ] && [ -s copies.labels ] || { echo "copies.fa / copies.labels missing in $W"; exit 1; }
 N=$(grep -c '^>' copies.fa)
+# COSEG minimum subfamily sizes and SubFam chunk sizes follow the size of the set (override with COSEG_MS, SF_NS)
+if [ "$N" -ge 5000 ]; then MS=${COSEG_MS:-"100 50 20"}; NS=${SF_NS:-"100 50 20"}
+else MS=${COSEG_MS:-"20 10 5"}; NS=${SF_NS:-"50 20 10"}; fi
+echo "copies: $N; COSEG -m: $MS; SubFam -n: $NS"
 
 # reference: plurality consensus (colcons.awk) of an alignment of all copies, degapped
 mafft --thread "$THREADS" --auto --quiet copies.fa > copies.aln
@@ -21,13 +25,13 @@ awk -v plur=$(( N / 4 )) -v name=ref -f "$HERE/colcons.awk" copies.aln > ref.fa
 echo "reference: $(tail -n +2 ref.fa | tr -d '\n' | wc -c) bp"
 
 for mode in drop keep; do
-    $PY "$HERE/to_coseg.py" ref.fa copies.fa "cs_$mode" "$mode"
+    $PY "$HERE/to_coseg.py" ref.fa copies.fa "cs_$mode" "$mode" "$THREADS"
     tr 'acgt' 'ACGT' < ref.fa | awk 'NR==1{print;next}{printf "%s",$0} END{print ""}' > "cs_$mode.cons"
 done
 
 SPECS=()
 for mode in drop keep; do
-    for m in 20 10 5; do
+    for m in $MS; do
         d="cs_${mode}_m$m"; rm -rf "$d"; mkdir "$d"
         ( cd "$d" || exit 1
           cp "../cs_$mode.seqs" "../cs_$mode.ins" "../cs_$mode.cons" .
@@ -36,7 +40,7 @@ for mode in drop keep; do
     done
 done
 
-for n in 50 20 10; do
+for n in $NS; do
     d="sf_n$n"; rm -rf "$d"; mkdir "$d"
     ( cd "$d" || exit 1; bash "$SUBFAM/SubFam" ../copies.fa "$n" > log.txt 2>&1 ) || echo "SubFam failed: $d"
     [ -f "$d/copies.chunks.tsv" ] && SPECS+=("$d/copies.chunks.tsv:SubFam_n$n")
@@ -45,9 +49,11 @@ done
 # the SINEderella route: the peel (SINE-discriminator peel_features.py) on the SubFam chunk consensuses
 PEELPY=${PEELPY:-$HERE/../../../SINE-discriminator/peel_features.py}
 if [ -f "$PEELPY" ]; then
-    for n in 20 10; do
+    for n in $NS; do
         d="sf_n$n"
         [ -f "$d/copies.chunks.tsv" ] || continue
+        # the peel needs a few dozen chunk consensuses at least
+        [ "$(cut -f2 "$d/copies.chunks.tsv" | sort -u | wc -l)" -ge 40 ] || { echo "peel_n$n skipped: fewer than 40 chunks"; continue; }
         $PY "$HERE/peel_labels.py" truth "$d/copies.chunks.tsv" copies.labels "$d/chunk_truth.json"
         rm -rf "peel_n$n"; mkdir "peel_n$n"
         $PY "$PEELPY" "$d/copies.clw" "peel_n$n" "$d/chunk_truth.json" > "peel_n$n/peel.log" 2>&1 || echo "peel failed: peel_n$n (see peel_n$n/peel.log)"
