@@ -80,6 +80,12 @@ cd "$OUTDIR"
 # --- SPLIT CONSENSUS ---
 echo "[$(date)] Splitting consensus library..."
 seqkit split -i "$CONSENSUS" -O searches
+# seqkit < 0.15 names the per-sequence files <name>.id_<ID>.<ext>; newer versions use .part_<ID>. Normalise to .part_
+for _f in searches/*.id_*; do
+    [[ -e "$_f" ]] || continue
+    _d=$(dirname "$_f"); _b=$(basename "$_f")
+    mv "$_f" "$_d/${_b/.id_/.part_}"
+done
 
 CONSENSUS_BASENAME=$(basename "$CONSENSUS")
 CONSENSUS_NAME="${CONSENSUS_BASENAME%.*}"
