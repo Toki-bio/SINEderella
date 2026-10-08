@@ -42,3 +42,23 @@ not evidence against it. The fair regime is the simulation at 16,000 copies and 
 * `tests/test_robust.sh`: 24 of 24 pass after the fixes (1 record, 2 records, fewer records than the chunk size, `-n 2`, duplicate ids, ids with spaces and pipes, lower case / N / IUPAC, an empty record, CRLF, wrapped lines with blank lines and no final newline, 120 identical sequences, gapped input, sequences shorter than k, mixed strands with and without `-r`, protein input (now refused with a message), `-c`, an output directory with a space, and determinism).
 * Determinism on 3,000 real saq copies: the consensuses, the final alignment, the chunk table and the MSF file are byte-identical across runs with 1, 8, 8 and 16 threads (before `--threadit 0`, the final alignment differed between two 8-thread runs).
 * The sinederella wrapper (`SubFam input.fasta 50`) on the same 3,000 copies: 60 chunk files, 60 consensuses, `input.clw`, `input.msf`, `input.chunks.tsv`, as the pipeline expects.
+
+### Four hand-curated sets (2026-10-08, KIT, `run_compare.sh`)
+
+100 copies per group from the owner's `POS__<sp>__*` alignments; ground truth = the owner's group of each copy. ARI over all
+copies (unplaced copies count as singletons), best setting of each arm in brackets; full tables in `<sp>/scores.txt`.
+
+| set | copies | groups | COSEG (best of m 20/10/5, drop/keep) | SubFam chunks (best n) | SubFam + peel (placed copies) |
+| --- | --- | --- | --- | --- | --- |
+| saq | 900 | 9 | 0.447 (keep, m 20) | 0.198 (n 50) | 0.195 (n 20; 780 of 900) |
+| ccr | 800 | 8 | 0.316 (keep, m 20) | 0.191 (n 50) | 0.087 (n 10; 760 of 800) |
+| teu | 600 | 6 | 0.429 (drop, m 20) | 0.247 (n 50) | 0.430 (n 20; 560 of 600) |
+| dmo | 500 | 5 | 0.424 (keep, m 20) | 0.267 (n 50) | 0.416 (n 10; 430 of 500) |
+
+Reading, without going beyond the data: (1) COSEG is the stronger or equal arm on all four sets; on teu and dmo the peel equals it
+on ARI over all copies, on dmo with the peel placing 360\-430 of 500 copies (ARI on placed copies only: 0.56 against COSEG's 0.42);
+on saq and ccr the peel is clearly behind. (2) SubFam chunks alone are over-split by design and are not a partition; their best ARI is
+the coarsest chunk size. (3) These sets hold 500\-900 copies, so SubFam makes 25\-90 chunks and the peel, built for about 600
+chunk consensuses, has little to work with; the numbers are a lower bound for the route, not a fair measure of it. (4) The truth is the
+owner's chunk-level curation carried onto 100 sampled copies per group, and a few of his groups are not separable by sequence alone, so
+no method is expected to reach 1.0.
