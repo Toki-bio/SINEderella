@@ -62,3 +62,40 @@ the coarsest chunk size. (3) These sets hold 500\-900 copies, so SubFam makes 25
 chunk consensuses, has little to work with; the numbers are a lower bound for the route, not a fair measure of it. (4) The truth is the
 owner's chunk-level curation carried onto 100 sampled copies per group, and chunk-level labels of this kind had a purity ceiling of 0.88 on Timema
 (SUBFAMILY_METHOD.md), so no method is expected to reach 1.0.
+
+### Simulation with a known tree (2026-10-08, KIT, `tools/sim`, output `simA/`)
+
+Eight subfamilies on a tree (parent = the previous subfamily with probability 0.5, otherwise a random earlier one), each adding
+`--diag` new diagnostic substitutions to a 250 bp consensus; copies carry private substitutions at a per-copy divergence that falls from
+`--div-old` to `--div-young` along the subfamily index. Ten small scenarios (1,600 copies, 3 seeds) and three large ones (16,000-18,450
+copies, 1 seed). ARI over all copies, best setting of each arm (mean over seeds):
+
+| scenario | what changes | COSEG | SubFam chunks | SubFam + peel (defaults) |
+| --- | --- | --- | --- | --- |
+| base | 2 diagnostic changes per subfamily, divergence 12 % to 3 % | 0.625 | 0.090 | 0.148 |
+| diag1 | 1 change per subfamily | 0.330 | 0.045 | 0 (no group) |
+| diag5 | 5 changes per subfamily | 0.313 | 0.092 | 0.241 |
+| indel | 60 % of subfamilies use a 3 bp deletion | 0.676 | 0.076 | 0.223 |
+| trunc | 30 % of copies cut at the 5' end | 0.556 | 0.075 | 0.162 |
+| rare | three subfamilies of 40, 20 and 10 copies | 0.545 | 0.029 | 0 |
+| conv | 10 % of copies carry a tract of another subfamily | 0.625 | 0.085 | 0.162 |
+| old | divergence 22 % to 10 % | 0.515 | 0.021 | 0.071 |
+| young | divergence 5 % to 1 % | 0.772 | 0.169 | 0.285 |
+| revcomp | half the copies reverse-complemented | 0.278 (keep) | 0.072 | 0.015 |
+| large (16,000) | as base | 0.688 | 0.025 | 0.145 |
+| large_diag1 | as diag1 | 0.442 | 0.013 | 0 |
+| large_rare | 4 x 4,000, 2,000, 300, 100, 50 | 0.742 | 0.006 | 0 |
+
+(The COSEG figures that differ from the 3-seed means above are single runs; see `simA/summary.tsv`. In `revcomp`, COSEG "drop" places almost nothing because
+the aligner is forward-only; "keep" is shown.)
+
+Why the peel finds so little here, from its own logs:
+1. The chunks are not pure. SubFam chunks of the simulated sets have purity 0.45-0.58 at the default scenario (0.28 for old families, 0.62-0.77 for young ones), so the
+   consensus of a chunk already mixes subfamilies; the k-mer ordering cannot separate subfamilies that differ by two substitutions in 250 bases under 3-12 % private divergence.
+2. The peel skips columns where one base holds more than 80 % of the alignment (`PEEL_GLOBAL_CONS`); a diagnostic base held by one subfamily out of eight is below 20 %,
+   so it never becomes a feature ("4 features for 320 chunks").
+3. A block needs 3 co-occurring features (`PEEL_MIN_BLOCK`), more than a subfamily with two new changes can supply.
+
+Peel sweep (`peel_sweep.sh`, 16 data sets, chunk sizes 10-100, 396 runs eligible with at least 40 chunks): mean ARI over all copies is 0.10 at the defaults
+(`GLOBAL_CONS` 0.80, `MIN_SET` 5, `MIN_BLOCK` 3, `FEAT_JACCARD` 0.45); 0.18 with `GLOBAL_CONS` 0.90 and `MIN_BLOCK` 2 (either `FEAT_JACCARD` 0.30 or 0.45), the best single
+setting over all data sets. No setting reached the COSEG scores. Best per data set is not a result (it picks the setting after seeing the answer); it is given in `peel_sweep*.tsv`.
