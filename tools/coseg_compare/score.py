@@ -4,11 +4,18 @@
 usage: score.py LABELS.tsv  SPEC:LABEL [SPEC:LABEL ...]
 SPEC is  ASSIGN@NAMES  for COSEG (its .assign file and the .names written by to_coseg.py),
 or a SubFam .chunks.tsv (copy id, chunk, strand), or any two-column TSV (copy id, group).
-Metrics are computed on the copies the method placed in a group (coverage reported), and again on
-the intersection of all methods' placed copies (the fair comparison).
+
+Three views of every method (a method may leave copies unplaced: Price's rule drops truncated
+copies, the peel leaves a residue):
+  placed    metrics on the copies the method put in a group (coverage = placed / all copies);
+  common    the same metrics on the copies placed by every method listed (a like-for-like set,
+            small when one method places few copies);
+  all       ARI over ALL copies, each unplaced copy counting as a group of its own, so a method
+            cannot gain by discarding hard copies.
+Columns: method, placed, groups | purity, homogeneity, completeness, V, ARI (placed) |
+         ARIcom, Vcom, groups (common) | ARIall.
 """
 import collections
-import os
 import sys
 from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_measure
 
@@ -39,16 +46,27 @@ common = [i for i in allids if all(i in a for _, a in methods)]
 
 
 def metrics(ids, asg):
-    tr = [lab[i] for i in ids]; cl = [asg[i] for i in ids]
+    if not ids:
+        return 0, 0.0, 0.0, 0.0, 0.0, 0.0
+    tr = [lab[i] for i in ids]
+    cl = [asg[i] for i in ids]
     h, c, v = homogeneity_completeness_v_measure(tr, cl)
     pur = sum(max(collections.Counter(t for t, k in zip(tr, cl) if k == g).values()) for g in set(cl)) / len(ids)
     return len(set(cl)), pur, h, c, v, adjusted_rand_score(tr, cl)
 
 
+def ari_all(asg):
+    tr = [lab[i] for i in allids]
+    cl = [asg.get(i, "u%d" % k) for k, i in enumerate(allids)]
+    return adjusted_rand_score(tr, cl)
+
+
 print("copies %d, truth groups %d, placed by all methods %d" % (len(allids), len(set(lab.values())), len(common)))
-print("%-20s %6s %6s | %6s %6s %6s %6s %6s | %6s %6s %6s" % ("method", "placed", "groups", "purity", "homog", "compl", "V", "ARI", "ARIcom", "Vcom", "grpscom"))
+print("%-20s %6s %6s | %6s %6s %6s %6s %6s | %6s %6s %6s | %6s" % (
+    "method", "placed", "groups", "purity", "homog", "compl", "V", "ARI", "ARIcom", "Vcom", "grpcom", "ARIall"))
 for label, asg in methods:
     ids = [i for i in allids if i in asg]
     g, p, h, c, v, a = metrics(ids, asg)
-    gc, pc, hc, cc, vc, ac = metrics(common, asg) if common else (0, 0, 0, 0, 0, 0)
-    print("%-20s %6d %6d | %6.3f %6.3f %6.3f %6.3f %6.3f | %6.3f %6.3f %6d" % (label, len(ids), g, p, h, c, v, a, ac, vc, gc))
+    gc, pc, hc, cc, vc, ac = metrics(common, asg)
+    print("%-20s %6d %6d | %6.3f %6.3f %6.3f %6.3f %6.3f | %6.3f %6.3f %6d | %6.3f" % (
+        label, len(ids), g, p, h, c, v, a, ac, vc, gc, ari_all(asg)))
