@@ -66,7 +66,7 @@ Outputs (in DIR):
   PREFIX.chunks.tsv   input id, consensus it went into, strand (- = reverse-complemented
                       by -r, relative to the first sequence of the order)
 
-Requires: mafft, awk, and Python >= 3.6 with numpy (not needed with -m/-P).
+Requires: mafft, awk, and for the k-mer ordering a C compiler (kmer_order.c) or Python >= 3.6 with numpy (not needed with -m/-P).
 EOF
 }
 
@@ -101,16 +101,6 @@ IN=$1
 for tool in mafft awk; do
     command -v "$tool" >/dev/null 2>&1 || die "'$tool' not found in PATH"
 done
-if [ "$ORDER" = kmer ]; then
-    # the ordering script uses f-strings: needs Python >= 3.6 with numpy (KIT's default python3 is 3.5)
-    PY=
-    for cand in "${PYTHON:-}" python3 python3.12 python3.11 python3.10 python3.9 python3.8 python3.7 python3.6; do
-        [ -n "$cand" ] || continue
-        if command -v "$cand" >/dev/null 2>&1 &&
-           "$cand" -c 'import sys, numpy; sys.exit(sys.version_info < (3, 6))' 2>/dev/null; then PY=$cand; break; fi
-    done
-    [ -n "$PY" ] || die "k-mer ordering needs Python >= 3.6 with numpy (set PYTHON=, or use -m)"
-fi
 [[ $N =~ ^[0-9]+$ ]] && [ "$N" -ge 2 ] || die "-n must be an integer >= 2"
 [[ $K =~ ^[0-9]+$ ]] && [ "$K" -ge 3 ] && [ "$K" -le 12 ] || die "-k must be an integer from 3 to 12"
 [[ $THREADS =~ ^[0-9]+$ ]] && [ "$THREADS" -ge 1 ] || die "-t must be a positive integer"
@@ -121,6 +111,33 @@ NAME=${PREFIX//[[:space:]]/_}   # FASTA ids cannot contain spaces
 mkdir -p "$OUTDIR"
 WORK=$(mktemp -d "$OUTDIR/.subfam_${PREFIX}_XXXXXX")
 [ -n "$KEEP_TMP" ] || trap 'rm -rf "$WORK"' EXIT
+
+# k-mer ordering program: the C version (kmer_order.c, compiled into $WORK for this run, so there is
+# no stale binary and nothing is written outside the output directory), else the embedded Python
+# version (needs Python >= 3.6 with numpy; KIT's default python3 is 3.5). KMER_IMPL=c|py forces one.
+KMER_BIN=
+PY=
+if [ "$ORDER" = kmer ]; then
+    HERE=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+    if [ "${KMER_IMPL:-}" != py ] && [ -f "$HERE/kmer_order.c" ]; then
+        for cc in "${CC:-}" cc gcc clang; do
+            [ -n "$cc" ] && command -v "$cc" >/dev/null 2>&1 || continue
+            for flags in "-fopenmp" ""; do
+                if "$cc" -O2 -ffp-contract=off $flags -o "$WORK/kmer_order" "$HERE/kmer_order.c" -lm 2>/dev/null; then
+                    KMER_BIN="$WORK/kmer_order"; break 2
+                fi
+            done
+        done
+    fi
+    if [ -z "$KMER_BIN" ] && [ "${KMER_IMPL:-}" != c ]; then
+        for cand in "${PYTHON:-}" python3 python3.12 python3.11 python3.10 python3.9 python3.8 python3.7 python3.6; do
+            [ -n "$cand" ] || continue
+            if command -v "$cand" >/dev/null 2>&1 &&
+               "$cand" -c 'import sys, numpy; sys.exit(sys.version_info < (3, 6))' 2>/dev/null; then PY=$cand; break; fi
+        done
+    fi
+    [ -n "$KMER_BIN$PY" ] || die "k-mer ordering needs a C compiler (kmer_order.c) or Python >= 3.6 with numpy; or use -m"
+fi
 
 # ---------------------------------------------------------------------------------------
 # Embedded programs
@@ -431,7 +448,11 @@ echo "SubFam $VERSION: $TOTAL sequences -> $NCHUNK chunks of ~$N"
 T1=$(date +%s)
 if [ "$ORDER" = kmer ]; then
     echo "Ordering sequences along the $K-mer guide tree"
-    "$PY" -c "$KMER_ORDER_PY" "$IN" "$WORK/ordered.fasta" "$K" "${BOTH:-0}" "${BOTH:-0}"
+    if [ -n "$KMER_BIN" ]; then
+        OMP_NUM_THREADS=$THREADS "$KMER_BIN" "$IN" "$WORK/ordered.fasta" "$K" "${BOTH:-0}" "${BOTH:-0}"
+    else
+        "$PY" -c "$KMER_ORDER_PY" "$IN" "$WORK/ordered.fasta" "$K" "${BOTH:-0}" "${BOTH:-0}"
+    fi
 else
     echo "Ordering sequences along the MAFFT guide tree"
     mafft --thread "$THREADS" --nuc --quiet --retree 0 --reorder $PARTTREE ${BOTH:+--adjustdirection} \
