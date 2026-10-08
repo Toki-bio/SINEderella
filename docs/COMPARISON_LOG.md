@@ -86,8 +86,8 @@ copies, 1 seed). ARI over all copies, best setting of each arm (mean over seeds)
 | large_diag1 | as diag1 | 0.442 | 0.013 | 0 |
 | large_rare | 4 x 4,000, 2,000, 300, 100, 50 | 0.742 | 0.006 | 0 |
 
-(The COSEG figures that differ from the 3-seed means above are single runs; see `simA/summary.tsv`. In `revcomp`, COSEG "drop" places almost nothing because
-the aligner is forward-only; "keep" is shown.)
+The three `large` rows are single runs; the others are means over three seeds (`simA/summary.tsv`). In `revcomp`, COSEG "drop" places almost nothing because the
+aligner is forward-only; "keep" is shown. More diagnostic changes (`diag5`) did not raise the COSEG score over `diag1` here (0.313 against 0.330), which I have not explained.
 
 Why the peel finds so little here, from its own logs:
 1. The chunks are not pure. SubFam chunks of the simulated sets have purity 0.45-0.58 at the default scenario (0.28 for old families, 0.62-0.77 for young ones), so the
