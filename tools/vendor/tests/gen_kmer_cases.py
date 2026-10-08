@@ -118,6 +118,21 @@ def main():
     # random unrelated sequences (distances near 1)
     write(out + "/random_unrelated.fa", [("r%d" % i, rand_seq(rng, rng.randrange(150, 400))) for i in range(300)])
 
+    # tie-rich inputs: every sequence present several times, shuffled; and few distinct sequences, many copies
+    base = [s for _, s in families(rng, 6, 10, 180, 0.08)]
+    recs = [("g%d_%d" % (i, r), s) for i, s in enumerate(base) for r in range(3)]
+    rng.shuffle(recs)
+    write(out + "/dup_groups.fa", recs)
+    distinct = [rand_seq(rng, 120) for _ in range(6)]
+    distinct += [mut(rng, distinct[0], 0.05), mut(rng, distinct[1], 0.05)]
+    recs = [("q%d" % i, distinct[rng.randrange(len(distinct))]) for i in range(150)]
+    write(out + "/few_distinct.fa", recs)
+    recs = [("p%d" % i, distinct[i % len(distinct)] if i % 3 else rc(distinct[i % len(distinct)])) for i in range(90)]
+    rng.shuffle(recs)
+    write(out + "/few_distinct_revcomp.fa", recs)
+    # sequences that share no k-mer with each other (orientation ties: fwd == rev == 0)
+    write(out + "/orient_ties.fa", [("u%d" % i, rand_seq(rng, 40)) for i in range(80)])
+
     # larger: sizes scaled
     n = int(2000 * scale)
     write(out + "/big2k.fa", families(rng, 10, n // 10, 300, 0.07, 0.02, 0.2))
