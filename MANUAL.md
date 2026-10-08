@@ -452,6 +452,43 @@ decided; flag for whoever implements this.
 
 ---
 
+#### 6.1.7 Rare subfamilies: deplete and resample (`step1c_deplete.sh`)
+
+Step 1 gives SubFam a sample of `sample_size` (30,000) copies. A subfamily with a few hundred
+genomic copies is a few dozen copies in that sample, too few to fill a chunk of 50, so it gets no
+chunk consensus of its own and step 2 assigns its copies to an abundant sister. The remedy is not
+a larger sample but a second, smaller SubFam round on the copies the current bank does **not**
+explain:
+
+```bash
+step1c_deplete.sh <RUN_ROOT> [PERCENTILE=25] [BIN_SIZE=20] [SAMPLE=30000] [THREADS] [MIN_LEN_FRAC=0.8]
+```
+
+After step 2 and step 3 it builds the residual: the unassigned copies, plus every assigned copy
+whose single-alignment similarity to its consensus (step 3 `sim_ratio`) is below the
+`PERCENTILE`-th percentile of that subfamily's copies, i.e. only the close top 75 % of each
+subfamily is removed. Copies shorter than `MIN_LEN_FRAC` × their consensus are set aside
+(`step1c/set_aside.tsv`): `sim_ratio` is a bitscore ratio, so a truncated copy scores low even
+when every base it has matches, and a fragment cannot define a subfamily anyway. SubFam then runs
+on the residual with bin size 20 and the chunk consensuses are aligned to
+`step1c/subfam_input/input.clw.al`, which is reviewed exactly like step 1's `input.clw`
+(§6.1.1–6.1.3). Most rows are tails of known subfamilies; a new subfamily shows as a block of
+several near-identical rows. Add its consensus with `SINEderella --add` (§7.2), re-run step 3,
+and run step1c again until a round adds nothing.
+
+Why these defaults: on a simulated genome with 100,000 copies and one subfamily of 100 copies
+(0.1 %), step 1's 30k sample held 27 of them and SubFam missed the subfamily; the rare copies sit
+only ~2.6 identity points below their sister's copies, so a hard cut (5th percentile) keeps a
+quarter of them and a 25th-percentile cut two thirds; with bin size 20 (not 50) the second round
+recovered the subfamily in both cases, with bin size 50 in neither. A larger residual is harder
+to order (it is the far tails of the big subfamilies), so deplete hard and chunk small.
+(Measurements: SubFam repository, `docs/SCALING.md` §6.)
+
+`SubFam` itself was adjusted for this (plurality scaled with the bin size: the old fixed
+`-plurality 18` meant 90 % agreement at bin size 20 and produced gappy consensuses; one MAFFT
+thread per parallel chunk job; PartTree ordering above 30,000 sequences). Its output at the
+default bin size 50 is unchanged, byte for byte.
+
 ## 7. Step 2 — Assignment (asSINEment) (`step2_asSINEment.sh`)
 
 ### Usage (standalone)

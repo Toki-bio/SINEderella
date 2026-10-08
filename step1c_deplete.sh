@@ -5,7 +5,7 @@ set -euo pipefail
 # step1c_deplete.sh — deplete-and-resample SubFam round for rare subfamilies
 #
 # Usage:
-#   step1c_deplete.sh <RUN_ROOT> [PERCENTILE=25] [BIN_SIZE=20] [SAMPLE=30000] [THREADS]
+#   step1c_deplete.sh <RUN_ROOT> [PERCENTILE=25] [BIN_SIZE=20] [SAMPLE=30000] [THREADS] [MIN_LEN_FRAC=0.8]
 #
 # Standalone/modular (like step7/8): runs against a completed run after step2
 # and step3, changes nothing in it, and writes to RUN_ROOT/step1c/.
@@ -27,9 +27,17 @@ set -euo pipefail
 # shrinking the pool 4x. BIN_SIZE 20 (not 50): the residual is small and its
 # rare members are few.
 #
+# Length filter: sim_ratio is a bitscore ratio, so a truncated copy scores low
+# even when every base it has matches. Only copies at least MIN_LEN_FRAC of their
+# consensus's length can enter the residual; shorter ones are set aside (listed
+# in set_aside.tsv, assignment untouched): a fragment cannot define a subfamily.
+# The consensus length comes from RUN_ROOT/consensuses.clean.fa (an unassigned
+# copy uses its best-vote consensus from step2, or the bank median).
+#
 # Output (RUN_ROOT/step1c/):
 #   residual.fasta        copies not explained by the bank
 #   residual.tsv          seqID, subfamily-or-unassigned, sim_ratio, reason
+#   set_aside.tsv         copies kept out of the residual for being too short (same columns)
 #   subfam_input/input.fasta        the (sampled) residual given to SubFam
 #   subfam_input/input.clw          SubFam chunk consensuses (unaligned, as in step1)
 #   subfam_input/input.clw.al       the consensuses aligned (MAFFT L-INS-i)
@@ -48,6 +56,7 @@ PERCENTILE="${2:-25}"
 BIN_SIZE="${3:-20}"
 SAMPLE="${4:-30000}"
 THREADS="${5:-$(nproc 2>/dev/null || echo 1)}"
+MIN_LEN_FRAC="${6:-0.8}"
 
 if [[ -z "$RUN_ROOT" || "$RUN_ROOT" == "-h" || "$RUN_ROOT" == "--help" ]]; then
   sed -n '/^# Usage:/,/^# Requires/p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -56,6 +65,7 @@ fi
 RUN_ROOT="$(readlink -f "$RUN_ROOT")"
 [[ "$PERCENTILE" =~ ^[0-9]+$ && "$PERCENTILE" -ge 0 && "$PERCENTILE" -le 100 ]] || { echo "ERROR: PERCENTILE must be 0-100" >&2; exit 1; }
 [[ "$BIN_SIZE" =~ ^[0-9]+$ && "$BIN_SIZE" -ge 2 ]] || { echo "ERROR: BIN_SIZE must be an integer >= 2" >&2; exit 1; }
+awk -v f="$MIN_LEN_FRAC" 'BEGIN { exit !(f >= 0 && f <= 1) }' || { echo "ERROR: MIN_LEN_FRAC must be in [0, 1]" >&2; exit 1; }
 
 log(){ printf '[%s] %s\n' "$(date '+%F %T')" "$*" >&2; }
 die(){ log "ERROR: $*"; exit 1; }
@@ -72,7 +82,8 @@ STEP2_OUT="$(ls -dt "$RUN_ROOT"/step2/step2_output* 2>/dev/null | head -n1 || tr
 ASSIGN="$STEP2_OUT/assignment_full.tsv"     # seqID subfam thr votes status bitscore
 SIM="$STEP2_OUT/sim_scores.tsv"             # seqID sim_bs self_bs sim_ratio   (step3)
 UNASSIGNED="$STEP2_OUT/unassigned.fasta"
-for f in "$EXTRACTED" "$ASSIGN" "$SIM" "$UNASSIGNED"; do
+BANK="$RUN_ROOT/consensuses.clean.fa"
+for f in "$EXTRACTED" "$ASSIGN" "$SIM" "$UNASSIGNED" "$BANK"; do
   [[ -f "$f" ]] || die "missing: $f (run step2 and step3 first)"
 done
 
@@ -81,7 +92,7 @@ mkdir -p "$OUT/subfam_input"
 TMP="$(mktemp -d "$RUN_ROOT/.step1c_XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
-log "RUN_ROOT=$RUN_ROOT  percentile=$PERCENTILE  bin_size=$BIN_SIZE  sample=$SAMPLE  threads=$THREADS"
+log "RUN_ROOT=$RUN_ROOT  percentile=$PERCENTILE  bin_size=$BIN_SIZE  sample=$SAMPLE  threads=$THREADS  min_len_frac=$MIN_LEN_FRAC"
 log "step2 output: $STEP2_OUT"
 
 ###############################################################################
@@ -106,26 +117,44 @@ awk -F'\t' -v OFS='\t' -v pct="$PERCENTILE" '
 log "per-subfamily cut-offs (subfam, n_assigned, sim_ratio at P$PERCENTILE):"
 awk '{printf "  %-24s n=%-8s cut=%s\n", $1, $2, $3}' "$OUT/cutoffs.tsv" >&2
 
-awk -F'\t' -v OFS='\t' '
+# consensus lengths (bank) and copy lengths (extracted), for the length filter
+awk '/^>/ { if (n) print n "\t" l; n=substr($1,2); l=0; next } { l+=length($0) } END { if (n) print n "\t" l }' "$BANK" > "$TMP/cons_len.tsv"
+awk '/^>/ { if (n) print n "\t" l; n=substr($1,2); l=0; next } { l+=length($0) } END { if (n) print n "\t" l }' "$EXTRACTED" > "$TMP/copy_len.tsv"
+
+awk -F'\t' -v OFS='\t' -v frac="$MIN_LEN_FRAC" -v aside="$OUT/set_aside.tsv" '
   FILENAME==ARGV[1] { cut[$1]=$3; next }                              # cutoffs
-  FILENAME==ARGV[2] { if ($5=="assigned") sf[$1]=$2; else status[$1]=$5; next }   # ASSIGN
+  FILENAME==ARGV[2] { if ($5=="assigned") sf[$1]=$2; else { status[$1]=$5; best[$1]=$2 }; next }   # ASSIGN
   FILENAME==ARGV[3] { ratio[$1]=$4; next }                            # SIM
+  FILENAME==ARGV[4] { clen[$1]=$2; cl[++nc]=$2; next }                # bank consensus lengths
+  FILENAME==ARGV[5] { len[$1]=$2; next }                              # copy lengths
+  function median(   i, j, t) { for (i=2;i<=nc;i++) { t=cl[i]; for (j=i-1; j>0 && cl[j]>t; j--) cl[j+1]=cl[j]; cl[j+1]=t } return cl[int((nc+1)/2)] }
+  function longenough(id, s,   need) {
+    need = (s in clen ? clen[s] : med) * frac
+    return len[id] + 0 >= need
+  }
+  BEGIN { med = "" }
   /^>/ {                                                              # EXTRACTED headers
+    if (med == "") med = (nc ? median() : 0)
     id=substr($1,2)
     if (id in sf) {
       s=sf[id]; r=(id in ratio ? ratio[id] : ".")
-      if (r=="." ) { print id, s, r, "no_similarity_score"; next }
-      if (r+0 < cut[s]+0) print id, s, r, "below_P"
+      if (r==".") { reason="no_similarity_score" }
+      else if (r+0 < cut[s]+0) { reason="below_P" }
+      else next
+      if (longenough(id, s)) print id, s, r, reason; else print id, s, r, reason "_short" > aside
     } else {
-      print id, (id in status ? status[id] : "not_in_step2"), ".", "unassigned"
+      s=(id in best ? best[id] : "NA")
+      if (longenough(id, s)) print id, (id in status ? status[id] : "not_in_step2"), ".", "unassigned"
+      else print id, (id in status ? status[id] : "not_in_step2"), ".", "unassigned_short" > aside
     }
-  }' "$OUT/cutoffs.tsv" "$ASSIGN" "$SIM" "$EXTRACTED" > "$OUT/residual.tsv"
+  }' "$OUT/cutoffs.tsv" "$ASSIGN" "$SIM" "$TMP/cons_len.tsv" "$TMP/copy_len.tsv" "$EXTRACTED" > "$OUT/residual.tsv"
+[[ -f "$OUT/set_aside.tsv" ]] || : > "$OUT/set_aside.tsv"
 
 cut -f1 "$OUT/residual.tsv" > "$TMP/residual.ids"
 seqkit grep -f "$TMP/residual.ids" "$EXTRACTED" 2>/dev/null > "$OUT/residual.fasta"
 n_all=$(grep -c '^>' "$EXTRACTED" || true)
 n_res=$(grep -c '^>' "$OUT/residual.fasta" || true)
-log "residual: $n_res of $n_all copies ($(awk -F'\t' '$4=="unassigned"' "$OUT/residual.tsv" | wc -l) unassigned, $(awk -F'\t' '$4=="below_P"' "$OUT/residual.tsv" | wc -l) below the cut)"
+log "residual: $n_res of $n_all copies ($(awk -F'\t' '$4=="unassigned"' "$OUT/residual.tsv" | wc -l) unassigned, $(awk -F'\t' '$4=="below_P"' "$OUT/residual.tsv" | wc -l) below the cut); $(wc -l < "$OUT/set_aside.tsv") set aside as shorter than $MIN_LEN_FRAC x their consensus"
 [[ "$n_res" -ge "$BIN_SIZE" ]] || die "residual too small for SubFam ($n_res < $BIN_SIZE)"
 
 ###############################################################################
