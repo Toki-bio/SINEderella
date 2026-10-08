@@ -60,5 +60,5 @@ on ARI over all copies, on dmo with the peel placing 360\-430 of 500 copies (ARI
 on saq and ccr the peel is clearly behind. (2) SubFam chunks alone are over-split by design and are not a partition; their best ARI is
 the coarsest chunk size. (3) These sets hold 500\-900 copies, so SubFam makes 25\-90 chunks and the peel, built for about 600
 chunk consensuses, has little to work with; the numbers are a lower bound for the route, not a fair measure of it. (4) The truth is the
-owner's chunk-level curation carried onto 100 sampled copies per group, and a few of his groups are not separable by sequence alone, so
-no method is expected to reach 1.0.
+owner's chunk-level curation carried onto 100 sampled copies per group, and chunk-level labels of this kind had a purity ceiling of 0.88 on Timema
+(SUBFAMILY_METHOD.md), so no method is expected to reach 1.0.
