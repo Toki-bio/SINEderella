@@ -99,3 +99,27 @@ Why the peel finds so little here, from its own logs:
 Peel sweep (`peel_sweep.sh`, 16 data sets, chunk sizes 10-100, 396 runs eligible with at least 40 chunks): mean ARI over all copies is 0.10 at the defaults
 (`GLOBAL_CONS` 0.80, `MIN_SET` 5, `MIN_BLOCK` 3, `FEAT_JACCARD` 0.45); 0.18 with `GLOBAL_CONS` 0.90 and `MIN_BLOCK` 2 (either `FEAT_JACCARD` 0.30 or 0.45), the best single
 setting over all data sets. No setting reached the COSEG scores. Best per data set is not a result (it picks the setting after seeing the answer); it is given in `peel_sweep*.tsv`.
+
+### Does the ordering matter for chunk purity? (2026-10-08, KIT, `tools/sim/order_sweep.sh`, chunk size 20)
+
+Chunk purity (share of copies whose chunk majority is their own group) for k-mer trees with k = 4, 5, 6 (default), 8, 10 and for the MAFFT guide tree, on seven simulated sets (seed 1) and the four hand-curated sets:
+
+| set | k4 | k5 | k6 | k8 | k10 | MAFFT |
+| --- | --- | --- | --- | --- | --- | --- |
+| base | 0.515 | 0.501 | 0.521 | 0.499 | 0.524 | 0.566 |
+| diag1 | 0.397 | 0.380 | 0.391 | 0.408 | 0.414 | 0.423 |
+| diag5 | 0.474 | 0.472 | 0.496 | 0.510 | 0.491 | 0.535 |
+| indel | 0.475 | 0.500 | 0.501 | 0.512 | 0.501 | 0.543 |
+| trunc | 0.475 | 0.486 | 0.484 | 0.502 | 0.499 | 0.536 |
+| old | 0.352 | 0.347 | 0.342 | 0.364 | 0.351 | 0.372 |
+| young | 0.714 | 0.727 | 0.693 | 0.700 | 0.691 | 0.759 |
+| saq | 0.487 | 0.550 | 0.574 | 0.631 | 0.622 | 0.507 |
+| ccr | 0.514 | 0.595 | 0.591 | 0.596 | 0.580 | 0.565 |
+| teu | 0.642 | 0.705 | 0.755 | 0.698 | 0.727 | 0.687 |
+| dmo | 0.616 | 0.758 | 0.772 | 0.784 | 0.786 | 0.716 |
+| mean | 0.515 | 0.547 | 0.556 | 0.564 | 0.562 | 0.564 |
+
+The default (k = 6) is within 0.01 of the best ordering on average; the MAFFT tree is better on the simulations (by 0.01-0.05 in six of seven sets) and worse on three of the four
+real sets (saq, teu, dmo), k = 8-10 better on saq and dmo. The differences are small and not consistent, so the choice of ordering does not explain the low chunk purity: with
+two diagnostic changes in 250 bases under 3-12 % private divergence, no ordering tested puts more than about half of a chunk in one subfamily (eight equal subfamilies would give
+about 0.2 by chance).
