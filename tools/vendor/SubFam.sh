@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-VERSION=1.2.1
+VERSION=1.2.2
 N=50            # sequences per chunk
 PLURALITY=0.36  # fraction of chunk sequences that must agree for a consensus base
 K=6            # k-mer size for the ordering tree
@@ -101,6 +101,11 @@ IN=$1
 for tool in mafft awk; do
     command -v "$tool" >/dev/null 2>&1 || die "'$tool' not found in PATH"
 done
+# SubFam is for DNA/RNA: refuse protein or other text early, with a message (looks at the first 200 records)
+other=$(awk '/^>/ { if (++n > 200) exit; next }
+             { s = toupper($0); t += length($0); gsub(/[-ACGTUNRYKMSWBDHV. \r\t]/, "", s); b += length(s) }
+             END { if (t > 0 && b / t > 0.2) printf "%d", 100 * b / t }' "$IN")
+[ -z "$other" ] || die "'$IN' does not look like nucleotide sequences ($other % of the letters are not A, C, G, T, U, N or IUPAC codes)"
 [[ $N =~ ^[0-9]+$ ]] && [ "$N" -ge 2 ] || die "-n must be an integer >= 2"
 [[ $K =~ ^[0-9]+$ ]] && [ "$K" -ge 3 ] && [ "$K" -le 12 ] || die "-k must be an integer from 3 to 12"
 [[ $THREADS =~ ^[0-9]+$ ]] && [ "$THREADS" -ge 1 ] || die "-t must be a positive integer"
@@ -494,12 +499,16 @@ elapsed "$T1"
 echo "Aligning consensus sequences"
 T1=$(date +%s)
 if [ "$NCHUNK" -ge 2 ]; then
-    mafft --thread "$THREADS" --localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --quiet \
+    # --threadit 0: iterative refinement on one thread, so the alignment does not depend on thread timing
+    mafft --thread "$THREADS" --threadit 0 --localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --quiet \
         "$OUTDIR/$PREFIX.cons.fasta" > "$OUTDIR/$PREFIX.aln.fasta"
 else
     cp "$OUTDIR/$PREFIX.cons.fasta" "$OUTDIR/$PREFIX.aln.fasta"
 fi
-awk -v file="$OUTDIR/$PREFIX.msf" -v date="$(date +%d/%m/%y)" "$MSF_AWK" "$OUTDIR/$PREFIX.aln.fasta" > "$OUTDIR/$PREFIX.msf"
+# header: file name without the directory, and the date of SOURCE_DATE_EPOCH when set, so that the same
+# input gives the same MSF file wherever and whenever it is run
+MSF_DATE=$(date -u -d "@${SOURCE_DATE_EPOCH:-$(date +%s)}" +%d/%m/%y 2>/dev/null || date +%d/%m/%y)
+awk -v file="$PREFIX.msf" -v date="$MSF_DATE" "$MSF_AWK" "$OUTDIR/$PREFIX.aln.fasta" > "$OUTDIR/$PREFIX.msf"
 elapsed "$T1"
 
 [ -z "$KEEP_TMP" ] || echo "Intermediate files kept in $WORK"
