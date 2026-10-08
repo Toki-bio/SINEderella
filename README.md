@@ -38,7 +38,7 @@ design philosophy behind this.
 | Script | Purpose |
 |--------|---------|
 | `asSINEment` | Standalone subfamily assignment engine (earlier version of step2 logic) |
-| `SubFam` | Subfamily identification via chunk-sort-consensus-align |
+| `SubFam` | Compression of many copies to chunk consensuses (k-mer guide-tree order, chunks, plurality consensus, final alignment); wrapper around SubFam 1.2.0 in `tools/vendor/SubFam.sh` with the old interface; the subfamily call itself is made on its output by a person (MANUAL §6.1) or the peel; the previous script is `tools/vendor/SubFam.old.sh` |
 | `sine_consensus.sh` | Bootstrap consensus builder (gaps excluded from denominator) |
 | `sine_consensus_smart.sh` | Enhanced consensus with variance detection and early stopping |
 | `analyze_convergence.sh` | Post-run convergence quality analysis |
@@ -78,7 +78,7 @@ did not re-test these.
 - `bedtools`
 - `samtools`
 - `seqkit`
-- `cons` and `seqret` (EMBOSS; `SubFam` needs both)
+- `cons` and `seqret` (EMBOSS; only the old `tools/vendor/SubFam.old.sh` needs them, SubFam 1.2.0 does not)
 - `trf` (Tandem Repeats Finder; the satellite stage is skipped with a log line without it), `gawk` (consensus audit, flankscan), `dustmasker` (flankscan)
 - `jellyfish` (conda `kmer-jellyfish`): 20-mer counts for the flank-twin check on genomes over 300 Mb; without it that check is skipped with a log line on large genomes
 - Python 3 with numpy and matplotlib (plots, report panels, consensus blocks)

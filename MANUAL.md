@@ -286,6 +286,8 @@ be split into finer, better-supported subfamilies before a real classification r
 3. Combines all N chunk-consensus sequences into a single file (`input.clw`) via a **fast final
    alignment pass** across all of them together.
 
+> **Update (SubFam 1.2.0, branch `subfam-1.2`).** The `SubFam` in this repository is now a wrapper around SubFam 1.2.0, which orders copies along a k-mer guide tree instead of MAFFT's, calls the plurality as a fraction of the chunk (0.36) and aligns the consensuses with L-INS-i at the end. The description below applies to the previous script (`tools/vendor/SubFam.old.sh`, `SUBFAM_ORDER=mafft` reproduces its ordering); chunk composition differs from earlier runs under the default ordering. The wrapper still writes `input.clw` as the unaligned concatenation of the consensuses and `input.msf` as their alignment.
+
 **In practice this final pass is not a reliable, properly-converged multiple sequence alignment —
 it is a collection of independently-derived batch consensuses that ended up discordant with each
 other** (confirmed hands-on: chunk consensuses that are clearly related by eye do not consistently
