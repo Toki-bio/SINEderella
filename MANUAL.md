@@ -486,10 +486,13 @@ recovered the subfamily in both cases, with bin size 50 in neither. A larger res
 to order (it is the far tails of the big subfamilies), so deplete hard and chunk small.
 (Measurements: SubFam repository, `docs/SCALING.md` §6.)
 
-`SubFam` itself was adjusted for this (plurality scaled with the bin size: the old fixed
-`-plurality 18` meant 90 % agreement at bin size 20 and produced gappy consensuses; one MAFFT
-thread per parallel chunk job; PartTree ordering above 30,000 sequences). Its output at the
-default bin size 50 is unchanged, byte for byte.
+`SubFam` is now a wrapper around SubFam 1.2.0 (§6.1.1), which already does what this step needs: the
+plurality is a fraction of the chunk (36 %, rounded up), so at bin size 20 it is 8 of 20 and not the old
+fixed 18 (90 %, gappy consensuses), and each chunk is aligned with one MAFFT thread. The measurements above
+were made with the previous MAFFT guide-tree ordering; 1.2.0 orders by k-mer distance by default, which
+changes chunk composition (also at bin size 50). `SUBFAM_ORDER=mafft` restores the old ordering. The
+recovery of rare subfamilies has not yet been re-measured with the k-mer ordering. step1c caps its input at
+`SAMPLE` (30,000), so the PartTree ordering for larger inputs (`-P` in SubFam 1.2.0) is not needed here.
 
 ## 7. Step 2 — Assignment (asSINEment) (`step2_asSINEment.sh`)
 
