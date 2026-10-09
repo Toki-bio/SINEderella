@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-VERSION=1.2.2
+VERSION=1.2.4
 N=50            # sequences per chunk
 PLURALITY=0.36  # fraction of chunk sequences that must agree for a consensus base
 K=6            # k-mer size for the ordering tree
@@ -29,6 +29,7 @@ BOTH=
 PARTTREE=
 KEEP_N=
 KEEP_TMP=
+THREADIT=0     # iterative refinement of the final alignment: 0 = one thread (reproducible), -F = all threads
 RELCOV=
 MINCOV=3       # with -c: fewest covering sequences for a consensus base
 
@@ -56,6 +57,8 @@ Options:
             region most copies cover.
   -a        keep no-consensus positions as N (default: drop them from the consensus)
   -K        keep intermediate files (chunks, chunk alignments)
+  -F        refine the final alignment on all threads: faster for hundreds of consensuses, but the
+            alignment may differ between runs (default: one thread, identical output every time)
   -v        print version
   -h        show this help
 
@@ -73,7 +76,7 @@ EOF
 die() { echo "SubFam: $*" >&2; exit 1; }
 elapsed() { local s=$(( $(date +%s) - $1 )); echo "  done in $((s / 3600))h $(((s / 60) % 60))m $((s % 60))s"; }
 
-while getopts ":n:p:k:t:o:x:rmPcaKvh" opt; do
+while getopts ":n:p:k:t:o:x:rmPcaKFvh" opt; do
     case $opt in
         n) N=$OPTARG ;;
         p) PLURALITY=$OPTARG ;;
@@ -87,6 +90,7 @@ while getopts ":n:p:k:t:o:x:rmPcaKvh" opt; do
         c) RELCOV=1 ;;
         a) KEEP_N=1 ;;
         K) KEEP_TMP=1 ;;
+        F) THREADIT=-1 ;;
         v) echo "SubFam $VERSION"; exit 0 ;;
         h) usage; exit 0 ;;
         :) die "option -$OPTARG needs a value" ;;
@@ -489,21 +493,36 @@ find "$WORK" -maxdepth 1 -name "${NAME}_*.fasta" -print0 | sort -z |
         n=$(grep -c "^>" "$f")
         plur=$(awk -v n="$n" -v p="$PLURALITY" "BEGIN { x = n * p; print (x == int(x)) ? x : int(x) + 1 }")
         if [ "$n" -ge 2 ]; then mafft --thread 1 --nuc --quiet "$f" > "$f.aln"; else cp "$f" "$f.aln"; fi
-        awk -v plur="$plur" -v name="$name" -v rel="$RELCOV" -v frac="$PLURALITY" -v mincov="$MINCOV" "$CONS_AWK" "$f.aln" |
-            awk -v keep="$KEEP_N" "!/^>/ && !keep { gsub(/[Nn]/, \"\") } 1" > "$f.cons"
+        awk -v plur="$plur" -v name="$name" -v rel="$RELCOV" -v frac="$PLURALITY" -v mincov="$MINCOV" "$CONS_AWK" "$f.aln" > "$f.consN"
+        awk -v keep="$KEEP_N" "!/^>/ && !keep { gsub(/[Nn]/, \"\") } 1" "$f.consN" > "$f.cons"
     ' _ {}
 find "$WORK" -maxdepth 1 -name "${NAME}_*.fasta.cons" -print0 | sort -z | xargs -0 cat > "$OUTDIR/$PREFIX.cons.fasta"
+# The final alignment always gets the consensuses without no-consensus positions (N): MAFFT would align N runs
+# as sequence (with -a, half of a divergent family's consensus is N: 595 Timema consensuses took >9 h, 2 s without).
+# A consensus with no called base at all gets a single "-" so that the record is kept.
+find "$WORK" -maxdepth 1 -name "${NAME}_*.fasta.consN" -print0 | sort -z | xargs -0 cat |
+    awk 'function out(   t) { t = s; gsub(/[Nn]/, "", t); tot += length(s); nn += length(s) - length(t)
+                             print h; print (t == "" ? "-" : t) }
+         /^>/ { if (h != "") out(); h = $0; s = ""; next }
+         { s = s $0 }
+         END { if (h != "") out(); printf "%d %d\n", nn, tot > "/dev/stderr" }' > "$WORK/cons.called.fasta" 2> "$WORK/nfrac.txt"
+read -r NN NTOT < "$WORK/nfrac.txt"
+if [ "${NTOT:-0}" -gt 0 ] && [ $((NN * 100 / NTOT)) -ge 30 ]; then
+    echo "SubFam: warning: $((NN * 100 / NTOT))% of the chunk-consensus positions have no consensus (N). The chunks are heterogeneous or" >&2
+    echo "        the copies truncated; try -c (coverage-relative plurality) or a larger -p/-n change. They are left out of the final alignment." >&2
+fi
 cp "$WORK/chunks.tsv" "$OUTDIR/$PREFIX.chunks.tsv"
 elapsed "$T1"
 
 echo "Aligning consensus sequences"
 T1=$(date +%s)
 if [ "$NCHUNK" -ge 2 ]; then
-    # --threadit 0: iterative refinement on one thread, so the alignment does not depend on thread timing
-    mafft --thread "$THREADS" --threadit 0 --localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --quiet \
-        "$OUTDIR/$PREFIX.cons.fasta" > "$OUTDIR/$PREFIX.aln.fasta"
+    # --threadit 0: iterative refinement on one thread, so the alignment does not depend on thread timing (-F: all threads)
+    [ "$THREADIT" = -1 ] && THREADIT=$THREADS
+    mafft --thread "$THREADS" --threadit "$THREADIT" --localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --quiet \
+        "$WORK/cons.called.fasta" > "$OUTDIR/$PREFIX.aln.fasta"
 else
-    cp "$OUTDIR/$PREFIX.cons.fasta" "$OUTDIR/$PREFIX.aln.fasta"
+    cp "$WORK/cons.called.fasta" "$OUTDIR/$PREFIX.aln.fasta"
 fi
 # header: file name without the directory, and the date of SOURCE_DATE_EPOCH when set, so that the same
 # input gives the same MSF file wherever and whenever it is run

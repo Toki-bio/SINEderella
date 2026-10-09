@@ -180,6 +180,8 @@ for i in "${!SPECIES[@]}"; do
     cd "$OLD_DIR"
     # Split consensus
     seqkit split -i "$TEST_CONS" -O .
+    # seqkit < 0.15 names the files <name>.id_<ID>.<ext>; newer versions use .part_<ID>
+    for _f in ./*.id_*; do if [[ -e "$_f" ]]; then mv "$_f" "${_f/.id_/.part_}"; fi; done
 
     CONS_BN=$(basename "$TEST_CONS")
     CONS_NAME="${CONS_BN%.*}"
