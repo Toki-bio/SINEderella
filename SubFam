@@ -28,7 +28,10 @@ P=$(basename "${IN%.*}")
 TMP=$(mktemp -d ./.subfam_wrap_XXXXXX)
 trap 'rm -rf "$TMP"' EXIT
 
-opts=(-n "$BIN" -t "${THREADS:-$(nproc)}" -a -K -o "$TMP" -x "$P")
+# No -a: positions without a consensus are dropped before the final alignment. With -a they stay as N, MAFFT
+# aligns the N runs as sequence (about half of a chunk consensus in a divergent family) and the final L-INS-i
+# ran for more than 9 h on 595 Timema consensuses; the old script turned them into '-', which MAFFT ignores.
+opts=(-n "$BIN" -t "${THREADS:-$(nproc)}" -K -o "$TMP" -x "$P")
 [ "${SUBFAM_ORDER:-kmer}" = mafft ] && opts+=(-m)
 [ -n "${SUBFAM_PLURALITY:-}" ] && opts+=(-p "$SUBFAM_PLURALITY")
 [ -n "${SUBFAM_COVERAGE:-}" ] && opts+=(-c)
