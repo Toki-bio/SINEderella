@@ -73,10 +73,14 @@ else
         /^>/ { if (seq != "") scan(); seq = ""; next } { seq = seq toupper($0) }
         END { scan(); for (m in c) if (c[m] > C) print m }' "$G" > rep20.tsv
 fi
+# 5' flanks are stored reversed (read outward from the junction): their k-mers are looked up as rev(k-mer), i.e. in genome
+# orientation. Without this the repeat filter never matched a 5' flank: a reversed k-mer is neither the k-mer nor its reverse
+# complement (2026-10-11; toy: hot-spot copies called twins, shuffled control 6 twins instead of 0)
 gawk -F'\t' -v K=$GK "$RC"'
+    function rev(s,   r, i) { r = ""; for (i = length(s); i >= 1; i--) r = r substr(s, i, 1); return r }
     FILENAME == ARGV[1] { rep[$1]; next }
     { s = $3; n = length(s); for (i = 1; i <= n; i++) mk[i] = 0
-      for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue; r = rc(m); if (r < m) m = r; if (m in rep) for (j = i; j < i + K; j++) mk[j] = 1 }
+      for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue; if ($2 == 5) m = rev(m); r = rc(m); if (r < m) m = r; if (m in rep) for (j = i; j < i + K; j++) mk[j] = 1 }
       o = ""; for (i = 1; i <= n; i++) o = o (mk[i] ? "N" : substr(s, i, 1)); print $1 "\t" $2 "\t" o }' rep20.tsv seqs.tsv > seqs.masked.tsv
 mv seqs.masked.tsv seqs.tsv
 # masked: a copy with fewer than MINFL testable (non-N) bases in a flank after masking has nothing to compare on that side; it is
