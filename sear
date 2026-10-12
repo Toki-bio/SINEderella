@@ -32,10 +32,13 @@ Options:
   --force-ssearch   Use ssearch36 even for queries ≥1000 bp (skip minimap2)
 
 Minimap2 mode (automatic for queries ≥1000 bp):
-  Searches the genome directly with minimap2 instead of fragment-scanning
-  with ssearch36.  Uses a sensitivity cascade: asm10 → asm20 (asm5 is
-  too strict for diverged copies), stopping at the first preset that finds hits.
-  Override with --force-ssearch to always use ssearch36.
+  minimap2 with the roles swapped: the query is indexed and the genome is
+  streamed through as overlapping windows (step max(len, 2 kb), width
+  step + len + 1 kb), -x map-ont -k 11 -w 3 -c. Repeats are found (L1 on human chr21:
+  65 of 73 full-length copies) and identity / AS score are base-level.
+  Overrides: SEAR_MM2_PRESET (default map-ont), SEAR_MM2_OPTS (default
+  "-k 11 -w 3"). --force-ssearch uses
+  ssearch36 instead, which works only up to len x Slf <= 2500 bp.
 
 Notes:
   --slop uses explicit left/right values. It overrides FlankSize.
@@ -275,7 +278,26 @@ if [[ $len -ge 1000 && $FORCE_SSEARCH -eq 0 ]]; then
 fi
 
 if [[ $MINIMAP_MODE -eq 1 ]]; then
-  echo "Query >= 1000 bp — minimap2 mode (cascade: asm10 → asm20)"
+  # Long query (>= 1000 bp): minimap2 with the roles swapped. The QUERY is minimap2's reference and the
+  # genome is streamed through as overlapping windows (the "reads"). Indexing the genome instead, as
+  # before, loses almost every copy of a repeat: an interspersed repeat's minimizers occur hundreds of
+  # times in the genome and minimap2 drops high-occurrence seeds (L1.3 vs human chr21: 4 of 73
+  # full-length L1s found that way, 65 with the roles swapped). -c makes the alignments base-level, so
+  # identity (matching bases / alignment block length, PAF $10/$11) and the AS:i score are real
+  # (without -c identity read ~70 % for 98 % copies and the score column was always 0).
+  # Windows: a step of max(len, 2 kb) and a width of step + len + 1 kb, so every copy up to len + 1 kb
+  # lies whole inside at least one window; copies split across windows are joined by the merge below.
+  MM2_PRESET="${SEAR_MM2_PRESET:-map-ont}"
+  # -k 11 -w 3: denser, shorter seeds than map-ont's -k 15 -w 10; on a 1.5 kb L1 3' end vs chr21 they
+  # raised the share of dc-megablast loci found from 77 % to 89 % for ~30 % more time.
+  MM2_OPTS="${SEAR_MM2_OPTS:--k 11 -w 3}"
+  mm2_step=$(( len > 2000 ? len : 2000 ))
+  mm2_win=$(( mm2_step + len + 1000 ))
+  echo "Query >= 1000 bp — minimap2 mode: query indexed, genome streamed as ${mm2_win} bp windows every ${mm2_step} bp (-x $MM2_PRESET $MM2_OPTS -c)"
+  if ! command -v seqkit >/dev/null 2>&1; then
+    echo "Program seqkit: not found in PATH"
+    exit 1
+  fi
 
   # Auto-adjust -b N when not explicitly set
   if [[ $BEST -eq 1 && $BEST_N_EXPLICIT -eq 0 ]]; then
@@ -287,53 +309,39 @@ if [[ $MINIMAP_MODE -eq 1 ]]; then
     echo "Auto-setting -b to $BEST_N (query ${len} bp)"
   fi
 
-  # .stripped.genome for bedtools (no _sliding suffixes in minimap2 mode)
+  # .stripped.genome for bedtools (genome coordinates, no _sliding suffixes)
   awk 'BEGIN{OFS="\t"} {print $1, $2}' "$WORKING_BANK".fai \
     | sort -V > "$WORKING_BANK".stripped.genome
 
-  # Cascade: asm10 → asm20 (stop at the first preset with hits; asm5 left out: too strict for diverged copies)
-  MM2_FOUND=0
-  for preset in asm10 asm20; do
-    echo "  minimap2 -x $preset ..."
-    minimap2 -x "$preset" \
+  set +o pipefail
+  seqkit sliding -g -s "$mm2_step" -W "$mm2_win" "$WORKING_BANK" 2>/dev/null \
+  | minimap2 -x "$MM2_PRESET" $MM2_OPTS -c --secondary=no \
       -t "${THREADS:-$(nproc 2>/dev/null || echo 1)}" \
-      --secondary=yes -p 0.3 -N 10000 \
-      "$WORKING_BANK" "$query" 2>/dev/null \
-    | awk 'BEGIN{OFS="\t"}
-        {
-          if (NF < 12) next
-          strand = $5; if (strand != "+" && strand != "-") next
-          tname  = $6; tstart = $8+0; tend = $9+0
-          qstart = $3+0; qend = $4+0
-          matches = $10+0
-          if (tend <= tstart || qend <= qstart) next
-          qlen_aln = qend - qstart
-          tlen_aln = tend - tstart
-          # Identity: matches / min(query_len, target_len) to penalize gaps
-          min_len = (qlen_aln < tlen_aln) ? qlen_aln : tlen_aln
-          if (min_len <= 0) next
-          pct_id = matches / min_len * 100
-          alen   = tlen_aln
-          as = 0
-          for (i = 13; i <= NF; i++) {
-            if ($i ~ /^AS:i:/) { split($i, a, ":"); as = a[3]+0 }
-          }
-          print tname, tstart, tend, pct_id, alen, strand, as
-        }' > "$WORKING_BANK".minimap_raw.txt
+      "$query" - 2>/dev/null \
+  | awk 'BEGIN{OFS="\t"}
+      NF >= 12 {
+        # read = window "<contig>_sliding:<start>-<end>" (1-based start): back to genome coordinates
+        if (!match($1, /_sliding:[0-9]+-[0-9]+$/)) next
+        contig = substr($1, 1, RSTART - 1)
+        split(substr($1, RSTART + 9), r, "-")
+        off = r[1] - 1
+        s = off + $3; e = off + $4
+        if (e <= s || $11 <= 0) next
+        pct_id = $10 / $11 * 100
+        as = 0
+        for (i = 13; i <= NF; i++) if ($i ~ /^AS:i:/) as = substr($i, 6) + 0
+        print contig, s, e, pct_id, e - s, $5, as
+      }' > "$WORKING_BANK".minimap_raw.txt
+  set -o pipefail
 
-    mm2_n=$(wc -l < "$WORKING_BANK".minimap_raw.txt)
-    echo "  $preset: $mm2_n raw alignments"
-    if [[ $mm2_n -gt 0 ]]; then
-      MM2_FOUND=1
-      break
-    fi
-  done
+  mm2_n=$(wc -l < "$WORKING_BANK".minimap_raw.txt)
+  echo "  $mm2_n raw alignments"
 
-  if [[ $MM2_FOUND -eq 0 ]]; then
+  if [[ $mm2_n -eq 0 ]]; then
     echo "No hits from minimap2 — empty result"
     : > "$taxname-$qname.bed"
   else
-    # Merge ALL raw alignments first to chain fragments, THEN filter on merged results
+    # Merge ALL raw alignments first (a copy appears in two or more overlapping windows), THEN filter
     bedtools sort -i "$WORKING_BANK".minimap_raw.txt 2>/dev/null \
     | bedtools merge -s -i - -c 4,5,6,7 -o max,max,distinct,max 2>/dev/null \
     > "$WORKING_BANK".minimap_merged.tmp
@@ -344,7 +352,7 @@ if [[ $MINIMAP_MODE -eq 1 ]]; then
     > "$taxname-$qname.bed"
     rm -f "$WORKING_BANK".minimap_merged.tmp
 
-    # Apply -s / --stop limit (keep top N by bitscore)
+    # Apply -s / --stop limit (keep top N by alignment score)
     if [[ $STOP_EARLY -eq 1 ]]; then
       sort -k7,7nr "$taxname-$qname.bed" \
         | head -n "$STOP_N" \
@@ -362,6 +370,20 @@ else
 # ═══════════════════════════════════════════════════════════════════════
 # ssearch36 mode (original fragment-scanning approach)
 # ═══════════════════════════════════════════════════════════════════════
+
+# ssearch36 scans 2.5 kb windows, so no hit can be longer than 2500 bp: a query whose length rule
+# needs more (len x Slf > 2500, i.e. > 3125 bp at Slf 0.8) cannot produce any result. Say so and skip
+# the scan instead of scanning the whole genome for nothing (--force-ssearch, or minimap2 missing).
+if [[ $flen -gt 2500 ]]; then
+  echo "WARNING: query is $len bp; at Slf $Slf a hit must be >= $flen bp, longer than the 2500 bp ssearch36 window." >&2
+  echo "         No hit could pass: skipping the search. Use minimap2 mode (no --force-ssearch, minimap2 in PATH) or a lower Slf." >&2
+  : > "$taxname-$qname.bed"
+  : > "$taxname-$qname.bnk"
+  cleanup_query
+  trap - EXIT
+  echo "Result lines: 0 $taxname-$qname.bed"
+  exit 0
+fi
 
 # Check ssearch36-mode dependencies
 for b in ssearch36 seqkit; do
