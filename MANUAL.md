@@ -173,6 +173,18 @@ Runs the complete three-step pipeline from scratch:
 
 **Creates run directory:** `run_YYYYMMDD_HHMMSS/`
 
+### 5.1a Fast search (`--fast`)
+
+```bash
+SINEderella --fast <GENOME_FASTA> <CONSENSUS_FASTA>
+```
+
+Same pipeline; only the step 1 search engine changes. `sear` runs round 1 with `fasta36`
+and then one `ssearch36` round on the minus bank (the genome with the round-1 loci cut out),
+so what fasta36 misses ssearch36 still finds. Same loci within 0.1 %, step 1 search about
+2x faster, more on hit-rich families. Also as `SEAR_MODE=fast`; recorded in `manifest.txt`.
+Steps 2 and later are unchanged. See [docs/FAST_MODE.md](docs/FAST_MODE.md).
+
 ### 5.2 Add Mode (`--add` / `-a`)
 
 ```bash
@@ -1195,6 +1207,10 @@ sear -k <query> <genome> 0.8 65 50
 - `0.8` (SFL — Sequence Fraction Length): A match must cover at least 80% of the query consensus length.
 - `65`: Minimum similarity percentage between query and hit.
 - `50`: Additional parameter for match evaluation.
+
+With `--fast` (`SEAR_MODE=fast`) the same call runs as `sear --mode fast`: round 1 with
+`fasta36` (ktup 6, merged-span length rule), then one `ssearch36 -z 1` round on the minus
+bank. See [docs/FAST_MODE.md](docs/FAST_MODE.md).
 
 ### 16.2 10-Cycle Voting
 

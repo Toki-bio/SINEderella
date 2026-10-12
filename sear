@@ -30,6 +30,13 @@ Options:
   -k, --keep        Keep split files for reuse
   --slop L,R        Override flank sizes for bed/bnk and best-hit flanks
   --force-ssearch   Use ssearch36 even for queries ≥1000 bp (skip minimap2)
+  --mode regular|fast
+                    regular (default): ssearch36 in every round, as always.
+                    fast: round 1 with fasta36 (ktup 6), then one ssearch36
+                    round on the minus bank (the part with round-1 loci removed)
+                    that rescues what fasta36 missed. Same loci within 0.1 %,
+                    about 2x faster; more on hit-rich families. See docs/FAST_MODE.md.
+  --fast            Same as --mode fast. Env: SEAR_MODE=fast.
 
 Minimap2 mode (automatic for queries ≥1000 bp):
   Searches the genome directly with minimap2 instead of fragment-scanning
@@ -56,6 +63,9 @@ STOP_EARLY=0
 STOP_N=1000
 KEEP_FLAG=0
 FORCE_SSEARCH=0
+SEAR_MODE="${SEAR_MODE:-regular}"      # regular | fast (docs/FAST_MODE.md)
+FAST_RESCUE="${SEAR_NO_RESCUE:+0}"; FAST_RESCUE="${FAST_RESCUE:-1}"   # SEAR_NO_RESCUE=1: fasta36 alone, no ssearch36 round (loses ~1 % of loci; not a documented mode)
+FAST_SPAN_GAP="${SEAR_SPAN_GAP:-50}"   # fast mode, round 1: fasta36 HSPs closer than this are one locus for the length rule
 SLOP_L=""
 SLOP_R=""
 
@@ -102,6 +112,19 @@ while [[ $# -gt 0 ]]; do
       ;;
     --force-ssearch)
       FORCE_SSEARCH=1
+      shift 1
+      ;;
+    --mode)
+      [[ $# -ge 2 ]] || { echo "--mode needs a value: regular or fast"; exit 1; }
+      SEAR_MODE="$2"
+      shift 2
+      ;;
+    --mode=*)
+      SEAR_MODE="${1#--mode=}"
+      shift 1
+      ;;
+    --fast)
+      SEAR_MODE=fast
       shift 1
       ;;
     --slop)
@@ -159,6 +182,11 @@ need_bins=(bedtools samtools)
 if [[ $BEST -eq 1 ]]; then
   need_bins+=(mafft)
 fi
+case "$SEAR_MODE" in
+  regular) ;;
+  fast) need_bins+=(fasta36) ;;
+  *) echo "Unknown --mode: $SEAR_MODE (use regular or fast)"; exit 1 ;;
+esac
 for b in "${need_bins[@]}"; do
   if ! command -v "$b" >/dev/null 2>&1; then
     echo "Program $b: not found in PATH"
@@ -398,10 +426,23 @@ for bank in *.2k.part_*.bnk; do
   Pl=1
 
   while [[ $Pl != "0" ]]; do
-    echo "round $round"
+    # Engine for this round (docs/FAST_MODE.md).
+    #   regular: ssearch36 -z 11 every round, the longest single HSP must be >= flen.
+    #   fast:    round 1 fasta36 ktup 6 (banded alignments come fragmented, so the merged span of HSPs
+    #            within FAST_SPAN_GAP bp is what must be >= flen); round 2+ ssearch36 -z 1 on the minus bank,
+    #            which holds everything round 1 did not claim, so nothing ssearch36 would find is lost.
+    #            -z 1 and not 11: identical loci on the depleted bank, 1.6x cheaper; never -z 3 there.
+    if [[ "$SEAR_MODE" == fast && $round -eq 1 ]]; then
+      prog=fasta36; ktup=6; zstat=11; merge_d="$FAST_SPAN_GAP"; lenrule='($3-$2)'
+    elif [[ "$SEAR_MODE" == fast ]]; then
+      prog=ssearch36; ktup=3; zstat=1; merge_d=0; lenrule='$4'
+    else
+      prog=ssearch36; ktup=3; zstat=11; merge_d=0; lenrule='$4'
+    fi
+    echo "round $round ($prog -z $zstat)"
     echo "$query $bank"
 
-    ssearch36 -g -3 -T "${THREADS:-$(nproc 2>/dev/null || echo 1)}" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8C "$query" "$bank" 3 \
+    "$prog" -g -3 -T "${THREADS:-$(nproc 2>/dev/null || echo 1)}" -Q -n -z "$zstat" -E 2 -w 95 -W 70 -m 8C "$query" "$bank" "$ktup" \
     | awk '/^[^#]/ {
         printf($2"\t"$9-1"\t"$10"\t"$10-$9+1"\t");
         if ($8-$7>0) print $8-$7+1"\t+\t"$3"\t"$12;
@@ -410,12 +451,12 @@ for bank in *.2k.part_*.bnk; do
     | sort -V > _ssearch_sorted_"$round"_"$bank".tmp
 
     if [[ -s _ssearch_sorted_"$round"_"$bank".tmp ]]; then
-      bedtools merge -s -c 4,5,6,7,8 -o max,max,distinct,max,max \
+      bedtools merge -s -d "$merge_d" -c 4,5,6,7,8 -o max,max,distinct,max,max \
         < _ssearch_sorted_"$round"_"$bank".tmp 2>/dev/null \
       | sort -V > _merged_"$round"_"$bank".tmp
       # every merged hit at the homology cut, any length (partial copies, satellite monomers): read by the satellite stage
       awk '{if ($7>='"$Homology"') print}' _merged_"$round"_"$bank".tmp >> "$taxname-$qname.rawhits.tsv"
-      awk '{if ($7>='"$Homology"' && $4>='"$flen"') print}' _merged_"$round"_"$bank".tmp > plus_to_add_"$round"_"$bank".bed
+      awk '{if ($7>='"$Homology"' && '"$lenrule"'>='"$flen"') print}' _merged_"$round"_"$bank".tmp > plus_to_add_"$round"_"$bank".bed
       rm -f _merged_"$round"_"$bank".tmp
     else
       : > plus_to_add_"$round"_"$bank".bed
@@ -437,12 +478,23 @@ for bank in *.2k.part_*.bnk; do
     samtools faidx "$bank" >/dev/null 2>&1 || true
     sort -V "$bank".fai > "${bank}_s.fai"
 
+    # fast mode: the ssearch36 rescue round always follows round 1, on the minus bank if fasta36
+    # found something, on the whole part if it found nothing; without --minus it runs once.
+    fast_rescue_next=0
+    [[ "$SEAR_MODE" == fast && $round -eq 1 && $FAST_RESCUE -eq 1 ]] && fast_rescue_next=1
+
     if [[ "$Pl" == "0" ]]; then
+      if [[ $fast_rescue_next -eq 1 ]]; then
+        echo "fasta36 found nothing in this part: ssearch36 round on the whole part"
+        round=2
+        Pl=1
+        continue
+      fi
       round=$((round+1))
       break
     fi
 
-    if [[ $DO_MINUS -eq 0 ]]; then
+    if [[ $DO_MINUS -eq 0 && $fast_rescue_next -eq 0 ]]; then
       break
     fi
 

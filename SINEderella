@@ -42,12 +42,18 @@ Options:
                 Full mode only. Mask the loci that the named consensuses of an earlier run on the
                 same genome hit (all of its consensuses if no names). Pass every subfamily of a
                 family to mask the family. See docs/MASKING.md.
+  --fast        Fast search: sear runs round 1 with fasta36 and then one ssearch36 round on
+                the minus bank (the genome with round-1 loci removed), so what fasta36 misses
+                ssearch36 still finds. Same loci within 0.1 %, step 1 search about 2x faster,
+                more on hit-rich families. Steps 2+ unchanged. Recorded in manifest.txt
+                (SEAR_MODE). Same as SEAR_MODE=fast. See docs/FAST_MODE.md.
   --resume/-r   Resume an interrupted run from the last completed step.
                 Searches for the latest run_* in the working directory.
                 Use with --run <dir> to specify a run explicitly.
 
 Environment:
   THREADS          Number of CPU threads (default: nproc)
+  SEAR_MODE        regular (default) or fast: the sear search engine, see --fast
   CHUNK_BP         Step1 chunk size (default: 30000)
   FLANK            Step1 flank size (default: 50)
   SPECIES_CODE     Species prefix for --publish (e.g. mysp)
@@ -124,6 +130,7 @@ CONS_IN=""
 PUBLISH="${PUBLISH:-0}"
 MASK_BEDS=()
 MASK_RUN=""
+SEAR_MODE="${SEAR_MODE:-regular}"
 
 if [[ $# -eq 0 ]]; then usage; fi
 
@@ -149,6 +156,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -r|--resume)
       MODE="resume"
+      shift
+      ;;
+    --fast)
+      SEAR_MODE="fast"
       shift
       ;;
     --mask-bed)
@@ -188,6 +199,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+case "$SEAR_MODE" in
+  regular|fast) ;;
+  *) die "SEAR_MODE must be regular or fast (got: $SEAR_MODE)" ;;
+esac
+export SEAR_MODE          # read by sear (step 1 and --add searches)
+[[ "$SEAR_MODE" == fast ]] && need fasta36
 
 ###############################################################################
 # HELPER: find latest run directory
@@ -319,10 +337,11 @@ sanitize_fasta(){
 tool_versions(){
   # Emit "VERSION<TAB>tool<TAB>first line of version output" for key tools.
   local t out line
-  for t in ssearch36 mafft bedtools samtools seqkit trf dustmasker python3; do
+  for t in ssearch36 fasta36 mafft bedtools samtools seqkit trf dustmasker python3; do
     if command -v "$t" >/dev/null 2>&1; then
       case "$t" in
         ssearch36)  out="$(ssearch36 2>&1 | grep -i -m1 "version" || echo "not found")" ;;
+        fasta36)    out="$(fasta36 2>&1 | grep -i -m1 "version" || echo "not found")" ;;
         mafft)      out="$(mafft --version 2>&1 || echo "not found")" ;;
         bedtools)   out="$(bedtools --version 2>&1 || echo "not found")" ;;
         samtools)   out="$(samtools --version 2>&1 || echo "not found")" ;;
@@ -761,6 +780,7 @@ mode_full(){
     printf "CHUNK_BP\t%s\n" "$CHUNK_BP"
     printf "FLANK\t%s\n" "$FLANK"
     printf "MODE\tfull\n"
+    printf "SEAR_MODE\t%s\n" "$SEAR_MODE"
     tool_versions
     printf "DATE\t%s\n" "$(date)"
   } > "$RUN/manifest.txt"
@@ -1030,6 +1050,7 @@ mode_add(){
     printf "NEW_FAMILIES\t%s\n" "$(echo "$truly_new" | tr '\n' ',' | sed 's/,$//')"
     printf "THREADS\t%s\n" "$THREADS"
     printf "MODE\tadd\n"
+    printf "SEAR_MODE\t%s\n" "$SEAR_MODE"
     printf "DATE\t%s\n" "$(date)"
   } > manifest.txt
 
@@ -1197,6 +1218,7 @@ mode_exclude(){
     printf "EXCLUDED\t%s\n" "$EXCLUDE_NAME"
     printf "THREADS\t%s\n" "$THREADS"
     printf "MODE\texclude\n"
+    printf "SEAR_MODE\t%s\n" "$SEAR_MODE"
     printf "DATE\t%s\n" "$(date)"
   } > manifest.txt
 
