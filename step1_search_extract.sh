@@ -36,6 +36,8 @@ SEARCH_GENOME="$(readlink -f "$SEARCH_GENOME")"
 if [[ "$SEARCH_GENOME" != "$GENOME" ]]; then
     echo "[$(date)] Masked search: searching $SEARCH_GENOME, extracting from $GENOME"
 fi
+# SEAR_MODE=fast (SINEderella --fast): sear runs fasta36 first and ssearch36 on the minus bank; see docs/FAST_MODE.md
+echo "[$(date)] sear mode: ${SEAR_MODE:-regular}"
 
 # Check required tools
 for tool in samtools seqkit sear bedtools SubFam mafft; do

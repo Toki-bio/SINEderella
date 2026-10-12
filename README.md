@@ -31,7 +31,7 @@ design philosophy behind this.
 
 ## Search Engines
 
-- **`sear`** — Single-query SINE search with fragment scanning (ssearch36 + bedtools)
+- **`sear`** — Single-query SINE search with fragment scanning (ssearch36 + bedtools); `--mode fast` runs fasta36 first and ssearch36 on the minus bank ([docs/FAST_MODE.md](docs/FAST_MODE.md))
 - **`sear_multi`** — Multi-query variant: all consensuses in one ssearch36 pass per genome fragment
 
 ## Supporting Tools
@@ -74,7 +74,7 @@ did not re-test these.
 
 ## Dependencies
 
-- `ssearch36` (FASTA36 package)
+- `ssearch36` (FASTA36 package); `fasta36` from the same package for `--fast`
 - `mafft`
 - `bedtools`
 - `samtools`
