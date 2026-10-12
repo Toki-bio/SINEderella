@@ -1212,6 +1212,12 @@ With `--fast` (`SEAR_MODE=fast`) the same call runs as `sear --mode fast`: round
 `fasta36` (ktup 6, merged-span length rule), then one `ssearch36 -z 1` round on the minus
 bank. See [docs/FAST_MODE.md](docs/FAST_MODE.md).
 
+Consensuses of 1000 bp or more are searched in `sear`'s minimap2 mode: the consensus is indexed and the
+genome is streamed through as overlapping windows (`-x map-ont -k 11 -w 3 -c`). Before 2026-10-12 this mode
+indexed the genome and lost almost every copy of a repeat (4 of 73 full-length L1s on human chr21; now 65,
+52 after the 0.8 length rule); its identity and score columns were also wrong. Results of runs with long
+consensuses made before that date should be redone.
+
 ### 16.2 10-Cycle Voting
 
 The core innovation of SINEderella's assignment is the **10-cycle unanimous voting** system:
