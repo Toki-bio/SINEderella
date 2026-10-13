@@ -358,10 +358,10 @@ minutes of the Timema satellite stage. `tools/kindB_flank_check.sh` (bash/gawk, 
    >= 300 bp; borderline flank scores (55-85) can be rescued by it. ARRAY = median >= 85 in both. Never more than 150 bp against a stretch.
 4. A k-mer containment shortcut (handoff option 3) was NOT used: section 5i found that pairs at 70-85 % share no 12-20-mers.
 
-Validation against the unit check (rsi run 20261005_085343, all 2 739 kind-B runs): 2.7 min of ssearch36 work replaced; whole stage of the
-check 53 s on 24 threads instead of 569 s. Verdicts: ARRAY/ARRAY 41, COPIES/COPIES 2 684, unit-ARRAY -> piece-COPIES 6, unit-COPIES -> piece-ARRAY 8.
+Validation against the unit check (rsi run 20261005_085343, all 2 739 kind-B runs): the check takes 53 s on 24 threads (the fast unit check of 5i: 569 s,
+the serial one: 13 h 24 min). Verdicts: ARRAY/ARRAY 41, COPIES/COPIES 2 684, unit-ARRAY -> piece-COPIES 6, unit-COPIES -> piece-ARRAY 8.
 All 14 MEG-RS arrays, MEG-TR and all long-unit (> 400 bp) arrays of the reference are kept; the 14 disagreements are all ~200 bp-period clusters of 5-7
-short hits (r9, one r4) whose identity sits at the 85 cut on one side or the other: in the cases inspected the hits are 90-100 bp, spaced 114,
+short hits (r9, one r4) whose identity sits at the 85 cut on one side or the other: in the one case inspected (r9, NC_142502.1:104.84 Mb) the hits are 90-100 bp, spaced 114,
 621, 130 ... bp, which the unit check calls an array because every unit starts with a SINE copy; listed in `~/tmp/kbspeed/val_flank/validate_rsi_flank.tsv`
 (therioserver). tbr run 20261005_010931: the 2 000 runs the old stage tested agree 100 % (1 965 COPIES, 35 ARRAY); the 38 859 runs it left
 "untested" (cap) are now all checked in 3.8 min (33 more ARRAY). The 2 000-run cap is therefore off by default with this check.
