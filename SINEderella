@@ -442,7 +442,8 @@ families_step(){
   local votes=()
   [[ -s "$s2/vote_summary.tsv.gz" ]] && votes=(--votes "$s2/vote_summary.tsv.gz")
   log "Families: rolling the run up to family level -> family_view"
-  python3 "$SCRIPT_DIR/tools/rollup_families.py" --run "$rundir" --families "$fdir/families.clean.tsv"     --family-cons "$fdir/family_consensuses.fa" --out "$fv" ${votes[@]+"${votes[@]}"} || die "rollup_families.py failed"
+  python3 "$SCRIPT_DIR/tools/rollup_families.py" --run "$rundir" --families "$fdir/families.clean.tsv"     --family-cons "$fdir/family_consensuses.fa" --out "$fv" ${votes[@]+"${votes[@]}"} \
+    --bank "$rundir/consensuses.clean.fa" --near-tie "${NEAR_TIE:-0.02}" --tie-rel "${TIE_REL:-1.0}" || die "rollup_families.py failed"
   log "Families: step3 on the family view"
   "$SCRIPT_DIR/step3_postprocess.sh" "$fv" "$THREADS" > "$fv/step3.stdout.log" 2> "$fv/step3.stderr.log"     || { tail -n 40 "$fv/step3.stderr.log" >&2; log "WARNING: step3 on family_view failed (see family_view/step3.stderr.log)"; }
   return 0

@@ -53,7 +53,7 @@ def test_rollup_relabels_and_promotes(tmp_path):
     hits = open(os.path.join(out, "genome.clean_step1", "searches", "all_hits.labeled.bed")).read().splitlines()
     assert [h.split("\t")[3] for h in hits] == ["A", "A", "B1"]
     s = table(os.path.join(out, "family_view.summary.tsv"))
-    assert s["A"][3] == "1" and s["A"][4] == "1" and s["A"][5] == "2"
+    assert s["A"][3] == "1" and s["A"][4] == "0" and s["A"][5] == "1" and s["A"][6] == "2"
 
 
 def test_without_votes_only_subfamily_firm_count(tmp_path):
@@ -74,3 +74,22 @@ def test_no_table_equals_flat(tmp_path):
     a = open(os.path.join(out, "step2", "step2_output", "assignment_full.tsv")).read().splitlines()
     b = open(os.path.join(root, "step2", "step2_output", "assignment_full.tsv")).read().splitlines()
     assert [x.split("\t")[:6] for x in a] == [x.split("\t")[:6] for x in b]
+
+
+def test_near_tie_between_subfamilies_of_one_family(tmp_path):
+    root = str(tmp_path / "run")
+    make_run(root)
+    full = os.path.join(root, "step2", "step2_output", "assignment_full.tsv")
+    with open(full, "a") as fh:
+        fh.write("c5\tA1\t300\t10\tassigned\t100\trunner=A2;runner_bs=297;runner_ratio=0.9900\n")   # 1 % apart: a tie
+    out = str(tmp_path / "fv")
+    rf.rollup(root, os.path.join(root, "fam.tsv"), os.path.join(root, "fam.fa"), out, None)
+    t = table(os.path.join(out, "step2", "step2_output", "assignment_full.tsv"))
+    assert "layer2=tie" in t["c5"][6] and "tie_with=A2" in t["c5"][6] and "runner=NA" in t["c5"][6]
+    assert "layer2=tie" not in t["c1"][6]                              # 3.3 % apart: not a tie at the default 2 %
+    s = table(os.path.join(out, "family_view.summary.tsv"))
+    assert s["A"][4] == "1"
+    out2 = str(tmp_path / "fv2")
+    rf.rollup(root, os.path.join(root, "fam.tsv"), os.path.join(root, "fam.fa"), out2, None, near_tie=0.05)
+    t2 = table(os.path.join(out2, "step2", "step2_output", "assignment_full.tsv"))
+    assert "layer2=tie" in t2["c1"][6]                                  # at 5 % it is

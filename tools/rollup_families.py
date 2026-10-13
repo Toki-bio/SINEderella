@@ -36,6 +36,8 @@ import shutil
 import sys
 from collections import defaultdict
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 def opener(path):
     return gzip.open(path, "rt") if path.endswith(".gz") else open(path)
@@ -94,7 +96,28 @@ def merge_regions(rows):
     return [(c, s, e, ",".join(n)) for c, s, e, n in out]
 
 
-def rollup(run, fam_map_path, fam_cons, out, votes_path=None):
+class ConsDist:
+    """divergence (share of differing columns of a pairwise MAFFT alignment, gaps counted) of two bank consensuses, cached"""
+
+    def __init__(self, bank, mafft="mafft"):
+        import families as fm
+        self.fm, self.mafft = fm, mafft
+        self.seq = fm.read_fasta(bank)
+        self.cache = {}
+
+    def get(self, a, b):
+        key = (a, b) if a <= b else (b, a)
+        if key not in self.cache:
+            if a not in self.seq or b not in self.seq:
+                self.cache[key] = 0.0
+            else:
+                x, y = self.fm.align_mafft({a: self.seq[a], b: self.seq[b]}, self.mafft)
+                cols = [(p, q) for p, q in zip(x.upper(), y.upper()) if not (p == "-" and q == "-")]
+                self.cache[key] = sum(1 for p, q in cols if p != q) / float(len(cols)) if cols else 0.0
+        return self.cache[key]
+
+
+def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_tie=0.02, tie_rel=1.0):
     fam = read_family_map(fam_map_path)
     f_of = lambda s: fam.get(s, s)
     s2 = step2_dir(run)
@@ -146,6 +169,7 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None):
         if t > 0:
             fam_thr[f_of(s)].append(t)
     votes = read_votes(votes_path) if votes_path else {}
+    dist = ConsDist(bank) if bank and tie_rel > 0 else None
 
     stats = defaultdict(lambda: defaultdict(int))
     per_copy = []
@@ -162,6 +186,17 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None):
         rratio = rd.get("runner_ratio", "0")
         if status == "assigned":
             stats[F]["sub_firm"] += 1
+            # layer 2: a subfamily call whose runner-up is another subfamily of the same family is a near-tie when its score advantage is
+            # below max(near_tie, tie_rel x divergence of the two consensuses)
+            if runner != "NA" and runner != sub and f_of(runner) == F and f_of(sub) == F:
+                try:
+                    margin = 1.0 - float(rratio)
+                except ValueError:
+                    margin = 1.0
+                dd = dist.get(sub, runner) if dist else 0.0
+                if margin < max(near_tie, tie_rel * dd):
+                    layer2 = ";layer2=tie"
+                    stats[F]["tie"] += 1
         elif seq in votes:
             fv = defaultdict(int)
             fb = defaultdict(float)
@@ -195,7 +230,10 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None):
             runner, rbs, rratio = "NA", "0", "0.0000"
         elif runner != "NA":
             runner = f_of(runner)
-        new_tag = "NA" if tag == "NA" and not layer2 else f"runner={runner};runner_bs={rbs};runner_ratio={rratio}{layer2}"
+        if layer2 == ";layer2=tie":                       # the runner is in the same family: keep it visible as a tie, not as a LEAK
+            new_tag = f"runner=NA;runner_bs=0;runner_ratio=0.0000{layer2};tie_with={rd.get('runner', 'NA')}"
+        else:
+            new_tag = "NA" if tag == "NA" and not layer2 else f"runner={runner};runner_bs={rbs};runner_ratio={rratio}{layer2}"
         full_out.write("\t".join([seq, F, str(new_bs), str(new_nv), new_status, str(new_th), new_tag]) + "\n")
         votes_out.write(f"{seq}\t{F}\t{new_nv}\t{new_bs}\n")
         per_copy.append((seq, sub, F, status, new_status, new_nv, layer2.lstrip(";")))
@@ -212,10 +250,10 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None):
     for s in set(list(fam.keys()) + list(thr.keys())):
         members[f_of(s)].append(s)
     with open(os.path.join(out, "family_view.summary.tsv"), "w") as fo:
-        fo.write("family\tsubfamilies\tcopies\tsubfamily_firm\tfamily_firm_only\tfamily_firm_total\tnot_firm\n")
+        fo.write("family\tsubfamilies\tcopies\tsubfamily_firm\tsubfamily_near_tie\tfamily_firm_only\tfamily_firm_total\tnot_firm\n")
         for F in sorted(stats):
             st = stats[F]
-            fo.write(f"{F}\t{','.join(sorted(members[F]))}\t{st['total']}\t{st['sub_firm']}\t{st['family_only']}\t"
+            fo.write(f"{F}\t{','.join(sorted(members[F]))}\t{st['total']}\t{st['sub_firm']}\t{st['tie']}\t{st['family_only']}\t"
                      f"{st['sub_firm'] + st['family_only']}\t{st['not_firm']}\n")
     return stats
 
@@ -227,9 +265,12 @@ def main(argv=None):
     ap.add_argument("--family-cons", required=True, help="family_consensuses.fa from tools/families.py")
     ap.add_argument("--out", default=None)
     ap.add_argument("--votes", default=None, help="vote_summary.tsv[.gz] (seq, cons, votes, bs_sum, runner_bs_sum, runner_cons)")
+    ap.add_argument("--bank", default=None, help="consensuses.clean.fa of the run; with it the near-tie margin also scales with the divergence of the two subfamily consensuses")
+    ap.add_argument("--near-tie", type=float, default=0.02, help="absolute score margin below which two subfamilies of one family are a tie (default 0.02)")
+    ap.add_argument("--tie-rel", type=float, default=1.0, help="x divergence of the two consensuses, also a margin (default 1.0; 0 = absolute only)")
     a = ap.parse_args(argv)
     out = a.out or os.path.join(a.run, "family_view")
-    stats = rollup(a.run, a.families, a.family_cons, out, a.votes)
+    stats = rollup(a.run, a.families, a.family_cons, out, a.votes, a.bank, a.near_tie, a.tie_rel)
     tot = sum(s["total"] for s in stats.values())
     firm = sum(s["sub_firm"] + s["family_only"] for s in stats.values())
     print(f"family_view: {len(stats)} families, {tot} copies, {firm} family-firm ({sum(s['family_only'] for s in stats.values())} of them "
