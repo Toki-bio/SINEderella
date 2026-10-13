@@ -17,14 +17,14 @@
 set -euo pipefail
 HITS=$(readlink -f "$1"); GENOME=$(readlink -f "$2"); mkdir -p "$3"; OUT=$(readlink -f "$3")
 FL=${FL:-150}; MIN_ID=${MIN_ID:-85}; BORDER_LO=${BORDER_LO:-55}; MAX_UNITS=${MAX_UNITS:-12}; THREADS=${THREADS:-8}
-SSEARCH=${SSEARCH:-ssearch36}; MINFL=${MINFL:-60}; PIECE=${PIECE:-150}; TARGET_MAX=${TARGET_MAX:-40000}
+SSEARCH=${SSEARCH:-ssearch36}; MINFL=${MINFL:-60}; PIECE=${PIECE:-150}; TARGET_MAX=${TARGET_MAX:-40000}; UMAX=${UMAX:-400}
 mkdir -p "$OUT/m" "$OUT/p"
 cd "$OUT" || exit 1
 rm -f m/* p/*
 [[ -s "$GENOME.fai" ]] || samtools faidx "$GENOME"
 
 # 1. flank regions: for hit k of a run, F = the FL bp after it, B = the FL bp before it, cut where the neighbouring hit starts/ends
-gawk -F'\t' -v OFS='\t' -v FL="$FL" -v MINFL="$MINFL" -v MAXH=$((MAX_UNITS + 1)) '
+gawk -F'\t' -v OFS='\t' -v FL="$FL" -v MINFL="$MINFL" -v UMAX="$UMAX" -v MAXH=$((MAX_UNITS + 1)) '
     FNR == NR { len[$1] = $2; next }
     function flush(   k, s, e, ps, pe, ns) {
         for (k = 0; k < m; k++) {
@@ -39,6 +39,9 @@ gawk -F'\t' -v OFS='\t' -v FL="$FL" -v MINFL="$MINFL" -v MAXH=$((MAX_UNITS + 1))
             if (s < 1) s = 1
             if (e - s + 1 >= MINFL) { print C ":" s "-" e > "regions.txt"; print id "_" k "_B" > "names.txt" }
         }
+        # a short unit (hit start to the next hit start, <= UMAX bp: the hits nearly touch, there is no flank to test) is itself a short piece
+        for (k = 0; k + 1 < m; k++)
+            if (S[k + 1] - S[k] >= 50 && S[k + 1] - S[k] <= UMAX) { print C ":" (S[k] + 1) "-" S[k + 1] > "regions.txt"; print id "_" k "_U" > "names.txt" }
         if (started) print id, m > "nhits.tsv"
     }
     { if (!started || ($1 "") != id) { flush(); started = 1; id = $1 ""; C = $2; m = 0 }
@@ -82,7 +85,7 @@ gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" -v BORDER_LO="$BORDER_LO" '
             delete v; delete w } }' nhits.tsv flank_scores.tsv > verdicts.flank.tsv
 
 # 5. second opinion for the borderline runs: a 150 bp piece from the middle of stretch k against stretches k+1 and k+2
-awk -F'\t' '$5 == "BORDER" { print $1 }' verdicts.flank.tsv > border.ids
+awk -F'\t' '$5 == "BORDER" || $5 == "ARRAY" { print $1 }' verdicts.flank.tsv > border.ids
 if [[ -s border.ids ]]; then
     gawk -F'\t' -v OFS='\t' -v PIECE="$PIECE" -v TMAX="$TARGET_MAX" -v MAXH=$((MAX_UNITS + 1)) '
         FILENAME == "border.ids" { want[$1] = 1; next }
@@ -111,17 +114,23 @@ if [[ -s border.ids ]]; then
     fi
     : >> piece_scores.tsv
     gawk -F'\t' -v OFS='\t' '
+        FILENAME == "pnames.txt" { split($0, a, "_"); if (a[3] == "P") has[a[1], a[2]] = 1; next }
         FILENAME == "verdicts.flank.tsv" { nn[$1] = $2; next }
         { sc[$1, $2] = $3 }
         END { while ((getline r < "border.ids") > 0) { n = 0
-                for (k = 0; k <= nn[r] - 2; k++) v[++n] = ((r, k) in sc) ? sc[r, k] : 0
-                if (n == 0) { print r, 0; continue }
+                for (k = 0; k <= nn[r] - 2; k++) if ((r, k) in has) v[++n] = ((r, k) in sc) ? sc[r, k] : 0
+                if (n == 0) { print r, 0, 0; continue }
                 c = asort(v, w); med = (c % 2) ? w[(c + 1) / 2] : (w[c / 2] + w[c / 2 + 1]) / 2
-                print r, med; delete v; delete w } }' verdicts.flank.tsv piece_scores.tsv > piece_median.tsv
+                print r, med, n; delete v; delete w } }' pnames.txt verdicts.flank.tsv piece_scores.tsv > piece_median.tsv
 fi
 : >> piece_median.tsv
 gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" '
-    FILENAME == "piece_median.tsv" { pm[$1] = $2; next }
-    { if ($5 == "BORDER") { if (($1 in pm) && pm[$1] >= MIN_ID) { $5 = "ARRAY"; $6 = "piece"; $3 = sprintf("%.1f", pm[$1]) } else $5 = "COPIES" }
+    FILENAME == "piece_median.tsv" { pm[$1] = $2; pn[$1] = $3; next }
+    { if ($5 == "ARRAY" || $5 == "BORDER") {
+          if (($1 in pn) && pn[$1] > 0) {                 # the interior of the unit must repeat as well, not only the flanks
+              if (pm[$1] >= MIN_ID) { $6 = ($5 == "ARRAY") ? "flank+piece" : "piece"; $5 = "ARRAY"; if ($3 + 0 < pm[$1]) $3 = sprintf("%.1f", pm[$1]) }
+              else $5 = "COPIES"
+          } else if ($5 == "BORDER") $5 = "COPIES"         # no piece could be cut (short units): the flank/unit score alone decides
+      }
       print }' piece_median.tsv verdicts.flank.tsv > verdicts.tsv
-echo "kindB_flank_check: $(wc -l < verdicts.tsv) runs; $(awk -F'\t' '$5 == "ARRAY"' verdicts.tsv | wc -l) ARRAY ($(awk -F'\t' '$6 == "piece"' verdicts.tsv | wc -l) by the piece test)" >&2
+echo "kindB_flank_check: $(wc -l < verdicts.tsv) runs; $(awk -F'\t' '$5 == "ARRAY"' verdicts.tsv | wc -l) ARRAY ($(awk -F'\t' '$6 == "piece"' verdicts.tsv | wc -l) only by the piece test)" >&2
