@@ -343,6 +343,31 @@ along the unit the mismatches are 3-7 bp apart and no 12-20-mer survives, and an
 through the same way. A screen at 5 % cover would have skipped 68 % of the pairs (76 % of the Smith-Waterman cost), about 2x on top of
 the above, without a guarantee; left out.
 
+## 5j. Kind B without long alignments (2026-10-13, branch kindb-flank)
+
+Rule of the owner: no step compares long sequences. The unit check (5i) aligned whole units of 2-24 kb against each other and was 85 of the 95
+minutes of the Timema satellite stage. `tools/kindB_flank_check.sh` (bash/gawk, samtools, short ssearch36; default since this section;
+`SATELLITE_KINDB_METHOD=units` brings the old check back) compares short pieces only:
+
+1. **Flanks.** For every hit of a run, the 150 bp after it and the 150 bp before it (cut where the neighbouring hit is). In an array every
+   hit sits at the same place of a repeating unit, so the flank of hit k repeats at hit k+1 or k+2 (lag 2 for dimeric arrays). Per hit the best
+   score over both flanks and both lags (identity x min(aligned / shorter piece, 1)); run score = median over hits.
+2. **Short units.** When hits are < 400 bp apart there is no flank, the unit (hit start to next hit start) is itself a short piece and is compared the same way.
+3. **Interior piece (confirmation).** Matching flanks alone are not enough (a SINE with conserved flanks is not an array): for every candidate
+   run a 150 bp piece from the middle of stretch k is searched in stretches k+1 and k+2 (150 bp against a few kb). Needed for ARRAY when the typical stretch is
+   >= 300 bp; borderline flank scores (55-85) can be rescued by it. ARRAY = median >= 85 in both. Never more than 150 bp against a stretch.
+4. A k-mer containment shortcut (handoff option 3) was NOT used: section 5i found that pairs at 70-85 % share no 12-20-mers.
+
+Validation against the unit check (rsi run 20261005_085343, all 2 739 kind-B runs): 2.7 min of ssearch36 work replaced; whole stage of the
+check 53 s on 24 threads instead of 569 s. Verdicts: ARRAY/ARRAY 41, COPIES/COPIES 2 684, unit-ARRAY -> piece-COPIES 6, unit-COPIES -> piece-ARRAY 8.
+All 14 MEG-RS arrays, MEG-TR and all long-unit (> 400 bp) arrays of the reference are kept; the 14 disagreements are all ~200 bp-period clusters of 5-7
+short hits (r9, one r4) whose identity sits at the 85 cut on one side or the other: in the cases inspected the hits are 90-100 bp, spaced 114,
+621, 130 ... bp, which the unit check calls an array because every unit starts with a SINE copy; listed in `~/tmp/kbspeed/val_flank/validate_rsi_flank.tsv`
+(therioserver). tbr run 20261005_010931: the 2 000 runs the old stage tested agree 100 % (1 965 COPIES, 35 ARRAY); the 38 859 runs it left
+"untested" (cap) are now all checked in 3.8 min (33 more ARRAY). The 2 000-run cap is therefore off by default with this check.
+Timema (KIT) was not rerun from this session. Toy tests: `tests/test_satellite_kindB_verify.py::test_flank_method_gives_the_planted_verdicts` (B1 array,
+dimeric, 7 kb-unit, near-threshold, diverged, unrelated flank) and the earlier 25 satellite tests pass.
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
