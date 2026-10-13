@@ -54,3 +54,30 @@ First results on the toys (10 random draws each; control never looked like a rea
 
 Reading: the weakest pair is B1-dID vs pB1 (28 runs, 7/10): the candidate for "not separable at this depth", to be judged by him. Purity is lowest where
 one consensus is a composite containing the other. Purity alone is not enough for ranking pairs; the run count separates "blocks" from "interleaved".
+
+## Layer 2: near-ties between subfamilies of one family
+
+A subfamily call (10/10 for one subfamily) whose runner-up is another subfamily of the SAME family is a **near-tie** when its score advantage is
+below `min(10 %, max(--near-tie 0.02, --tie-rel 0.5 x divergence of the two consensuses))`; divergence = share of differing columns among the
+columns where both consensuses have a base (pairwise MAFFT). Such copies keep their subfamily label, are tagged `layer2=tie;tie_with=<other>` in
+the family view and counted in `family_view.summary.tsv` (`subfamily_near_tie`). Env in the orchestrator: `NEAR_TIE`, `TIE_REL`. Sweep on the
+toys (`--near-tie 0.02`): Alu tie_rel 0 / 0.5 / 1 / 2 = 1.3 / 1.9 / 9.2 / 45.9 % of the subfamily-firm copies; Sicista B1 group 0.5 / 4.6 / 4.6 / 4.6 %
+(the 10 % cap). Divergence B1-dID vs B1 is 23 % over shared columns (55 % when gaps counted: the inserted element is not a score difference per column).
+0.5 is a starting value; his calls on which copies are really between two subfamilies decide it.
+
+## Fast mode (`--families-mode fast`, full runs)
+
+Bank of the run = the family consensuses (one query per family); afterwards `tools/fast_split.sh` assigns each family's firm copies with the ordinary
+step 2 against the consensuses of that family's subfamilies only (`<run>/subfamily_split/subfamily_assignment.tsv`). Toy (hs21 Alu, family "Alu" = AluJb, AluSx,
+AluY, full run from the genome): 9 181 copies firm in both modes, all 9 181 with the same subfamily; fast mode finds 137 copies the robust run does not and
+misses 197 it finds (the one-query-per-family recall difference), and leaves more copies without a unanimous subfamily (AluSx 852 vs 276). With a
+single query per family the family-level counts depend on how well the parent consensus represents all its subfamilies.
+
+## Not done
+
+* The two-round vote as a separate mode (family votes first, then the subfamily vote among members) is what the roll-up with `vote_summary.tsv.gz` already
+  computes for the family call; a subfamily call by plurality among members for copies that are family-firm but not subfamily-firm is NOT made (they stay `layer2=unresolved`).
+* Composites (B1-dID, pB1) as single-member families (the other branch of the test): only the grouped case was run.
+* Diagnostic weighting / edge downweight / COSEG (second push).
+* Byte-identity of a run without `--families` with the old code cannot be tested (ssearch36 -z 11 is deliberately non-deterministic); the only change on that path
+  is the extra `vote_summary.tsv.gz` file in the step 2 output, and `families_step` returns immediately without `--families`.
