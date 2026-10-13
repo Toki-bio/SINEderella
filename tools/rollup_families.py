@@ -96,8 +96,11 @@ def merge_regions(rows):
     return [(c, s, e, ",".join(n)) for c, s, e, n in out]
 
 
+TIE_CAP = 0.10          # the relative margin never grows beyond 10 % of the score
+
+
 class ConsDist:
-    """divergence (share of differing columns of a pairwise MAFFT alignment, gaps counted) of two bank consensuses, cached"""
+    """divergence (share of differing columns among the columns where both consensuses have a base, pairwise MAFFT alignment) of two bank consensuses, cached"""
 
     def __init__(self, bank, mafft="mafft"):
         import families as fm
@@ -112,7 +115,7 @@ class ConsDist:
                 self.cache[key] = 0.0
             else:
                 x, y = self.fm.align_mafft({a: self.seq[a], b: self.seq[b]}, self.mafft)
-                cols = [(p, q) for p, q in zip(x.upper(), y.upper()) if not (p == "-" and q == "-")]
+                cols = [(p, q) for p, q in zip(x.upper(), y.upper()) if p in "ACGT" and q in "ACGT"]     # shared columns only: an inserted element is not a difference in score per column
                 self.cache[key] = sum(1 for p, q in cols if p != q) / float(len(cols)) if cols else 0.0
         return self.cache[key]
 
@@ -194,7 +197,7 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
                 except ValueError:
                     margin = 1.0
                 dd = dist.get(sub, runner) if dist else 0.0
-                if margin < max(near_tie, tie_rel * dd):
+                if margin < min(TIE_CAP, max(near_tie, tie_rel * dd)):
                     layer2 = ";layer2=tie"
                     stats[F]["tie"] += 1
         elif seq in votes:
