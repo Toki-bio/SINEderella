@@ -112,7 +112,7 @@ if [[ -s border.ids ]]; then
               if (!(key in best) || sc > best[key]) best[key] = sc }
             END { for (key in best) { split(key, z, SUBSEP); print z[1], z[2], best[key] } }' > piece_scores.tsv || true
     fi
-    : >> piece_scores.tsv
+    : >> piece_scores.tsv; : >> pnames.txt
     gawk -F'\t' -v OFS='\t' '
         FILENAME == "pnames.txt" { split($0, a, "_"); if (a[3] == "P") has[a[1], a[2]] = 1; next }
         FILENAME == "verdicts.flank.tsv" { nn[$1] = $2; next }
