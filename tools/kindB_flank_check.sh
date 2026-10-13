@@ -72,17 +72,22 @@ cat m/*.m8 2>/dev/null | gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" '
     END { for (key in best) { split(key, z, SUBSEP); print z[1], z[2], best[key] > "flank_scores.tsv" } }' lens.tsv -
 : >> flank_scores.tsv
 gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" -v BORDER_LO="$BORDER_LO" '
+    FILENAME == "names.txt" { split($0, a, "_"); has[a[1], a[2], a[3]] = 1; next }
     FILENAME == "nhits.tsv" { m[$1] = $2; ord[++nr] = $1; next }
     { sc[$1, $2] = $3 }
+    function elig(r, k,   t) {      # could hit/unit k be compared with k+1 or k+2 at all (pieces long enough to cut)?
+        for (t in KINDS) if (((r, k, t) in has) && (((r, k + 1, t) in has) || ((r, k + 2, t) in has))) return 1
+        return 0 }
     END {
-        for (i = 1; i <= nr; i++) { r = ord[i]; n = m[r] - 1
-            if (n < 2) { print r, n < 0 ? 0 : n, "-", "-", "-", "-"; continue }
-            for (k = 0; k < n; k++) v[k + 1] = ((r, k) in sc) ? sc[r, k] : 0
+        KINDS["F"]; KINDS["B"]; KINDS["U"]
+        for (i = 1; i <= nr; i++) { r = ord[i]; n = m[r] - 1; c0 = 0
+            for (k = 0; k < n; k++) if (elig(r, k)) v[++c0] = ((r, k) in sc) ? sc[r, k] : 0
+            if (c0 < 2) { print r, c0, "-", "-", "-", "-"; delete v; continue }
             c = asort(v, w); med = (c % 2) ? w[(c + 1) / 2] : (w[c / 2] + w[c / 2 + 1]) / 2
             ge = 0; for (k = 1; k <= c; k++) if (v[k] >= MIN_ID) ge++
             verdict = med >= MIN_ID ? "ARRAY" : (med >= BORDER_LO ? "BORDER" : "COPIES")
-            printf "%s\t%d\t%.1f\t%.2f\t%s\tflank\n", r, n, med, ge / n, verdict
-            delete v; delete w } }' nhits.tsv flank_scores.tsv > verdicts.flank.tsv
+            printf "%s\t%d\t%.1f\t%.2f\t%s\tflank\n", r, c0, med, ge / c0, verdict
+            delete v; delete w } }' names.txt nhits.tsv flank_scores.tsv > verdicts.flank.tsv
 
 # 5. second opinion for the borderline runs: a 150 bp piece from the middle of stretch k against stretches k+1 and k+2
 awk -F'\t' '$5 == "BORDER" || $5 == "ARRAY" { print $1 }' verdicts.flank.tsv > border.ids
