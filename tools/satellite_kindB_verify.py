@@ -178,10 +178,44 @@ def _align_query(qseq, partners, tmpdir, ssearch="ssearch36"):
     return out, r.returncode, r.stderr.strip()[-300:]
 
 
+def verify_runs_flank(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_ID, threads=8):
+    """Same contract as verify_runs, but only short pieces are compared (tools/kindB_flank_check.sh: ~150 bp flanks of neighbouring hits,
+    then a 150 bp piece from the middle of a stretch for borderline runs). No unit is aligned against another."""
+    import shutil
+    sh = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kindB_flank_check.sh")
+    d = tempfile.mkdtemp(prefix="kindBflank_", dir=workdir)
+    hits = os.path.join(d, "hits.tsv")
+    with open(hits, "w") as fh:
+        for i, (q, c, s, e, unit, nh) in enumerate(runs):
+            for hs, he in _hits_in(starts.get(q, {}).get(c, []), s, e)[: max_units + 1]:
+                fh.write("%d\t%s\t%d\t%d\n" % (i, c, hs, he))
+    env = dict(os.environ, THREADS=str(threads), MIN_ID=str(min_id), MAX_UNITS=str(max_units))
+    r = subprocess.run(["bash", sh, hits, genome, os.path.join(d, "w")], env=env, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError("kindB_flank_check.sh failed: " + r.stderr[-500:])
+    print(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "", file=sys.stderr)
+    results = {i: (0, None, None, "-") for i in range(len(runs))}
+    vp = os.path.join(d, "w", "verdicts.tsv")
+    if os.path.exists(vp):
+        for line in open(vp):
+            f = line.rstrip("\n").split("\t")
+            if len(f) < 5:
+                continue
+            i, n = int(f[0]), int(f[1])
+            if f[4] == "-":
+                results[i] = (n, None, None, "-")
+            else:
+                results[i] = (n, float(f[2]), float(f[3]), f[4])
+    shutil.rmtree(d, ignore_errors=True)
+    return results
+
+
 def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_ID, threads=8):
     """runs: list of (consensus, contig, start, end, unit, hits); starts: {consensus: {contig: sorted [(hit start, hit end)]}}.
     Returns {run index: (units_tested, median_identity or None, frac_ge_min or None, verdict)}, as verify_runs_serial does (same
     verdicts; COPIES identities can be lower, see SSEARCH_OPTS). threads = ssearch36 processes at once, each single-threaded."""
+    if os.environ.get("SATELLITE_KINDB_METHOD", "flank") == "flank":
+        return verify_runs_flank(runs, starts, genome, workdir, max_units, min_id, threads)
     if os.environ.get("SATELLITE_KINDB_SERIAL") == "1":
         return verify_runs_serial(runs, starts, genome, workdir, max_units, min_id, threads)
     cuts = []

@@ -86,7 +86,7 @@ def main():
     ap.add_argument("--no-exclude", action="store_true")
     ap.add_argument("--exclude-b", choices=["verified", "flagged", "long", "all", "none"], default="verified")
     ap.add_argument("--long-min-units", type=int, default=10, help="with --exclude-b long: a run counts on its own only with at least this many units and more than the chance-calibrated minimum")
-    ap.add_argument("--max-verify-runs", type=int, default=2000, help="per consensus, the unit check (ssearch36 per run) is done on at most this many regularly spaced runs, the longest first; the others stay 'untested' and are not excluded")
+    ap.add_argument("--max-verify-runs", type=int, default=None, help="per consensus, the check is done on at most this many regularly spaced runs, the longest first; the others stay 'untested' and are not excluded. Default: no limit with the short-piece check (SATELLITE_KINDB_METHOD=flank, the default), 2000 with the unit check (=units)")
     ap.add_argument("--only", default="", help="comma list of consensus names: screen only these (SINEderella --add: the new consensuses) and merge their rows into the existing tables of OUT")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -157,7 +157,8 @@ def main():
             # 5-9 copies, so only the --max-verify-runs longest runs are checked; the rest keep the geometric verdict "untested"
             # and are never excluded (2026-10-05). Real arrays are long and come first.
             ordered = sorted(B + Bn, key=lambda x: -x[3])
-            todo, rest = ordered[:a.max_verify_runs], ordered[a.max_verify_runs:]
+            cap = a.max_verify_runs if a.max_verify_runs is not None else (2000 if os.environ.get("SATELLITE_KINDB_METHOD", "flank") == "units" else None)
+            todo, rest = (ordered[:cap], ordered[cap:]) if cap else (ordered, [])
             if rest:
                 print("satellite_stage: %s: %d regularly spaced runs, unit check on the %d longest (--max-verify-runs); %d runs of <= %d hits untested"
                       % (q, len(B), len(todo), len(rest), rest[0][3]), flush=True)

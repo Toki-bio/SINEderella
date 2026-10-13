@@ -79,6 +79,7 @@ def test_hits_in_is_the_linear_scan():
 @need_ssearch
 def test_fast_equals_serial_on_planted_arrays(tmp_path, monkeypatch):
     monkeypatch.delenv("SATELLITE_KINDB_SERIAL", raising=False)
+    monkeypatch.setenv("SATELLITE_KINDB_METHOD", "units")
     kb._PAIR_CACHE.clear()
     g, runs, starts, expect = toy(tmp_path)
     ref = kb.verify_runs_serial(runs, starts, g, str(tmp_path), threads=2)
@@ -95,6 +96,7 @@ def test_fast_equals_serial_on_planted_arrays(tmp_path, monkeypatch):
 def test_each_pair_is_aligned_once(tmp_path, monkeypatch):
     """a narrow run inside a wide run, a second call for the same runs: no pair is aligned twice"""
     monkeypatch.delenv("SATELLITE_KINDB_SERIAL", raising=False)
+    monkeypatch.setenv("SATELLITE_KINDB_METHOD", "units")
     kb._PAIR_CACHE.clear()
     g, runs, starts, expect = toy(tmp_path)
     calls = []
@@ -121,5 +123,28 @@ def test_serial_switch(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(kb, "verify_runs_serial", lambda *a, **k: seen.append(1) or {})
     monkeypatch.setenv("SATELLITE_KINDB_SERIAL", "1")
+    monkeypatch.setenv("SATELLITE_KINDB_METHOD", "units")
+    assert kb.verify_runs([], {}, "none.fa", str(tmp_path)) == {}
+    assert seen == [1]
+
+
+need_flank_tools = pytest.mark.skipif(any(shutil.which(t) is None for t in ("ssearch36", "samtools", "gawk")),
+                                      reason="ssearch36, samtools and gawk are needed")
+
+
+@need_flank_tools
+def test_flank_method_gives_the_planted_verdicts(tmp_path, monkeypatch):
+    """no unit is aligned against another: only ~150 bp flanks (and a 150 bp piece for borderline runs) - same verdicts as the unit check"""
+    g, runs, starts, expect = toy(tmp_path)
+    res = kb.verify_runs_flank(runs, starts, g, str(tmp_path), threads=4)
+    got = [res[i][3] for i in range(len(expect))]
+    assert got == expect, (got, expect, res)
+
+
+@need_flank_tools
+def test_flank_method_is_the_switch(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(kb, "verify_runs_flank", lambda *a, **k: seen.append(1) or {})
+    monkeypatch.setenv("SATELLITE_KINDB_METHOD", "flank")
     assert kb.verify_runs([], {}, "none.fa", str(tmp_path)) == {}
     assert seen == [1]
