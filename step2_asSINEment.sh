@@ -233,6 +233,8 @@ run_assignment(){
       print a[1], a[2], vote_count[key], bitscore_sum[key], runner_bs_sum[key], rc
     }
   }' "$TMPDIR/votes.tsv" | sort -k1,1 -k3,3nr -k2,2 > "$TMPDIR/vote_summary.tsv"
+  # keep the per-consensus tally (used by tools/rollup_families.py); small next to the m8 files
+  gzip -c "$TMPDIR/vote_summary.tsv" > "$OUTDIR/vote_summary.tsv.gz" || true
 
   # Save best-vote info for ALL sequences (for unassigned tracking)
   log "Recording per-sequence best vote info (all sequences)..."
@@ -658,6 +660,7 @@ run_incremental_assignment(){
         print a[1], a[2], vote_count[key], bitscore_sum[key]
       }
     }' "$TMPDIR/votes.tsv" | sort -k1,1 -k3,3nr -k2,2 > "$TMPDIR/tier2_vote_summary.tsv"
+    gzip -c "$TMPDIR/tier2_vote_summary.tsv" > "$OUTDIR/vote_summary.tsv.gz" || true
 
     # Tier 2 all_votes (best vote per sequence)
     awk 'BEGIN{FS=OFS="\t"}{
