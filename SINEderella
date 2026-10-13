@@ -45,7 +45,11 @@ Options:
   --families <tsv>
                 Families+subfamilies mode (docs/FAMILIES.md). Table: subfamily<TAB>family[<TAB>parent_consensus].
                 After step 3 a family view is written to <run>/family_view and post-processed (LEAK, CONFLICT,
-                soft assignment per FAMILY). The subfamily results are not changed. Also: --parents <fa>,
+                soft assignment per FAMILY). The subfamily results are not changed.
+                --families-mode robust (default): all subfamily consensuses are searched and compete, then the roll-up.
+                --families-mode fast (full mode only): only the family consensuses are searched (one query per family;
+                can favour the subfamilies the family consensus resembles), then each family's firm copies are assigned
+                to its own subfamilies (tools/fast_split.sh -> <run>/subfamily_split/subfamily_assignment.tsv). Also: --parents <fa>,
                 --family-weights <tsv> (subfamily<TAB>copy number, for derived parent consensuses).
   --resume/-r   Resume an interrupted run from the last completed step.
                 Searches for the latest run_* in the working directory.
@@ -130,6 +134,7 @@ PUBLISH="${PUBLISH:-0}"
 MASK_BEDS=()
 MASK_RUN=""
 FAMILIES_TSV=""
+FAMILIES_MODE="robust"
 FAMILIES_PARENTS=""
 FAMILIES_WEIGHTS=""
 
@@ -175,6 +180,13 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--families requires a table file"
       FAMILIES_TSV="$(readlink -f "$1")"
+      shift
+      ;;
+    --families-mode)
+      shift
+      [[ $# -gt 0 ]] || die "--families-mode requires robust or fast"
+      FAMILIES_MODE="$1"
+      [[ "$FAMILIES_MODE" == robust || "$FAMILIES_MODE" == fast ]] || die "--families-mode must be robust or fast"
       shift
       ;;
     --parents)
@@ -432,6 +444,13 @@ families_step(){
   local rundir="$1"
   [[ -n "$FAMILIES_TSV" ]] || return 0
   [[ -f "$FAMILIES_TSV" ]] || die "--families file not found: $FAMILIES_TSV"
+  if [[ "$FAMILIES_MODE" == "fast" ]]; then
+    [[ -s "$rundir/subfamily_bank.fa" ]] || die "families fast mode: $rundir/subfamily_bank.fa missing (fast mode is for full runs)"
+    log "Families (fast): assigning each family's firm copies to its own subfamilies (tools/fast_split.sh)"
+    bash "$SCRIPT_DIR/tools/fast_split.sh" "$rundir" "$rundir/families/families.clean.tsv" "$rundir/subfamily_bank.fa" "$THREADS" \
+      || log "WARNING: fast_split.sh failed (the family-level results are complete)"
+    return 0
+  fi
   local fdir="$rundir/families" fv="$rundir/family_view" s2 args=()
   s2="$(ls -dt "$rundir"/step2/step2_output* 2>/dev/null | head -n1 || true)"
   [[ -n "$s2" ]] || die "families: no step2 output in $rundir"
@@ -443,7 +462,7 @@ families_step(){
   [[ -s "$s2/vote_summary.tsv.gz" ]] && votes=(--votes "$s2/vote_summary.tsv.gz")
   log "Families: rolling the run up to family level -> family_view"
   python3 "$SCRIPT_DIR/tools/rollup_families.py" --run "$rundir" --families "$fdir/families.clean.tsv"     --family-cons "$fdir/family_consensuses.fa" --out "$fv" ${votes[@]+"${votes[@]}"} \
-    --bank "$rundir/consensuses.clean.fa" --near-tie "${NEAR_TIE:-0.02}" --tie-rel "${TIE_REL:-1.0}" || die "rollup_families.py failed"
+    --bank "$rundir/consensuses.clean.fa" --near-tie "${NEAR_TIE:-0.02}" --tie-rel "${TIE_REL:-0.5}" || die "rollup_families.py failed"
   log "Families: step3 on the family view"
   "$SCRIPT_DIR/step3_postprocess.sh" "$fv" "$THREADS" > "$fv/step3.stdout.log" 2> "$fv/step3.stderr.log"     || { tail -n 40 "$fv/step3.stderr.log" >&2; log "WARNING: step3 on family_view failed (see family_view/step3.stderr.log)"; }
   return 0
@@ -849,6 +868,17 @@ mode_full(){
   sanitize_fasta "$CONS_IN" "$RUN/consensuses.clean.fa" consensus
   [[ -s "$RUN/consensuses.clean.fa" ]] || die "consensuses.clean.fa is empty (normalize failed)"
   canonicalize_consensus_bank "$RUN/consensuses.clean.fa"
+
+  if [[ -n "$FAMILIES_TSV" && "$FAMILIES_MODE" == "fast" ]]; then
+    log "Families (fast mode): the run uses the FAMILY consensuses as its bank; subfamily bank kept as subfamily_bank.fa"
+    cp -f "$RUN/consensuses.clean.fa" "$RUN/subfamily_bank.fa"
+    local -a _fargs=()
+    [[ -n "$FAMILIES_PARENTS" ]] && _fargs+=(--parents "$FAMILIES_PARENTS")
+    [[ -n "$FAMILIES_WEIGHTS" ]] && _fargs+=(--weights "$FAMILIES_WEIGHTS")
+    python3 "$SCRIPT_DIR/tools/families.py" --bank "$RUN/subfamily_bank.fa" --table "$FAMILIES_TSV" --out "$RUN/families" ${_fargs[@]+"${_fargs[@]}"} \
+      || die "families.py failed (see message above)"
+    cp -f "$RUN/families/family_consensuses.fa" "$RUN/consensuses.clean.fa"
+  fi
 
   build_mask "$RUN"
 

@@ -120,7 +120,7 @@ class ConsDist:
         return self.cache[key]
 
 
-def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_tie=0.02, tie_rel=1.0):
+def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_tie=0.02, tie_rel=0.5):
     fam = read_family_map(fam_map_path)
     f_of = lambda s: fam.get(s, s)
     s2 = step2_dir(run)
@@ -270,7 +270,7 @@ def main(argv=None):
     ap.add_argument("--votes", default=None, help="vote_summary.tsv[.gz] (seq, cons, votes, bs_sum, runner_bs_sum, runner_cons)")
     ap.add_argument("--bank", default=None, help="consensuses.clean.fa of the run; with it the near-tie margin also scales with the divergence of the two subfamily consensuses")
     ap.add_argument("--near-tie", type=float, default=0.02, help="absolute score margin below which two subfamilies of one family are a tie (default 0.02)")
-    ap.add_argument("--tie-rel", type=float, default=1.0, help="x divergence of the two consensuses, also a margin (default 1.0; 0 = absolute only)")
+    ap.add_argument("--tie-rel", type=float, default=0.5, help="x divergence of the two consensuses, also a margin, capped at 10 % (default 0.5; 0 = absolute only)")
     a = ap.parse_args(argv)
     out = a.out or os.path.join(a.run, "family_view")
     stats = rollup(a.run, a.families, a.family_cons, out, a.votes, a.bank, a.near_tie, a.tie_rel)
