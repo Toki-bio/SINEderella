@@ -55,6 +55,8 @@ class RunToolsCopy(unittest.TestCase):
         for f in sorted(lst):
             p = os.path.join(TOOLS, f)
             self.assertTrue(os.path.exists(p), "%s is in the copy list but not in tools/" % f)
+            if not f.endswith(".py"):
+                continue                      # shell helpers (kindB_flank_check.sh) are only copied, nothing to import
             missing = local_imports(p) - lst
             self.assertFalse(missing, "%s imports %s, which the orchestrator does not copy" % (f, sorted(missing)))
 
