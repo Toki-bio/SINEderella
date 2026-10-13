@@ -15,7 +15,7 @@
 # opinion: a PIECE (150 bp) from the middle of stretch k is searched in the stretches k+1 and k+2 (150 bp against a few kb); same rule.
 # Never more than ~150 bp against a stretch. Needs gawk, samtools, ssearch36.
 set -euo pipefail
-HITS=$1; GENOME=$2; OUT=$3
+HITS=$(readlink -f "$1"); GENOME=$(readlink -f "$2"); mkdir -p "$3"; OUT=$(readlink -f "$3")
 FL=${FL:-150}; MIN_ID=${MIN_ID:-85}; BORDER_LO=${BORDER_LO:-55}; MAX_UNITS=${MAX_UNITS:-12}; THREADS=${THREADS:-8}
 SSEARCH=${SSEARCH:-ssearch36}; MINFL=${MINFL:-60}; PIECE=${PIECE:-150}; TARGET_MAX=${TARGET_MAX:-40000}
 mkdir -p "$OUT/m" "$OUT/p"
