@@ -215,8 +215,15 @@ echo "[$(date)] Building searches/all_hits.labeled.bed and searches/regions.by_s
 
 # --- MERGE AND EXTRACT (your original behavior) ---
 echo "[$(date)] Found ${#BED_FILES[@]} BED files. Merging..."
-cat "${BED_FILES[@]}" | bedtools sort -i - | \
-    bedtools merge -i - -c 4,5,6 -o max,max,distinct > merged_hits.bed
+# Strand-aware merge (tools/merge_hits.py): a "-" hit touching a "+" hit of another family is two elements, not one "+,-" locus that getfasta -s
+# would write forward (reverse-complemented DIP chimeras, Sicista 2026-10-13). MERGE_STRAND_AWARE=0 brings back the plain bedtools merge.
+_TOOLS_M="${SINEDERELLA_TOOLS:-$(dirname "$(readlink -f "$0")")/tools}"
+if [[ "${MERGE_STRAND_AWARE:-1}" != "0" && -f "$_TOOLS_M/merge_hits.py" ]]; then
+    cat "${BED_FILES[@]}" | bedtools sort -i - | python3 "$_TOOLS_M/merge_hits.py" > merged_hits.bed
+else
+    cat "${BED_FILES[@]}" | bedtools sort -i - | \
+        bedtools merge -i - -c 4,5,6 -o max,max,distinct > merged_hits.bed
+fi
 
 BED_COUNT=$(wc -l < merged_hits.bed)
 echo "[$(date)] Merged into $BED_COUNT unique intervals"
