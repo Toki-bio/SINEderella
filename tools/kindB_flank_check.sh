@@ -39,9 +39,9 @@ gawk -F'\t' -v OFS='\t' -v FL="$FL" -v MINFL="$MINFL" -v MAXH=$((MAX_UNITS + 1))
             if (s < 1) s = 1
             if (e - s + 1 >= MINFL) { print C ":" s "-" e > "regions.txt"; print id "|" k "|B" > "names.txt" }
         }
-        if (id != "") print id, m > "nhits.tsv"
+        if (started) print id, m > "nhits.tsv"
     }
-    { if ($1 != id) { flush(); id = $1; C = $2; m = 0 }
+    { if (!started || ($1 "") != id) { flush(); started = 1; id = $1 ""; C = $2; m = 0 }
       if (m < MAXH) { S[m] = $3; E[m] = $4; m++ } }
     END { flush() }' "$GENOME.fai" "$HITS"
 : > /dev/null
@@ -88,14 +88,14 @@ if [[ -s border.ids ]]; then
         FILENAME == "border.ids" { want[$1] = 1; next }
         FILENAME ~ /fai$/ { len[$1] = $2; next }
         function flush(   k, mid, s, e) {
-            if (!(id in want)) return
+            if (!started || !(id in want)) return
             for (k = 0; k + 1 < m; k++) {
                 e = S[k + 1]; s = S[k]
                 if (e - s >= 2 * PIECE) { mid = int((s + e) / 2); print C ":" (mid - PIECE / 2 + 1) "-" (mid + PIECE / 2) > "pregions.txt"; print id "|" k "|P" > "pnames.txt" }
                 if (e - s >= 50) { if (e - s > TMAX) e = s + TMAX; print C ":" (s + 1) "-" e > "pregions.txt"; print id "|" k "|T" > "pnames.txt" }
             }
         }
-        { if ($1 != id) { flush(); id = $1; C = $2; m = 0 }
+        { if (!started || ($1 "") != id) { flush(); started = 1; id = $1 ""; C = $2; m = 0 }
           if (m < MAXH) { S[m] = $3; m++ } }
         END { flush() }' border.ids "$GENOME.fai" "$HITS"
     if [[ -s pregions.txt ]]; then
