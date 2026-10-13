@@ -32,12 +32,12 @@ gawk -F'\t' -v OFS='\t' -v FL="$FL" -v MINFL="$MINFL" -v MAXH=$((MAX_UNITS + 1))
             s = E[k] + 1; e = E[k] + FL
             if (k + 1 < m && S[k + 1] < e) e = S[k + 1]
             if (e > len[C]) e = len[C]
-            if (e - s + 1 >= MINFL) { print C ":" s "-" e > "regions.txt"; print id "|" k "|F" > "names.txt" }
+            if (e - s + 1 >= MINFL) { print C ":" s "-" e > "regions.txt"; print id "_" k "_F" > "names.txt" }
             # before
             s = S[k] - FL + 1; e = S[k]
             if (k > 0 && E[k - 1] + 1 > s) s = E[k - 1] + 1
             if (s < 1) s = 1
-            if (e - s + 1 >= MINFL) { print C ":" s "-" e > "regions.txt"; print id "|" k "|B" > "names.txt" }
+            if (e - s + 1 >= MINFL) { print C ":" s "-" e > "regions.txt"; print id "_" k "_B" > "names.txt" }
         }
         if (started) print id, m > "nhits.tsv"
     }
@@ -51,7 +51,7 @@ gawk -F'\t' -v OFS='\t' -v FL="$FL" -v MINFL="$MINFL" -v MAXH=$((MAX_UNITS + 1))
 samtools faidx "$GENOME" -r regions.txt \
 | gawk 'FNR == NR { n[FNR] = $0; next } /^>/ { i++; print ">" n[i]; next } { print }' names.txt - > flanks.fa
 gawk '/^>/ { if (nm != "") print nm "\t" L; nm = substr($0, 2); L = 0; next } { L += length($0) } END { if (nm != "") print nm "\t" L }' flanks.fa > lens.tsv
-gawk -v RS='>' 'NR > 1 { split($0, a, "\n"); split(a[1], p, "|"); f = "m/" p[1] ".fa"; printf ">%s", $0 > f; close(f) }' flanks.fa
+gawk -v RS='>' 'NR > 1 { split($0, a, "\n"); split(a[1], p, "_"); f = "m/" p[1] ".fa"; printf ">%s", $0 > f; close(f) }' flanks.fa
 
 # 3. all-against-all inside each run (26 pieces of 150 bp), the lag-1/lag-2 pairs of one flank kind are read from it
 ( cd m && ls *.fa | xargs -P "$THREADS" -I{} sh -c "$SSEARCH -m 8 -E 10 -z -1 -T 1 {} {} > \$(basename {} .fa).m8 2>/dev/null || true" )
@@ -59,7 +59,7 @@ gawk -v RS='>' 'NR > 1 { split($0, a, "\n"); split(a[1], p, "|"); f = "m/" p[1] 
 # 4. per-hit best score, per-run median
 cat m/*.m8 2>/dev/null | gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" '
     FILENAME == "lens.tsv" { L[$1] = $2; next }
-    { split($1, a, "|"); split($2, b, "|")
+    { split($1, a, "_"); split($2, b, "_")
       if (a[1] != b[1] || a[3] != b[3]) next
       d = b[2] - a[2]; if (d < 0) { d = -d; k = b[2] } else k = a[2]
       if (d != 1 && d != 2) next
@@ -91,8 +91,8 @@ if [[ -s border.ids ]]; then
             if (!started || !(id in want)) return
             for (k = 0; k + 1 < m; k++) {
                 e = S[k + 1]; s = S[k]
-                if (e - s >= 2 * PIECE) { mid = int((s + e) / 2); print C ":" (mid - PIECE / 2 + 1) "-" (mid + PIECE / 2) > "pregions.txt"; print id "|" k "|P" > "pnames.txt" }
-                if (e - s >= 50) { if (e - s > TMAX) e = s + TMAX; print C ":" (s + 1) "-" e > "pregions.txt"; print id "|" k "|T" > "pnames.txt" }
+                if (e - s >= 2 * PIECE) { mid = int((s + e) / 2); print C ":" (mid - PIECE / 2 + 1) "-" (mid + PIECE / 2) > "pregions.txt"; print id "_" k "_P" > "pnames.txt" }
+                if (e - s >= 50) { if (e - s > TMAX) e = s + TMAX; print C ":" (s + 1) "-" e > "pregions.txt"; print id "_" k "_T" > "pnames.txt" }
             }
         }
         { if (!started || ($1 "") != id) { flush(); started = 1; id = $1 ""; C = $2; m = 0 }
@@ -101,10 +101,10 @@ if [[ -s border.ids ]]; then
     if [[ -s pregions.txt ]]; then
         samtools faidx "$GENOME" -r pregions.txt \
         | gawk 'FNR == NR { n[FNR] = $0; next } /^>/ { i++; print ">" n[i]; next } { print }' pnames.txt - > pieces.fa
-        gawk -v RS='>' 'NR > 1 { split($0, a, "\n"); split(a[1], p, "|"); f = "p/" p[1] "." (p[3] == "P" ? "q" : "t") ".fa"; printf ">%s", $0 > f; close(f) }' pieces.fa
+        gawk -v RS='>' 'NR > 1 { split($0, a, "\n"); split(a[1], p, "_"); f = "p/" p[1] "." (p[3] == "P" ? "q" : "t") ".fa"; printf ">%s", $0 > f; close(f) }' pieces.fa
         ( cd p && ls *.q.fa | xargs -P "$THREADS" -I{} sh -c "b=\$(basename {} .q.fa); [ -s \$b.t.fa ] && $SSEARCH -m 8 -E 10 -z -1 -T 1 {} \$b.t.fa > \$b.m8 2>/dev/null || true" )
         cat p/*.m8 2>/dev/null | gawk -F'\t' -v OFS='\t' -v PIECE="$PIECE" '
-            { split($1, a, "|"); split($2, b, "|"); d = b[2] - a[2]; if (a[1] != b[1] || (d != 1 && d != 2)) next
+            { split($1, a, "_"); split($2, b, "_"); d = b[2] - a[2]; if (a[1] != b[1] || (d != 1 && d != 2)) next
               c = $4 / PIECE; if (c > 1) c = 1; sc = $3 * c; key = a[1] SUBSEP a[2]
               if (!(key in best) || sc > best[key]) best[key] = sc }
             END { for (key in best) { split(key, z, SUBSEP); print z[1], z[2], best[key] } }' > piece_scores.tsv || true
