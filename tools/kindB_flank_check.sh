@@ -90,8 +90,11 @@ if [[ -s border.ids ]]; then
     gawk -F'\t' -v OFS='\t' -v PIECE="$PIECE" -v TMAX="$TARGET_MAX" -v MAXH=$((MAX_UNITS + 1)) '
         FILENAME == "border.ids" { want[$1] = 1; next }
         FILENAME ~ /fai$/ { len[$1] = $2; next }
-        function flush(   k, mid, s, e) {
+        function flush(   k, mid, s, e, st, c, w) {
             if (!started || !(id in want)) return
+            for (k = 0; k + 1 < m; k++) st[k + 1] = S[k + 1] - S[k]
+            c = asort(st, w)
+            if (c < 1 || w[int((c + 1) / 2)] < 2 * PIECE) return      # short units: the units themselves were compared, no interior piece to cut
             for (k = 0; k + 1 < m; k++) {
                 e = S[k + 1]; s = S[k]
                 if (e - s >= 2 * PIECE) { mid = int((s + e) / 2); print C ":" (mid - PIECE / 2 + 1) "-" (mid + PIECE / 2) > "pregions.txt"; print id "_" k "_P" > "pnames.txt" }
