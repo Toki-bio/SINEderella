@@ -42,6 +42,11 @@ Options:
                 Full mode only. Mask the loci that the named consensuses of an earlier run on the
                 same genome hit (all of its consensuses if no names). Pass every subfamily of a
                 family to mask the family. See docs/MASKING.md.
+  --families <tsv>
+                Families+subfamilies mode (docs/FAMILIES.md). Table: subfamily<TAB>family[<TAB>parent_consensus].
+                After step 3 a family view is written to <run>/family_view and post-processed (LEAK, CONFLICT,
+                soft assignment per FAMILY). The subfamily results are not changed. Also: --parents <fa>,
+                --family-weights <tsv> (subfamily<TAB>copy number, for derived parent consensuses).
   --resume/-r   Resume an interrupted run from the last completed step.
                 Searches for the latest run_* in the working directory.
                 Use with --run <dir> to specify a run explicitly.
@@ -124,6 +129,9 @@ CONS_IN=""
 PUBLISH="${PUBLISH:-0}"
 MASK_BEDS=()
 MASK_RUN=""
+FAMILIES_TSV=""
+FAMILIES_PARENTS=""
+FAMILIES_WEIGHTS=""
 
 if [[ $# -eq 0 ]]; then usage; fi
 
@@ -161,6 +169,24 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || die "--mask-run requires <run_dir>[:NAME,NAME...]"
       MASK_RUN="$1"
+      shift
+      ;;
+    --families)
+      shift
+      [[ $# -gt 0 ]] || die "--families requires a table file"
+      FAMILIES_TSV="$(readlink -f "$1")"
+      shift
+      ;;
+    --parents)
+      shift
+      [[ $# -gt 0 ]] || die "--parents requires a FASTA file"
+      FAMILIES_PARENTS="$(readlink -f "$1")"
+      shift
+      ;;
+    --family-weights)
+      shift
+      [[ $# -gt 0 ]] || die "--family-weights requires a table file"
+      FAMILIES_WEIGHTS="$(readlink -f "$1")"
       shift
       ;;
     --run)
@@ -401,6 +427,27 @@ flank_twins_step(){
   return 0
 }
 
+# HELPER: families view (tools/families.py + tools/rollup_families.py): subfamily results rolled up to families in <run>/family_view
+families_step(){
+  local rundir="$1"
+  [[ -n "$FAMILIES_TSV" ]] || return 0
+  [[ -f "$FAMILIES_TSV" ]] || die "--families file not found: $FAMILIES_TSV"
+  local fdir="$rundir/families" fv="$rundir/family_view" s2 args=()
+  s2="$(ls -dt "$rundir"/step2/step2_output* 2>/dev/null | head -n1 || true)"
+  [[ -n "$s2" ]] || die "families: no step2 output in $rundir"
+  [[ -n "$FAMILIES_PARENTS" ]] && args+=(--parents "$FAMILIES_PARENTS")
+  [[ -n "$FAMILIES_WEIGHTS" ]] && args+=(--weights "$FAMILIES_WEIGHTS")
+  log "Families: checking the table and building parent consensuses (tools/families.py)"
+  python3 "$SCRIPT_DIR/tools/families.py" --bank "$rundir/consensuses.clean.fa" --table "$FAMILIES_TSV" --out "$fdir" ${args[@]+"${args[@]}"}     || die "families.py failed (see message above); subfamily results are unchanged"
+  local votes=()
+  [[ -s "$s2/vote_summary.tsv.gz" ]] && votes=(--votes "$s2/vote_summary.tsv.gz")
+  log "Families: rolling the run up to family level -> family_view"
+  python3 "$SCRIPT_DIR/tools/rollup_families.py" --run "$rundir" --families "$fdir/families.clean.tsv"     --family-cons "$fdir/family_consensuses.fa" --out "$fv" ${votes[@]+"${votes[@]}"} || die "rollup_families.py failed"
+  log "Families: step3 on the family view"
+  "$SCRIPT_DIR/step3_postprocess.sh" "$fv" "$THREADS" > "$fv/step3.stdout.log" 2> "$fv/step3.stderr.log"     || { tail -n 40 "$fv/step3.stderr.log" >&2; log "WARNING: step3 on family_view failed (see family_view/step3.stderr.log)"; }
+  return 0
+}
+
 ###############################################################################
 # HELPER: consensus audit (rebuild each consensus from its assigned copies, compare with the bank; tools/consensus_audit.py)
 ###############################################################################
@@ -547,6 +594,7 @@ run_step2_step3(){
   flank_twins_step "$(pwd -P)"
   length_variants_step "$(pwd -P)"
   consensus_audit_step "$(pwd -P)"
+  families_step "$(pwd -P)"
 
   # --- Step 6 / publish HTML report (optional) ---
   # Must run AFTER the results/ symlink farm above, not before: step6_report.py
