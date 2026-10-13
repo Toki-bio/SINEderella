@@ -79,6 +79,7 @@ def test_hits_in_is_the_linear_scan():
 @need_ssearch
 def test_fast_equals_serial_on_planted_arrays(tmp_path, monkeypatch):
     monkeypatch.delenv("SATELLITE_KINDB_SERIAL", raising=False)
+    monkeypatch.setenv("SATELLITE_KINDB_METHOD", "units")
     kb._PAIR_CACHE.clear()
     g, runs, starts, expect = toy(tmp_path)
     ref = kb.verify_runs_serial(runs, starts, g, str(tmp_path), threads=2)
@@ -95,6 +96,7 @@ def test_fast_equals_serial_on_planted_arrays(tmp_path, monkeypatch):
 def test_each_pair_is_aligned_once(tmp_path, monkeypatch):
     """a narrow run inside a wide run, a second call for the same runs: no pair is aligned twice"""
     monkeypatch.delenv("SATELLITE_KINDB_SERIAL", raising=False)
+    monkeypatch.setenv("SATELLITE_KINDB_METHOD", "units")
     kb._PAIR_CACHE.clear()
     g, runs, starts, expect = toy(tmp_path)
     calls = []
@@ -121,6 +123,7 @@ def test_serial_switch(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(kb, "verify_runs_serial", lambda *a, **k: seen.append(1) or {})
     monkeypatch.setenv("SATELLITE_KINDB_SERIAL", "1")
+    monkeypatch.setenv("SATELLITE_KINDB_METHOD", "units")
     assert kb.verify_runs([], {}, "none.fa", str(tmp_path)) == {}
     assert seen == [1]
 

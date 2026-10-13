@@ -214,7 +214,7 @@ def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_I
     """runs: list of (consensus, contig, start, end, unit, hits); starts: {consensus: {contig: sorted [(hit start, hit end)]}}.
     Returns {run index: (units_tested, median_identity or None, frac_ge_min or None, verdict)}, as verify_runs_serial does (same
     verdicts; COPIES identities can be lower, see SSEARCH_OPTS). threads = ssearch36 processes at once, each single-threaded."""
-    if os.environ.get("SATELLITE_KINDB_METHOD", "units") == "flank":
+    if os.environ.get("SATELLITE_KINDB_METHOD", "flank") == "flank":
         return verify_runs_flank(runs, starts, genome, workdir, max_units, min_id, threads)
     if os.environ.get("SATELLITE_KINDB_SERIAL") == "1":
         return verify_runs_serial(runs, starts, genome, workdir, max_units, min_id, threads)
