@@ -572,6 +572,8 @@ run_step2_step3(){
 
   rebuild_consensus_bank "$(pwd -P)"
 
+  families_step "$(pwd -P)"
+
   # --- Step 4: Diagnostic plots (optional) ---
   if [[ -n "${PLOT_SRC:-}" && -f "./step4_plots.sh" && -f "./plot_subfamily.py" ]]; then
     log "Running Step4 plots (step4_plots.sh)"
@@ -594,7 +596,6 @@ run_step2_step3(){
   flank_twins_step "$(pwd -P)"
   length_variants_step "$(pwd -P)"
   consensus_audit_step "$(pwd -P)"
-  families_step "$(pwd -P)"
 
   # --- Step 6 / publish HTML report (optional) ---
   # Must run AFTER the results/ symlink farm above, not before: step6_report.py
