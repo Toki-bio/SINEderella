@@ -121,7 +121,11 @@ def test_set(copies_a, copies_b, seqs, rng, aligned=False, mafft="mafft", null=N
     """copies_*: lists of sequence ids; returns scores for A vs B and for the control (A split in two)."""
     ids = list(copies_a) + list(copies_b)
     labels = ["A"] * len(copies_a) + ["B"] * len(copies_b)
-    al = [seqs[i] for i in ids] if aligned else [mafft_align([(i, seqs[i]) for i in ids], mafft)[i] for i in ids]
+    if aligned:
+        al = [seqs[i] for i in ids]
+    else:
+        m = mafft_align([(i, seqs[i]) for i in ids], mafft)
+        al = [m[i] for i in ids]
     d = pdist_matrix(al)
     res = score_set(d, labels, rng, null)
     # control: A split at random into halves, B dropped
