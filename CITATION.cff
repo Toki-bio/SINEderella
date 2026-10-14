@@ -4,11 +4,12 @@ type: software
 title: "SINEderella: genome-wide identification, subfamily assignment and characterisation of SINE retrotransposons"
 abstract: "A Bash and Python pipeline: homology search of SINE consensuses against a genome (ssearch36), extraction of copies with flanks, assignment to subfamily consensuses by ten-cycle unanimous voting with a bitscore threshold, post-processing (leak and conflict flags, similarity ratios), satellite and tandem-array screening, length-version and consensus audits, and an HTML report with publish-quality alignments."
 authors:
-  - name: "Toki-bio"
-    website: "https://github.com/Toki-bio"
+  - family-names: Kosushkin
+    given-names: Sergei A.
+    affiliation: "Center for Advanced Technologies, Academy of Sciences of Uzbekistan"
 repository-code: "https://github.com/Toki-bio/SINEderella"
 url: "https://github.com/Toki-bio/SINEderella"
-license-url: "https://github.com/Toki-bio/SINEderella"
+license: MIT
 version: "2026.10"
 date-released: "2026-10-05"
 keywords:

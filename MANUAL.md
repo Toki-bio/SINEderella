@@ -80,8 +80,8 @@ SINEderella supports three running modes:
 
 ```bash
 # Clone the repository
-git clone https://github.com/Toki-bio/SINEderella-dev.git
-cd SINEderella-dev
+git clone https://github.com/Toki-bio/SINEderella.git
+cd SINEderella
 
 # Ensure the main script is executable
 chmod +x SINEderella step1_search_extract.sh step2_asSINEment.sh step3_postprocess.sh step4_plots.sh step5_align_subfamilies.sh
@@ -1599,7 +1599,7 @@ python3 generate_sinekb_report.py multi_20260211_143000/
 
 ## License
 
-See repository for license information.
+MIT License (`LICENSE`).
 
 ## Citation
 
