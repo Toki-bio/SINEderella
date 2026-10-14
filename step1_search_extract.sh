@@ -191,7 +191,7 @@ echo "[$(date)] Building searches/all_hits.labeled.bed and searches/regions.by_s
     # Be robust to different .bed formats
     awk -v sf="$sf" 'BEGIN{OFS="\t"}
       {
-        score = (NF>=5 ? $5 : 1)
+        score = (NF>=7 ? $7 : (NF>=5 ? $5 : 1))   # sear BED: $5 = alignment length, $7 = bitscore
         strand = (NF>=6 ? $6 : ".")
         print $1,$2,$3,sf,score,strand
       }' "$bed" >> all_hits.labeled.bed

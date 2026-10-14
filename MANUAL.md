@@ -286,7 +286,7 @@ be split into finer, better-supported subfamilies before a real classification r
 3. Combines all N chunk-consensus sequences into a single file (`input.clw`) via a **fast final
    alignment pass** across all of them together.
 
-> **Update (SubFam 1.2.0, branch `subfam-1.2`).** The `SubFam` in this repository is now a wrapper around SubFam 1.2.0, which orders copies along a k-mer guide tree instead of MAFFT's, calls the plurality as a fraction of the chunk (0.36) and aligns the consensuses with L-INS-i at the end. The description below applies to the previous script (`tools/vendor/SubFam.old.sh`, `SUBFAM_ORDER=mafft` reproduces its ordering); chunk composition differs from earlier runs under the default ordering. The wrapper still writes `input.clw` as the unaligned concatenation of the consensuses and `input.msf` as their alignment.
+> **Update (SubFam 1.5.0).** The `SubFam` in this repository is a wrapper around SubFam 1.5.0, which orders copies along a k-mer guide tree instead of MAFFT's (C program `kmer_order.c`, Python fallback), calls the plurality as a fraction of the chunk (0.36) and aligns the consensuses at the end (L-INS-i up to 300 consensuses, two refinement rounds up to 1,000, MAFFT `--auto` beyond). The description below applies to the previous script (`tools/vendor/SubFam.old.sh`, `SUBFAM_ORDER=mafft` reproduces its ordering); chunk composition differs from earlier runs under the default ordering. The wrapper still writes `input.clw` as the unaligned concatenation of the consensuses and `input.msf` as their alignment.
 
 **In practice this final pass is not a reliable, properly-converged multiple sequence alignment —
 it is a collection of independently-derived batch consensuses that ended up discordant with each
@@ -470,7 +470,7 @@ After step 2 and step 3 it builds the residual: the unassigned copies, plus ever
 whose single-alignment similarity to its consensus (step 3 `sim_ratio`) is below the
 `PERCENTILE`-th percentile of that subfamily's copies, i.e. only the close top 75 % of each
 subfamily is removed. Copies shorter than `MIN_LEN_FRAC` × their consensus are set aside
-(`step1c/set_aside.tsv`): `sim_ratio` is a bitscore ratio, so a truncated copy scores low even
+(`step1c/set_aside.tsv`): `sim_ratio` is a score ratio, so a truncated copy scores low even
 when every base it has matches, and a fragment cannot define a subfamily anyway. SubFam then runs
 on the residual with bin size 20 and the chunk consensuses are aligned to
 `step1c/subfam_input/input.clw.al`, which is reviewed exactly like step 1's `input.clw`
@@ -486,13 +486,13 @@ recovered the subfamily in both cases, with bin size 50 in neither. A larger res
 to order (it is the far tails of the big subfamilies), so deplete hard and chunk small.
 (Measurements: SubFam repository, `docs/SCALING.md` §6.)
 
-`SubFam` is now a wrapper around SubFam 1.2.0 (§6.1.1), which already does what this step needs: the
+`SubFam` is now a wrapper around SubFam 1.5.0 (§6.1.1), which already does what this step needs: the
 plurality is a fraction of the chunk (36 %, rounded up), so at bin size 20 it is 8 of 20 and not the old
 fixed 18 (90 %, gappy consensuses), and each chunk is aligned with one MAFFT thread. The measurements above
-were made with the previous MAFFT guide-tree ordering; 1.2.0 orders by k-mer distance by default, which
+were made with the previous MAFFT guide-tree ordering; 1.2.0 and later order by k-mer distance by default, which
 changes chunk composition (also at bin size 50). `SUBFAM_ORDER=mafft` restores the old ordering. The
 recovery of rare subfamilies has not yet been re-measured with the k-mer ordering. step1c caps its input at
-`SAMPLE` (30,000), so the PartTree ordering for larger inputs (`-P` in SubFam 1.2.0) is not needed here.
+`SAMPLE` (30,000), so the PartTree ordering for larger inputs (`-P` in SubFam) is not needed here.
 
 ## 7. Step 2 — Assignment (asSINEment) (`step2_asSINEment.sh`)
 
@@ -580,9 +580,9 @@ Creates `self_bits.tsv` — per-subfamily maximum threshold from `assignment_ful
 #### Stage 0b: Single ssearch36 Similarity Scores
 For each assigned copy, runs a single `ssearch36` alignment against its assigned consensus to compute a normalized similarity ratio:
 
-1. **Real self-bits** (`self_bits_real.tsv`): Aligns each consensus against itself via `ssearch36` to obtain the maximum possible bitscore per subfamily.
+1. **Real self-bits** (`self_bits_real.tsv`): Aligns each consensus against itself via `ssearch36` to obtain the maximum possible raw Smith-Waterman score per subfamily.
 2. **Per-copy alignment**: Groups assigned copies by subfamily, runs `ssearch36 consensus.fa copies.fa` per subfamily, extracts the best bitscore per copy.
-3. **Similarity ratio**: `sim_ratio = per_copy_bitscore / self_bits_real[subfamily]`. A value of 1.0 means a perfect match to the consensus; lower values indicate divergence or truncation.
+3. **Similarity ratio**: `sim_ratio = per_copy_score / self_score[subfamily]`, both raw Smith-Waterman scores (§16.8). A value of 1.0 means a perfect match to the consensus; lower values indicate divergence or truncation.
 4. Outputs: `self_bits_real.tsv`, `sim_scores.tsv` (seqID, sim_bitscore, self_bits, sim_ratio).
 
 #### Stage 1: Build ALL Table
@@ -1327,14 +1327,19 @@ Possible failure reasons:
 Each firmly assigned copy receives a **normalized similarity score** computed in step 3:
 
 ```
-1. Self-alignment: ssearch36 consensus.fa consensus.fa
-   → per-subfamily self_bits = max bitscore where query == subject
+1. Self-alignment: ssearch36 -m 10 consensus.fa consensus.fa
+   → per-subfamily self_bits = max raw Smith-Waterman score (sw_score) where query == subject
 
-2. Per-copy alignment: ssearch36 consensus_single.fa copies.fa
-   → per-copy sim_bitscore = best bitscore vs its assigned consensus
+2. Per-copy alignment: ssearch36 -m 10 consensus_single.fa copies.fa
+   → per-copy sim_bitscore = best raw Smith-Waterman score vs its assigned consensus
 
 3. sim_ratio = sim_bitscore / self_bits[assigned_subfamily]
 ```
+
+The columns keep their historical names (`self_bits`, `sim_bitscore`), but since 2026-10-14 both hold raw
+Smith-Waterman scores: the `-z 11` bit score of a small library depends on random shuffles and on the
+library, so the same copy scored 0.75–0.93 in repeated runs and some ratios exceeded 1. The raw score is
+identical run to run and a copy can only reach 1.0 by matching the consensus exactly.
 
 **Interpretation:**
 - `sim_ratio ≈ 1.0` — Copy is nearly identical to the consensus (young/intact insertion).

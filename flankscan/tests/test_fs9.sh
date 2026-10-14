@@ -8,7 +8,8 @@ bash "$HERE/../fs9_twins.sh" "$W/toy/genome.fa" "$W/toy/copies.bed" "$W/out" 4 >
 # control: the same copies moved to random places (their flanks are unrelated now): no twin may be found
 bedtools shuffle -i "$W/toy/copies.bed" -g "$W/toy/genome.fa.fai" -seed 7 > "$W/toy/shuffled.bed"
 bash "$HERE/../fs9_twins.sh" "$W/toy/genome.fa" "$W/toy/shuffled.bed" "$W/ctl" > "$W/ctl.log" 2>&1
-echo "control (shuffled copies): $(gawk -F'	' '$2 ~ /twin/' "$W/ctl/copy_status.tsv" | wc -l) twin copies, expected 0"
+CTL=$(gawk -F'	' '$2 ~ /twin/' "$W/ctl/copy_status.tsv" | wc -l)
+echo "control (shuffled copies): $CTL twin copies, expected 0"
 bash "$HERE/../fs9_dupregion.sh" "$W/toy/genome.fa" "$W/toy/copies.bed" "$W/dup" 4 >> "$W/run.log" 2>&1 || { tail -20 "$W/run.log"; exit 1; }
 gawk -F'\t' -v OFS='\t' '
     FILENAME == ARGV[1] { cls[$1] = $2; grp[$1] = $3; id[$1] = $4; next }
@@ -23,4 +24,8 @@ gawk -F'\t' -v OFS='\t' '
             else if (k == "S") { g = grp[c]; gn[g]++; gid[g] = id[c]; if (s == "twin1" || s == "twin2") gok[g]++; gs[g] = gs[g] " " s } }
         for (k in n) printf "%-4s copies %3d  wrong %d\n", k, n[k], bad[k] + 0
         for (g in gn) { want = (gid[g] >= 85) ? "twin1" : "twin2"; printf "%-3s identity %s%%  found %d/%d  status:%s\n", g, gid[g], gok[g] + 0, gn[g], gs[g] }
-        print (fail == 0 ? "NOTE: no false classification" : "FALSE CLASSIFICATIONS: " fail) }' "$W/toy/truth.tsv" "$W/out/copy_status.tsv" "$W/dup/dupregion.copies" | sort
+        print (fail == 0 ? "NOTE: no false classification" : "FALSE CLASSIFICATIONS: " fail); exit (fail > 0) }' "$W/toy/truth.tsv" "$W/out/copy_status.tsv" "$W/dup/dupregion.copies" > "$W/score.txt" && RC=0 || RC=$?
+sort "$W/score.txt"
+# the test fails on any false classification and on any twin among the shuffled control copies
+[ "$RC" -eq 0 ] && [ "$CTL" -eq 0 ] || { echo "test_fs9: FAILED"; exit 1; }
+echo "test_fs9: passed"

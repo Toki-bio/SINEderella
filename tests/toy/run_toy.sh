@@ -2,7 +2,8 @@
 # Toy end-to-end test of step8a and align_for_publish (seconds). Run BEFORE any real publish on changed code.
 # Usage: [SD=<SINEderella dir>] [DISCD=<SINE_discriminator/site>] bash tests/toy/run_toy.sh
 # Unit test of tandem-array selection at realistic density: python3 tests/toy/toy_array_order.py tools/array_order.py
-source ~/miniforge3/etc/profile.d/conda.sh; conda activate sinederella
+# conda env "sinederella" when present; otherwise the tools must already be on PATH
+[ -f ~/miniforge3/etc/profile.d/conda.sh ] && { source ~/miniforge3/etc/profile.d/conda.sh; conda activate sinederella 2>/dev/null || true; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/SINEderella:$HOME/SINEderella/bin:$HOME/SubFam:$PATH" TMPDIR=$HOME/tmp
 SD=${SD:-$HOME/SINEderella}; DISCD=${DISCD:-$HOME/SINE_discriminator/site}
@@ -14,7 +15,8 @@ grep -E "extending by|WARN|ERROR|rror" $T/step8a.log
 A=$T/results/alignments
 echo "--- plates"; for f in $A/*.aln.fa; do printf "%-24s rows %3d soft %2d array %2d | row1 %s row2 %s row3 %s\n" $(basename $f) $(grep -c "^>" $f) $(grep -c "\[soft\]" $f) $(grep -c "\[array\]" $f) $(grep "^>" $f | head -3 | cut -c2-40 | tr -d ' '); done
 echo "--- checks"
-chk() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; fi; }
+FAILS=0
+chk() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS + 1)); fi; }
 chk "TOYS top100: 5 array units marked"                 '[ $(grep -c "\[array\]" $A/toy_TOYS_top100.aln.fa) -eq 5 ]'
 # selection of one unit per array into top100 is covered by toy_array_order.py (plate row order is MAFFT's)
 chk "TOYS: 4 soft rows"                                 '[ $(grep -c "\[soft\]" $A/toy_TOYS_top100.aln.fa) -eq 4 ]'
@@ -38,13 +40,12 @@ THREADS=4 SKIP_STEP7=1 SKIP_BORDER_LOOP=1 DISC=$DISCD SINEDERELLA_BIN=$SD bash $
 grep -iE "error|traceback|warn|fail" $P/afp.log | head -15
 A=$P/results/alignments
 ls $A | head -30
-chk() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; fi; }
 chk "final plates keep [soft]/[array] marks (TOYS top100)" '[ $(grep -c "\[soft\]" $A/toy_TOYS_top100.aln.fa) -eq 4 ] && [ $(grep -c "\[array\]" $A/toy_TOYS_top100.aln.fa) -eq 5 ]'
 chk "final plates: row 1 _extended, row 2 original"  '[ "$(grep "^>" $A/toy_TOYS_top100.aln.fa | sed -n 1p)" = ">TOYS_extended" ] && [ "$(grep "^>" $A/toy_TOYS_top100.aln.fa | sed -n 2p)" = ">TOYS" ]'
 echo "--- proposals.tsv"; column -t -s$'\t' $A/proposals.tsv 2>/dev/null | cut -c1-200
 echo "--- continuation.tsv"; cat $A/continuation.tsv 2>/dev/null
-for f in $A/toy_TOYL_top100.aln.fa $A/toy_TOYS_top100.aln.fa; do echo "--- $f"; grep "^>" $f | head -4; python3 - "$f" <<'PY'
-import sys; sys.path.insert(0, "/home/toki/SINE_discriminator/site")
+for f in $A/toy_TOYL_top100.aln.fa $A/toy_TOYS_top100.aln.fa; do echo "--- $f"; grep "^>" $f | head -4; DISCD="$DISCD" python3 - "$f" <<'PY'
+import os, sys; sys.path.insert(0, os.environ["DISCD"])
 from fix_alignments import read_fa
 n, s = read_fa(sys.argv[1])
 u = [j for j, c in enumerate(s[0]) if c.isupper()]
@@ -55,3 +56,5 @@ done
 echo "=== full publish_run.sh on the toy (step6 may stop on missing step3 files - reported, not hidden)"
 SECONDS=0
 THREADS=4 SKIP_STEP7=1 SKIP_BORDER_LOOP=1 SKIP_STEP4=1 SKIP_ALIGN=1 DISC=$DISCD SINEDERELLA_BIN=$SD bash $SD/publish_run.sh $P toy > $P/pr.log 2>&1; echo "publish_run exit=$? in ${SECONDS}s"; tail -8 $P/pr.log
+echo "toy checks failed: $FAILS"
+exit $(( FAILS > 0 ))

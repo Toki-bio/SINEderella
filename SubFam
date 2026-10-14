@@ -5,8 +5,11 @@
 #     SubFam input.fasta [BIN]      (run inside the working directory)
 # and writes the same files: input_NNN.bnk (the chunk's sequences), input_NNN.cons (its consensus,
 # '-' where there is none), input.clw (all consensuses, concatenated, unaligned) and input.msf.
-# The work is done by SubFam 1.2.0 (tools/vendor/SubFam.sh, github.com/Toki-bio/SubFam):
+# The work is done by SubFam 1.5.0 (tools/vendor/SubFam.sh and kmer_order.c, github.com/Toki-bio/SubFam):
 # k-mer guide-tree ordering, plurality as a fraction of the chunk, EMBOSS no longer needed.
+# The chunk files (input_NNN.bnk, .cons, input.clw) are byte-identical to SubFam 1.2.x when the copy
+# count is a multiple of BIN; otherwise 1.4+ cuts round(total/BIN) equal chunks instead of putting the rest
+# into the last one. input.msf is the final alignment of SubFam's size-dependent mode (step 1 does not read it).
 # The previous script is kept as tools/vendor/SubFam.old.sh.
 #
 # Environment (all optional):
@@ -36,19 +39,22 @@ opts=(-n "$BIN" -t "${THREADS:-$(nproc)}" -a -K -o "$TMP" -x "$P")
 [ -n "${SUBFAM_COVERAGE:-}" ] && opts+=(-c)
 bash "$CORE" "${opts[@]}" "$IN"
 
-# SubFam 1.2.0 keeps its chunks in $TMP/.subfam_<prefix>_XXXXXX with names <prefix>_<n>; renumber them
+# SubFam keeps its chunks in $TMP/.subfam_<prefix>_XXXXXX with names <prefix>_<n>; renumber them
 # input_001, input_002, ... (three digits, as before).
 WORK=$(find "$TMP" -maxdepth 1 -type d -name ".subfam_${P}_*" | head -n 1)
 [ -n "$WORK" ] || { echo "SubFam: chunk directory not found" >&2; exit 1; }
 : > "$TMP/map.tsv"
 i=0
-for f in $(find "$WORK" -maxdepth 1 -name "${P}_*.fasta" | sort); do
+rm -f "./${P}"_[0-9][0-9][0-9]*.bnk "./${P}"_[0-9][0-9][0-9]*.cons     # no chunks of an earlier run
+: > "./$P.clw"
+while IFS= read -r f; do
     i=$((i + 1)); old=$(basename "$f" .fasta); new=$(printf '%s_%03d' "$P" "$i")
     printf '%s\t%s\n' "$old" "$new" >> "$TMP/map.tsv"
     cp "$f" "./$new.bnk"
     awk -v name="$new" '/^>/ { print ">" name; next } { gsub(/[Nn]/, "-") } 1' "$f.cons" > "./$new.cons"
-done
-cat "./${P}"_[0-9][0-9][0-9].cons > "./$P.clw"
+    cat "./$new.cons" >> "./$P.clw"
+done < <(find "$WORK" -maxdepth 1 -name "${P}_[0-9]*.fasta" | LC_ALL=C sort)
+[ "$i" -eq "$(grep -c '^>' "$TMP/$P.cons.fasta")" ] || { echo "SubFam: $i chunk files, $(grep -c '^>' "$TMP/$P.cons.fasta") consensuses" >&2; exit 1; }
 sed "s|[^ ]*/$P.msf MSF:|$P.msf MSF:|" "$TMP/$P.msf" > "./$P.msf"
 awk 'NR == FNR { m[$1] = $2; next } { print $1 "\t" m[$2] "\t" $3 }' "$TMP/map.tsv" "$TMP/$P.chunks.tsv" > "./$P.chunks.tsv"
 echo "SubFam wrapper: $i chunks -> ${P}_NNN.bnk/.cons, $P.clw, $P.msf, $P.chunks.tsv"

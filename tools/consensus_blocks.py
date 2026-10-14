@@ -8,8 +8,8 @@ def rd(f):
         if l[0]=='>': n.append(l[1:]);s.append('')
         else: s[-1]+=l.upper()
     return n,s
-comp={'A':'T','C':'G','G':'C','T':'A','N':'N'}
-rc=lambda x:''.join(comp[c] for c in reversed(x))
+comp={'A':'T','C':'G','G':'C','T':'A'}
+rc=lambda x:''.join(comp.get(c,'N') for c in reversed(x))   # IUPAC and gaps -> N
 def mask(s):
     a=list(s)
     for m in re.finditer(r'(A{7,}|T{7,}|C{7,}|G{7,}|(?:AT){5,}|(?:TA){5,}|(?:CA){5,}|(?:TG){5,}|(?:GA){5,}|(?:TC){5,})',s):

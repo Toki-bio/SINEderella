@@ -169,12 +169,12 @@ def main():
             for c in st[q]:
                 st[q][c].sort()
             res = kb.verify_runs(runs, st, a.genome, a.out, threads=a.threads)
-            verdicts = {(runs[i][1], runs[i][2]): res[i] for i in res}
+            verdicts = {(runs[i][1], runs[i][2], runs[i][3]): res[i] for i in res}   # (contig, start, end): a wide and a narrow run can share a start
             for c, s, e, n, gap in rest:
-                verdicts[(c, s)] = (0, None, None, "untested")
-        arrB = [x for x in B if verdicts.get((x[0], x[1]), (0, None, None, "-"))[3] == "ARRAY"]
+                verdicts[(c, s, e)] = (0, None, None, "untested")
+        arrB = [x for x in B if verdicts.get((x[0], x[1], x[2]), (0, None, None, "-"))[3] == "ARRAY"]
         # narrow runs verified inside a wide run that failed: excluded too, listed in loci.bed with sine_part "narrow"
-        arrN = [x for x in Bn if verdicts.get((x[0], x[1]), (0, None, None, "-"))[3] == "ARRAY"
+        arrN = [x for x in Bn if verdicts.get((x[0], x[1], x[2]), (0, None, None, "-"))[3] == "ARRAY"
                 and not any(w[0] == x[0] and w[1] <= x[1] and x[2] <= w[2] for w in arrB)]
         arrB = arrB + arrN
         lmin = bsum.get("long_min")
@@ -183,10 +183,10 @@ def main():
         rows.append((q, len(cons[q]), len(full), len(A), mono, max((x[4] for x in A), default=0), len(B), bsum["pct_B"], bsum["excess_B"],
                      lmin if lmin is not None else "-", len(longB), len(arrB), "SAT_A" if A else "-", "SAT_B" if flagB else "-"))   # flag_A re-set below
         for c, s, e, n, gap in B:
-            v = verdicts.get((c, s), (0, None, None, "-"))
+            v = verdicts.get((c, s, e), (0, None, None, "-"))
             loci.append(("B", q, c, s, e, gap, n, "-", v[3] + ("" if v[1] is None else " id%.0f" % v[1])))
         for c, s, e, n, gap in arrN:
-            v = verdicts.get((c, s), (0, None, None, "-"))
+            v = verdicts.get((c, s, e), (0, None, None, "-"))
             loci.append(("B", q, c, s, e, gap, n, "narrow", v[3] + ("" if v[1] is None else " id%.0f" % v[1])))
         print("satellite_stage: %s: %d full hits; kind A %d loci (%d monomers); kind B %d runs (%d verified arrays, %d long), excess %.1f %% %s%s" % (
             q, len(full), len(A), mono, len(B), len(arrB), len(longB), bsum["excess_B"],

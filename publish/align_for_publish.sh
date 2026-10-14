@@ -114,16 +114,23 @@ fi
 log "step8a: extract publish alignments"
 STEP8_OUT="$RUN_ROOT/results/alignments"
 mkdir -p "$STEP8_OUT"
-cp -f "$RUN_ROOT/consensuses.clean.fa" "$RUN_ROOT/consensuses.clean.fa.pre_publish.bak"
-cp -f "$RUN_ROOT/step2/step2_output/assigned.fasta" \
-  "$RUN_ROOT/step2/step2_output/assigned.fasta.pre_publish.bak"
+# step8a reads the searched bank and assignments; the publish versions are swapped in for it and swapped back
+# afterwards. A backup left by an interrupted earlier run holds the searched files: restore it, never overwrite it.
+SWAP=("consensuses.clean.fa" "step2/step2_output/assigned.fasta")
+for f in "${SWAP[@]}"; do
+  if [[ -f "$RUN_ROOT/$f.pre_publish.bak" ]]; then
+    log "restoring $f from an interrupted publish"; cp -f "$RUN_ROOT/$f.pre_publish.bak" "$RUN_ROOT/$f"
+  fi
+  cp -f "$RUN_ROOT/$f" "$RUN_ROOT/$f.pre_publish.bak"
+done
+restore_swap() { for f in "${SWAP[@]}"; do cp -f "$RUN_ROOT/$f.pre_publish.bak" "$RUN_ROOT/$f"; done; }
+trap restore_swap EXIT
 cp -f "$RUN_ROOT/consensuses.publish.fa" "$RUN_ROOT/consensuses.clean.fa"
 cp -f "$RUN_ROOT/step2/step2_output/assigned.publish.fasta" \
   "$RUN_ROOT/step2/step2_output/assigned.fasta"
 DISC="$DISC" "$SINEDERELLA_BIN/step8a_extract_alignments.sh" "$RUN_ROOT" "$SPECIES"
-cp -f "$RUN_ROOT/consensuses.clean.fa.pre_publish.bak" "$RUN_ROOT/consensuses.clean.fa"
-cp -f "$RUN_ROOT/step2/step2_output/assigned.fasta.pre_publish.bak" \
-  "$RUN_ROOT/step2/step2_output/assigned.fasta"
+restore_swap; trap - EXIT
+for f in "${SWAP[@]}"; do rm -f "$RUN_ROOT/$f.pre_publish.bak"; done
 
 if [[ "$OUT_DIR" != "$STEP8_OUT" ]]; then
   mkdir -p "$OUT_DIR"

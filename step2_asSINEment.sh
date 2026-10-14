@@ -10,7 +10,7 @@ THREADS_DEFAULT="$(nproc 2>/dev/null || echo 1)"
 SPLIT_SIZE=20000
 MIN_REL_BITSCORE=0.45
 
-TMPDIR="${TMPDIR:-}"
+STEP2_WORK=""   # never reuse an inherited TMPDIR: cleanup would delete it
 OUTDIR=""
 CONSENSUS_FILE=""
 SINE_FILE=""
@@ -22,7 +22,7 @@ NEW_BEDS_FILE=""
 die(){ printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2; }
 abs_path(){ local p="$1"; [[ "$p" = /* ]] && printf '%s\n' "$p" || printf '%s\n' "$PWD/$p"; }
-cleanup(){ [[ -n "${TMPDIR:-}" && -d "$TMPDIR" ]] && rm -rf "$TMPDIR"; }
+cleanup(){ [[ -n "$STEP2_WORK" && -d "$STEP2_WORK" ]] && rm -rf "$STEP2_WORK"; }
 trap cleanup EXIT
 
 check_deps(){
@@ -131,7 +131,7 @@ run_assignment(){
   log " Assignment: SINE loci . Subfamilies"
   log "=========================================="
 
-  TMPDIR="$(mktemp -d "${STEP2_TMP_BASE:-$PWD}/.step2_assign_XXXX")"
+  TMPDIR="$(mktemp -d "${STEP2_TMP_BASE:-$PWD}/.step2_assign_XXXX")"; STEP2_WORK="$TMPDIR"
   export LC_ALL=C
 
   # Clean headers (keep only first word after >)
@@ -139,6 +139,8 @@ run_assignment(){
   awk '/^>/{split($1,a," ");print a[1];next}{print}' "$CONSENSUS_FILE" > "$TMPDIR/consensus_clean.fa"
   seqkit seq -g "$SINE_FILE" > "$TMPDIR/sines_clean.fa" 2>"$OUTDIR/seqkit.log"
 
+  local dup; dup="$(awk '/^>/{n[substr($1,2)]++} END{for(k in n) if(n[k]>1) print k}' "$TMPDIR/consensus_clean.fa")"
+  [[ -z "$dup" ]] || die "duplicate consensus names: $dup"
   local consensus_count sine_count
   consensus_count="$(count_fasta "$TMPDIR/consensus_clean.fa")"
   sine_count="$(count_fasta "$TMPDIR/sines_clean.fa")"
@@ -185,7 +187,8 @@ run_assignment(){
     for part in "$TMPDIR"/splits/*.fasta; do
       ssearch36 -g -3 -T "$THREADS" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8 \
         "$TMPDIR/consensus_clean.fa" "$part" \
-        >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" || true
+        >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
+        || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
     done
 
     # Extract best hit per sequence for this cycle, plus the best-scoring distinct
@@ -289,34 +292,12 @@ run_assignment(){
 
   # Calculate thresholds per consensus
   log "Calculating bitscore thresholds per subfamily..."
-  awk '{print $2}' "$TMPDIR/unanimous.tsv" | sort -u > "$TMPDIR/consensus_list.txt"
-  : > "$TMPDIR/thresholds.tsv"
-
-  while IFS= read -r cons; do
-    [[ -n "$cons" ]] || continue
-
-    # Get bitscores for this consensus, sorted descending
-    awk -v c="$cons" '$2==c{print $3}' "$TMPDIR/unanimous.tsv" | sort -nr > "$TMPDIR/${cons}.bitscores"
-
-    local cnt
-    cnt="$(awk 'END{print NR}' "$TMPDIR/${cons}.bitscores")"
-
-    if [[ ${cnt:-0} -lt 1 ]]; then
-      printf "%s\t%d\t%d\n" "$cons" 0 0 >> "$TMPDIR/thresholds.tsv"
-      continue
-    fi
-
-    # Use top-N (N = min(10, count)) to set threshold
-    local N=$(( cnt < 10 ? cnt : 10 ))
-    local nth_bitscore
-    nth_bitscore="$(awk -v n="$N" 'NR==n{print; exit}' "$TMPDIR/${cons}.bitscores")"
-
-    # Threshold = MIN_REL_BITSCORE * N-th best bitscore
-    local threshold
-    threshold="$(awk -v x="$nth_bitscore" -v m="$MIN_REL_BITSCORE" 'BEGIN{printf "%d", int(x*m+0.5)}')"
-
-    printf "%s\t%d\t%d\n" "$cons" "$nth_bitscore" "$threshold" >> "$TMPDIR/thresholds.tsv"
-  done < "$TMPDIR/consensus_list.txt"
+  # N-th best 10-cycle sum per consensus, N = min(10, count); one pass, no per-consensus files
+  # (a name such as rnd-1_family-5#SINE/tRNA is not a valid file name)
+  sort -t$'\t' -k2,2 -k3,3nr "$TMPDIR/unanimous.tsv" \
+    | awk -F'\t' -v m="$MIN_REL_BITSCORE" '{ c=$2; n[c]++; if(n[c]<=10) nth[c]=$3 }
+        END{ for(c in n) printf "%s\t%d\t%d\n", c, nth[c], int(nth[c]*m+0.5) }' \
+    | sort -k1,1 > "$TMPDIR/thresholds.tsv"
 
   # Apply thresholds to determine final assignments
   log "Applying thresholds to filter assignments..."
@@ -405,8 +386,6 @@ run_assignment(){
       [[ -z "$subfamily" ]] && continue
 
       # Get sequence IDs for this subfamily
-      awk -v sf="$subfamily" '$5=="assigned" && $2==sf{print $1}' "$TMPDIR/assignment_details.tsv" \
-        > "$TMPDIR/${subfamily}.ids"
 
       # Extract sequences with renamed headers
       awk 'BEGIN{FS="\t"}
@@ -430,10 +409,10 @@ run_assignment(){
       {
         if(in_subfamily) print
       }' SUBFAMILY="$subfamily" "$TMPDIR/assignment_details.tsv" "$TMPDIR/sines_clean.fa" \
-        > "$OUTDIR/subfamilies/${subfamily}.fasta"
+        > "$OUTDIR/subfamilies/${subfamily//\//_}.fasta"
 
       local count
-      count="$(count_fasta "$OUTDIR/subfamilies/${subfamily}.fasta")"
+      count="$(count_fasta "$OUTDIR/subfamilies/${subfamily//\//_}.fasta")"
       log "  ${subfamily}: $count sequences"
     done < "$TMPDIR/subfamily_list.txt"
   fi
@@ -526,13 +505,15 @@ run_incremental_assignment(){
   log " Incremental Assignment (carry-forward mode)"
   log "=========================================="
 
-  TMPDIR="$(mktemp -d "${STEP2_TMP_BASE:-$PWD}/.step2_incr_XXXX")"
+  TMPDIR="$(mktemp -d "${STEP2_TMP_BASE:-$PWD}/.step2_incr_XXXX")"; STEP2_WORK="$TMPDIR"
   export LC_ALL=C
 
   log "Preparing input files..."
   awk '/^>/{split($1,a," ");print a[1];next}{print}' "$CONSENSUS_FILE" > "$TMPDIR/consensus_clean.fa"
   seqkit seq -g "$SINE_FILE" > "$TMPDIR/sines_clean.fa" 2>"$OUTDIR/seqkit.log"
 
+  local dup; dup="$(awk '/^>/{n[substr($1,2)]++} END{for(k in n) if(n[k]>1) print k}' "$TMPDIR/consensus_clean.fa")"
+  [[ -z "$dup" ]] || die "duplicate consensus names: $dup"
   local consensus_count sine_count
   consensus_count="$(count_fasta "$TMPDIR/consensus_clean.fa")"
   sine_count="$(count_fasta "$TMPDIR/sines_clean.fa")"
@@ -591,7 +572,10 @@ run_incremental_assignment(){
   # Extract Tier 1 old assignment data (unanimous format: seq cons bs 10)
   awk -F'\t' 'NR==FNR{want[$1]=1; next}
     ($1 in want) && $5=="assigned" && $4+0==10{
-      printf "%s\t%s\t%d\t10\n", $1, $2, $3
+      rb=0; rc="NA"
+      if(match($7,/runner_bs=[0-9]+/)) rb=substr($7,RSTART+10,RLENGTH-10)
+      if(match($7,/runner=[^;]+/))     rc=substr($7,RSTART+7,RLENGTH-7)
+      printf "%s\t%s\t%d\t10\t%d\t%s\n", $1, $2, $3, rb, rc
     }' "$TMPDIR/tier1_final.ids" "$OLD_ASSIGNMENT" > "$TMPDIR/tier1_unanimous.tsv"
 
   #---------------------------------------------------------------------------
@@ -635,29 +619,42 @@ run_incremental_assignment(){
       for part in "$TMPDIR"/splits/*.fasta; do
         ssearch36 -g -3 -T "$THREADS" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8 \
           "$TMPDIR/consensus_clean.fa" "$part" \
-          >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" || true
+          >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
+          || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
       done
       awk '{
         seq=$2; cons=$1; bs=$12+0
-        if(!(seq in best_bs) || bs > best_bs[seq]){
-          best_bs[seq] = bs; best_cons[seq] = cons
-        }
+        key=seq SUBSEP cons
+        if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
       }
       END{
-        for(seq in best_cons)
-          printf "%s\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5)
+        for(key in pair_bs){
+          split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
+          if(!(seq in best_bs) || bs > best_bs[seq]){
+            if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
+            best_bs[seq]=bs; best_cons[seq]=cons
+          } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
+            runner_bs[seq]=bs; runner_cons[seq]=cons
+          }
+        }
+        for(seq in best_cons){
+          rb = (seq in runner_bs ? runner_bs[seq] : 0)
+          rc = (seq in runner_cons ? runner_cons[seq] : "NA")
+          printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
+        }
       }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
     done
     echo >&2 "  Cycle 10/10 done."
 
     # Aggregate Tier 2 votes
     awk 'BEGIN{FS=OFS="\t"}{
-      key = $1 FS $2; vote_count[key]++; bitscore_sum[key] += $3
+      key = $1 FS $2; vote_count[key]++; bitscore_sum[key] += $3; runner_bs_sum[key] += $5
+      if(!(key in best_runner_bs) || $5+0 > best_runner_bs[key]){ best_runner_bs[key] = $5+0; runner_cons[key] = $4 }
     }
     END{
       for(key in vote_count){
         split(key, a, FS)
-        print a[1], a[2], vote_count[key], bitscore_sum[key]
+        print a[1], a[2], vote_count[key], bitscore_sum[key], runner_bs_sum[key], runner_cons[key]
       }
     }' "$TMPDIR/votes.tsv" | sort -k1,1 -k3,3nr -k2,2 > "$TMPDIR/tier2_vote_summary.tsv"
     gzip -c "$TMPDIR/tier2_vote_summary.tsv" > "$OUTDIR/vote_summary.tsv.gz" || true
@@ -682,13 +679,13 @@ run_incremental_assignment(){
       seq=$1; cons=$2; votes=$3+0; bs_sum=$4+0
       if(votes == 10){
         if(!(seq in best_bs) || bs_sum > best_bs[seq]){
-          best_bs[seq] = bs_sum; best_cons[seq] = cons
+          best_bs[seq] = bs_sum; best_cons[seq] = cons; rbs[seq] = $5; rc[seq] = $6
         }
       }
     }
     END{
       for(seq in best_cons)
-        printf "%s\t%s\t%d\t10\n", seq, best_cons[seq], int(best_bs[seq]+0.5)
+        printf "%s\t%s\t%d\t10\t%d\t%s\n", seq, best_cons[seq], int(best_bs[seq]+0.5), int(rbs[seq]+0.5), rc[seq]
     }' "$TMPDIR/tier2_vote_summary.tsv" | sort -k2,2 -k3,3nr > "$TMPDIR/tier2_unanimous.tsv"
   fi
 
@@ -715,26 +712,12 @@ run_incremental_assignment(){
   # Calculate thresholds from combined unanimous
   #---------------------------------------------------------------------------
   log "Calculating bitscore thresholds per subfamily..."
-  awk '{print $2}' "$TMPDIR/unanimous.tsv" | sort -u > "$TMPDIR/consensus_list.txt"
-  : > "$TMPDIR/thresholds.tsv"
-
-  while IFS= read -r cons; do
-    [[ -n "$cons" ]] || continue
-    awk -v c="$cons" '$2==c{print $3}' "$TMPDIR/unanimous.tsv" | sort -nr \
-      > "$TMPDIR/${cons}.bitscores"
-    local cnt
-    cnt="$(awk 'END{print NR}' "$TMPDIR/${cons}.bitscores")"
-    if [[ ${cnt:-0} -lt 1 ]]; then
-      printf "%s\t%d\t%d\n" "$cons" 0 0 >> "$TMPDIR/thresholds.tsv"
-      continue
-    fi
-    local N=$(( cnt < 10 ? cnt : 10 ))
-    local nth_bitscore
-    nth_bitscore="$(awk -v n="$N" 'NR==n{print; exit}' "$TMPDIR/${cons}.bitscores")"
-    local threshold
-    threshold="$(awk -v x="$nth_bitscore" -v m="$MIN_REL_BITSCORE" 'BEGIN{printf "%d", int(x*m+0.5)}')"
-    printf "%s\t%d\t%d\n" "$cons" "$nth_bitscore" "$threshold" >> "$TMPDIR/thresholds.tsv"
-  done < "$TMPDIR/consensus_list.txt"
+  # N-th best 10-cycle sum per consensus, N = min(10, count); one pass, no per-consensus files
+  # (a name such as rnd-1_family-5#SINE/tRNA is not a valid file name)
+  sort -t$'\t' -k2,2 -k3,3nr "$TMPDIR/unanimous.tsv" \
+    | awk -F'\t' -v m="$MIN_REL_BITSCORE" '{ c=$2; n[c]++; if(n[c]<=10) nth[c]=$3 }
+        END{ for(c in n) printf "%s\t%d\t%d\n", c, nth[c], int(nth[c]*m+0.5) }' \
+    | sort -k1,1 > "$TMPDIR/thresholds.tsv"
 
   # Apply thresholds
   log "Applying thresholds to filter assignments..."
@@ -743,10 +726,11 @@ run_incremental_assignment(){
     threshold[$1] = $3; topN[$1] = $2; next
   }
   {
-    seq = $1; cons = $2; bs = $3 + 0; votes = $4
+    seq = $1; cons = $2; bs = $3 + 0; votes = $4; rbs = $5 + 0; rcons = $6
     if(bs >= threshold[cons]) status = "assigned"
     else status = "rejected_low_bitscore"
-    printf "%s\t%s\t%d\t%d\t%s\t%d\n", seq, cons, bs, votes, status, threshold[cons]
+    tag = sprintf("runner=%s;runner_bs=%d;runner_ratio=%.4f", (rcons==""?"NA":rcons), rbs, (bs > 0 ? rbs/bs : 0))
+    printf "%s\t%s\t%d\t%d\t%s\t%d\t%s\n", seq, cons, bs, votes, status, threshold[cons], tag
   }' "$TMPDIR/thresholds.tsv" "$TMPDIR/unanimous.tsv" > "$TMPDIR/assignment_details.tsv"
 
   awk '$5=="assigned"{print $1}' "$TMPDIR/assignment_details.tsv" > "$TMPDIR/assigned.ids"
@@ -807,9 +791,9 @@ run_incremental_assignment(){
       }
       { if(in_subfamily) print
       }' SUBFAMILY="$subfamily" "$TMPDIR/assignment_details.tsv" "$TMPDIR/sines_clean.fa" \
-        > "$OUTDIR/subfamilies/${subfamily}.fasta"
+        > "$OUTDIR/subfamilies/${subfamily//\//_}.fasta"
       local count
-      count="$(count_fasta "$OUTDIR/subfamilies/${subfamily}.fasta")"
+      count="$(count_fasta "$OUTDIR/subfamilies/${subfamily//\//_}.fasta")"
       log "  ${subfamily}: $count sequences"
     done < "$TMPDIR/subfamily_list.txt"
   fi
@@ -837,12 +821,12 @@ run_incremental_assignment(){
 
   # Full assignment details
   {
-    echo -e "Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold"
+    echo -e "Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold\tRunnerInfo"
     cat "$TMPDIR/assignment_details.tsv"
     awk 'BEGIN{FS=OFS="\t"}
     NR==FNR{ seen[$1]=1; next }
     !($1 in seen){
-      printf "%s\t%s\t%d\t%d\t%s\t%s\n", $1, $2, $4, $3, "no_unanimous", "NA"
+      printf "%s\t%s\t%d\t%d\t%s\t%s\t%s\n", $1, $2, $4, $3, "no_unanimous", "NA", "NA"
     }' "$TMPDIR/unanimous.tsv" "$OUTDIR/all_votes.tsv"
   } > "$OUTDIR/assignment_full.tsv"
 

@@ -232,12 +232,13 @@ def count_flags_per_subfam(bedlike_path: Path
                 continue
             sf = parts[4] if len(parts) > 4 else ""
             flag = parts[8] if len(parts) > 8 else ""
+            leak = parts[7] if len(parts) > 7 else ""
             d = out.setdefault(sf, {"CONFLICT": 0, "LEAK": 0,
                                     "OK": 0, "total": 0})
             d["total"] += 1
             if "CONFLICT" in flag:
                 d["CONFLICT"] += 1
-            elif "LEAK" in flag:
+            elif leak == "LEAK":
                 d["LEAK"] += 1
             else:
                 d["OK"] += 1
@@ -1520,7 +1521,7 @@ details.card > summary { padding: 14px 22px; cursor: pointer;
 details.card > summary::-webkit-details-marker { display: none; }
 details.card > summary h2 { margin: 0; font-size: 1.15rem; color: #2c3e50;
                padding-bottom: 0; border-bottom: none; flex: 1; }
-details.card > summary::before { content: '\25B6'; margin-right: 10px;
+details.card > summary::before { content: '\\25B6'; margin-right: 10px;
                color: var(--accent); font-size: .75rem;
                transition: transform .18s; }
 details.card[open] > summary::before { transform: rotate(90deg); }
@@ -1571,17 +1572,17 @@ LEG_BYSUBFAM = [
     ("soft_assigned",  "Copies promoted via soft-rules "
                        "(ssearch36 tie-breaking on otherwise-unassigned)."),
     ("total_assigned", "firm_assigned + soft_assigned."),
-    ("leak_n",         "Copies of OTHER subfamilies that, in step3 sanity "
-                       "checks, leaked into this subfamily's intervals."),
+    ("leak_n",         "Copies assigned to this subfamily whose runner-up "
+                       "subfamily scored at least 0.90 of the winner (LEAK flag)."),
     ("conf_alt_n",     "Genomic intervals where this subfamily is the "
                        "winning name but at least one other subfamily "
                        "also had hits (CONFLICT-flagged)."),
-    ("firm_pct",       "firm_assigned as % of all firm assignments."),
-    ("total_pct",      "total_assigned as % of all assignments."),
-    ("leak_pct",       "leak_n as % of total_assigned."),
-    ("conf_alt_pct",   "conf_alt_n as % of total_assigned."),
-    ("sim_mean",       "Mean per-copy bitscore / consensus self-bits."),
-    ("sim_median",     "Median per-copy bitscore / consensus self-bits."),
+    ("firm_pct",       "firm_assigned as % of all extracted sequences."),
+    ("total_pct",      "total_assigned as % of all extracted sequences."),
+    ("leak_pct",       "leak_n as % of firm_assigned."),
+    ("conf_alt_pct",   "conf_alt_n as % of firm_assigned."),
+    ("sim_mean",       "Mean per-copy Smith-Waterman score / consensus self-score (a fraction, not %)."),
+    ("sim_median",     "Median per-copy Smith-Waterman score / consensus self-score (a fraction, not %)."),
 ]
 
 LEG_THRESHOLDS = [
@@ -1600,8 +1601,8 @@ LEG_FLAGS = [
     ("Total",     "Number of merged genomic intervals labelled with "
                   "this subfamily."),
     ("OK",        "Intervals with no conflict and no leak flag."),
-    ("LEAK",      "Intervals where this subfamily 'leaked' a hit into "
-                  "an interval owned by a different subfamily."),
+    ("LEAK",      "Copies whose runner-up consensus scored >= 0.90 of the "
+                  "winner (10-cycle sums; step 3 column 8)."),
     ("CONFLICT",  "Intervals where multiple subfamilies had hits in "
                   "the same merged region."),
     ("%CONFLICT", "100 &times; CONFLICT / Total."),

@@ -77,11 +77,14 @@ if [[ ! -s "$SIM_SCORES" ]]; then
 
   # --- A) Real self_bits: ssearch36 consensus vs itself ---
   log "  Running consensus self-alignment for real self_bits..."
-  ssearch36 -Q -n -z 11 -E 100 -T "$THREADS" -m 8 \
-    "$CONS" "$CONS" > "$tmpdir/self.m8" 2>/dev/null || true
+  # raw Smith-Waterman scores (-m 10 "sw_score"): the -z 11 bit score of a 3-sequence library varies 5-10 % run to run
+  ssearch36 -Q -n -z 11 -E 100 -T "$THREADS" -m 10 -d 1000000 -b 1000000 \
+    "$CONS" "$CONS" 2>/dev/null \
+  | awk 'BEGIN{OFS="\t"} /^>>>/{q=substr($1,4); sub(/,$/,"",q)} /^>>[^>]/{s=substr($1,3)} /^; sw_score:/{print q,s,$3}' \
+    > "$tmpdir/self.m8" || true
 
   awk -F'\t' '{
-    q=$1; s=$2; bs=$12+0
+    q=$1; s=$2; bs=$3+0
     if(q==s && (!(q in mx) || bs>mx[q])) mx[q]=bs
   } END {
     for(c in mx) printf "%s\t%.1f\n", c, mx[c]
@@ -125,9 +128,10 @@ if [[ ! -s "$SIM_SCORES" ]]; then
 
     # Single ssearch36: consensus query vs copies library
     if [[ -s "$tmpdir/copies.fa" && -s "$tmpdir/cons_single.fa" ]]; then
-      ssearch36 -Q -n -z 11 -E 100 -T "$THREADS" -m 8 \
-        "$tmpdir/cons_single.fa" "$tmpdir/copies.fa" \
-        >> "$tmpdir/all_sim.m8" 2>/dev/null || true
+      ssearch36 -Q -n -z 11 -E 100 -T "$THREADS" -m 10 -d 100000000 -b 100000000 \
+        "$tmpdir/cons_single.fa" "$tmpdir/copies.fa" 2>/dev/null \
+      | awk 'BEGIN{OFS="\t"} /^>>[^>]/{s=substr($1,3)} /^; sw_score:/{print "q",s,$3}' \
+        >> "$tmpdir/all_sim.m8" || true
     fi
 
     printf "  %d/%d subfamilies (%s: %d copies)\r" "$isf" "$nsf" "$sf" "$ncopies" >&2
@@ -136,7 +140,7 @@ if [[ ! -s "$SIM_SCORES" ]]; then
 
   # Parse: best bitscore per copy from all subfamilies
   awk -F'\t' '{
-    seq=$2; bs=$12+0
+    seq=$2; bs=$3+0
     if(!(seq in mx) || bs>mx[seq]) mx[seq]=bs
   } END {
     for(s in mx) printf "%s\t%.1f\n", s, mx[s]
@@ -197,10 +201,10 @@ awk '
   FILENAME==ARGV[2]{
     id=$1
     asf[id]=$2
-    athr[id]=$3
+    abs[id]=$3
     avotes[id]=$4
     ast[id]=$5
-    abs[id]=($6==""? "" : $6)
+    athr[id]=$6
 
     # if assignment line itself contains runner tags (rare), capture them from $0
     r=""; rbs=""; rr=""
@@ -252,8 +256,7 @@ awk '
     }
 
     # bed start0/end
-    s0=s-1
-    if(s0<0) s0=0
+    s0=s
 
     assigned=(loc in asf ? asf[loc] : sf_from_hdr)
     thr=(loc in athr ? athr[loc] : "")
@@ -401,7 +404,7 @@ if [[ $unassigned_n -gt 0 && -s "$HITS_LABELED" ]]; then
     # also collect all queries for this locus
     if(id in all_subfams){
       # check if already listed
-      if(index(all_subfams[id], subfam) == 0)
+      if(index("," all_subfams[id] ",", "," subfam ",") == 0)
         all_subfams[id] = all_subfams[id] "," subfam
     } else {
       all_subfams[id] = subfam
@@ -451,7 +454,7 @@ if [[ $unassigned_n -gt 0 && -s "$HITS_LABELED" ]]; then
         else if($10 ~ /(^|;)status=NA/)             reason = "no_ssearch_data"
 
         # Sequence ID as chr:start-end(strand)
-        s1 = $2 + 1  # convert bed start0 back to 1-based
+        s1 = $2      # the locus id carries the BED start (bedtools getfasta)
         strand = ($6 == "." ? "+" : $6)
         seqid = $1 ":" s1 "-" $3 "(" strand ")"
 
@@ -586,6 +589,9 @@ log "  $ALL"
 log "  $UNASSIGNED_TSV"
 log "  $SUMMARY"
 log "[SANITY] runner_ratio_tags=$runner_ratio_tags"
+firm_n=$(awk -F'\t' '$10 ~ /(^|;)status=assigned(;|$)/{c++} END{print c+0}' "$ALL")
+(( runner_ratio_tags >= firm_n )) || log "[WARNING] $((firm_n - runner_ratio_tags)) of $firm_n firm copies carry no runner_ratio: LEAK is not computed for them"
+(( sim_scored >= firm_n ))       || log "[WARNING] $((firm_n - sim_scored)) of $firm_n firm copies have no sim_ratio"
 log "[SANITY] LEAK_rows=$leak_rows"
 log "[SANITY] CONFLICT_rows=$conf_rows"
 log "[SANITY] conf_alt_yes_any=$conf_alt_yes_any"

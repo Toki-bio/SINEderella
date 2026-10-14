@@ -10,7 +10,7 @@
  * Weighted Jaccard distance on k-mer counts (1 - sum(min) / sum(max)), float32 matrix, UPGMA
  * (average linkage) with kmer-tree.js tie-breaking, at every merge the two clusters are flipped
  * so that their closest ends meet. ORIENT=1: each sequence is reverse-complemented if that shares
- * more k-mers with its predecessor in the order; such sequences get MAFFT's "_R_" id prefix.
+ * more k-mers with its predecessor in the order; such sequences get MAFFT's "_R_" id prefix; if more than half would be flipped, all are flipped (majority strand kept).
  * Letters other than A C G T U (either case) are skipped inside k-mers, as in kmer-tree.js.
  *
  * Build: cc -O2 -ffp-contract=off [-fopenmp] -o kmer_order kmer_order.c -lm
@@ -283,7 +283,7 @@ int main(int argc, char **argv) {
     free(codes); free(ncodes); free(seen);
 
     /* distance matrix */
-    CD = xmalloc((n * n ? n * n : 1) * sizeof(float));
+    CD = xmalloc((n > 0 ? n * n : 1) * sizeof(float));
     #pragma omp parallel for schedule(dynamic, 16)
     for (long i = 0; i < (long)n; i++) {
         CD[(size_t)i * n + (size_t)i] = 0.0f;
@@ -330,6 +330,10 @@ int main(int argc, char **argv) {
             have_prev = 1;
         }
         free(mark); free(cf); free(cr); free(cp); free(rc);
+        /* keep the majority strand as given: if more than half would be flipped, flip all (as SubFam.sh's Python) */
+        size_t nflip = 0;
+        for (size_t i = 0; i < n; i++) nflip += flip[i] != 0;
+        if (nflip * 2 > n) for (size_t i = 0; i < n; i++) flip[i] = !flip[i];
     }
 
     FILE *out = fopen(argv[2], "wb");
