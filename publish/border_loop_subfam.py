@@ -231,8 +231,10 @@ def main():
     reb_dir = os.path.join(run_root, "rebuilt_consensus")
     os.makedirs(reb_dir, exist_ok=True)
     reb_path = os.path.join(reb_dir, "%s.fa" % sf)
-    if final_seq:
+    if final_seq and (ext5 or ext3):      # nothing extended: the searched consensus stays (a rebuild alone shifted TOYB 160 -> 159 bp)
         F.write_fa(reb_path, [(sf, final_seq)])
+    else:
+        final_seq = None
     adj_bed = os.path.join(out_dir, "loci.adjusted.bed")
     F.sh("cp %s %s" % (bed, adj_bed))
     log["rebuilt_consensus"] = reb_path if final_seq else None

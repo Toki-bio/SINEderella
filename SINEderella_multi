@@ -176,7 +176,8 @@ case "$MODE" in
   plots)
     [[ -n "$GENOME_LIST" && -f "$GENOME_LIST" ]] || die "Genome list file required and must exist" ;;
   summary)
-    [[ -n "$PROJECT_DIR" ]] || die "--project required for summary mode" ;;
+    [[ -n "$PROJECT_DIR" ]] || die "--project required for summary mode"
+    [[ -f "$PROJECT_DIR/project_manifest.tsv" ]] || die "not a SINEderella_multi project (no project_manifest.tsv): $PROJECT_DIR" ;;
 esac
 
 [[ -n "$GENOME_LIST" ]] && GENOME_LIST="$(readlink -f "$GENOME_LIST")"
@@ -217,7 +218,9 @@ if [[ "$MODE" != "summary" ]]; then
     SPECIES_NAMES+=("$sp")
     GENOME_PATHS["$sp"]="$(readlink -f "$gp" 2>/dev/null || echo "$gp")"
 
-    if [[ -n "$cp_override" && -f "$cp_override" ]]; then
+    if [[ -n "$cp_override" ]]; then
+      # a typo here fell back to the shared bank without a word (audit 2026-10-14)
+      [[ -f "$cp_override" ]] || die "consensus override for $sp not found: $cp_override"
       SPECIES_CONS["$sp"]="$(readlink -f "$cp_override")"
       log "  $sp: using per-species consensus: $cp_override"
     fi
@@ -479,8 +482,9 @@ fi
 generate_summary(){
   local projdir="$1"
   local sumdir="$projdir/summary"
-  rm -rf "$sumdir"
+  # only what this function writes is replaced (rm -rf of the folder deleted anything a user kept there; audit 2026-10-14)
   mkdir -p "$sumdir"
+  find "$sumdir" -maxdepth 1 \( -type l -o -name cross_species_summary.tsv -o -name sinekb_report.json \) -delete 2>/dev/null || true
   log "Generating cross-species summary ..."
 
   # ── Discover species with valid results ───────────────────────────────
@@ -499,7 +503,8 @@ generate_summary(){
 
     # Find latest step2 output
     local s2out; s2out="$(ls -dt "$latest"/step2/step2_output* 2>/dev/null | head -n1 || true)"
-    [[ -n "$s2out" && -d "$s2out" ]] || continue
+    # a species without a finished run is left out with a note, not shown as a row of zeros
+    [[ -n "$s2out" && -s "$s2out/summary.by_subfam.tsv" ]] || { log "[$sp] no finished run (summary.by_subfam.tsv), left out of the summary"; continue; }
 
     found_species+=("$sp")
     found_outdirs+=("$s2out")
@@ -657,3 +662,6 @@ generate_summary "$PROJECT_DIR"
   echo "============================================================"
   echo ""
 } >&2
+
+# a failed species makes the whole call fail (it exited 0 before; audit 2026-10-14)
+(( ${#FAILED_SPECIES[@]} == 0 )) || exit 1

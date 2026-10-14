@@ -301,7 +301,7 @@ def parts(path):
     if len(nz) < 60:
         return None
     lo, hi = int(nz[0]), int(nz[-1])
-    idx = [i for i in range(len(names)) if i != k]
+    idx = M.copy_rows(names, k)
     C = A[idx]
     el = C[:, lo:hi + 1]
     pres = el != M.GAP

@@ -122,7 +122,9 @@ fi
 # ── 5. The consensus exactly as searched, as row 2 of every plate ─────────────
 # Row 1 is rebuilt from the copies and its edge moved; the seed the genome was searched with would
 # otherwise be gone. Added last, so the report's verdict columns are computed without it.
-if [[ "${SKIP_SEED_ROW:-0}" != "1" && -f "$SINEDERELLA_BIN/tools/add_seed_row.py" ]]; then
+# align_for_publish.sh already adds it; a second pass upper-cased the trims the first one had restored and dropped the trim
+# proposals from the plate (audit 2026-10-14). Only for plates built without align_for_publish: SKIP_ALIGN=1 LEGACY_SEED_ROW=1.
+if [[ "${LEGACY_SEED_ROW:-0}" == "1" && "${SKIP_SEED_ROW:-0}" != "1" && -f "$SINEDERELLA_BIN/tools/add_seed_row.py" ]]; then
   log "plates: add the consensus as searched (row 2)"
   python3 "$SINEDERELLA_BIN/tools/add_seed_row.py" "$RUN_ROOT/consensuses.clean.fa" "$SPECIES"     "$RUN_ROOT"/results/alignments/*_{top100,rand100,subfam}.aln.fa --threads "${THREADS:-4}" ||     log "WARNING: add_seed_row.py failed; plates left without the seed row"
 fi

@@ -38,7 +38,7 @@ Minimap2 mode (automatic for queries ≥1000 bp):
   65 of 73 full-length copies) and identity / AS score are base-level.
   Overrides: SEAR_MM2_PRESET (default map-ont), SEAR_MM2_OPTS (default
   "-k 11 -w 3"). --force-ssearch uses
-  ssearch36 instead, which works only up to len x Slf <= 2500 bp.
+  ssearch36 instead, which works only up to len x Slf <= 3000 bp.
 
 Notes:
   --slop uses explicit left/right values. It overrides FlankSize.
@@ -371,11 +371,11 @@ else
 # ssearch36 mode (original fragment-scanning approach)
 # ═══════════════════════════════════════════════════════════════════════
 
-# ssearch36 scans 2.5 kb windows, so no hit can be longer than 2500 bp: a query whose length rule
-# needs more (len x Slf > 2500, i.e. > 3125 bp at Slf 0.8) cannot produce any result. Say so and skip
+# ssearch36 scans 3 kb windows, so no hit can be longer than 3000 bp: a query whose length rule
+# needs more (len x Slf > 3000, i.e. > 3750 bp at Slf 0.8) cannot produce any result. Say so and skip
 # the scan instead of scanning the whole genome for nothing (--force-ssearch, or minimap2 missing).
-if [[ $flen -gt 2500 ]]; then
-  echo "WARNING: query is $len bp; at Slf $Slf a hit must be >= $flen bp, longer than the 2500 bp ssearch36 window." >&2
+if [[ $flen -gt 3000 ]]; then
+  echo "WARNING: query is $len bp; at Slf $Slf a hit must be >= $flen bp, longer than the 3000 bp ssearch36 window." >&2
   echo "         No hit could pass: skipping the search. Use minimap2 mode (no --force-ssearch, minimap2 in PATH) or a lower Slf." >&2
   : > "$taxname-$qname.bed"
   : > "$taxname-$qname.bnk"
@@ -398,7 +398,9 @@ done
 if compgen -G "*.2k.part_*.bnk" >/dev/null 2>&1; then
   echo "skipping 2k split"
 else
-  seqkit sliding -g -s 2000 -W 2500 "$WORKING_BANK" > "$WORKING_BANK"."2k.bnk"
+  # windows of 3,000 bp every 2,000 bp: neighbouring windows share 1,000 bp, so a copy up to 1 kb lies whole in one window (the
+  # length filter is applied per window: with 2,500 bp windows copies over 500 bp across a border were lost or cut, audit 2026-10-14)
+  seqkit sliding -g -s 2000 -W 3000 "$WORKING_BANK" > "$WORKING_BANK"."2k.bnk"
   seqkit split2 -p 20 -O . "$WORKING_BANK"."2k.bnk"
 fi
 

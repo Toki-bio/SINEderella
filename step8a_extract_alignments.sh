@@ -37,6 +37,10 @@ BOUNDARY_TSV="$STEP2_OUT/boundary_refinement.tsv"
 # Output directory
 OUTDIR="$RUN_ROOT/results/alignments"
 mkdir -p "$OUTDIR"
+# every plate is rebuilt: the plates, manifest and continuation table of an earlier run go first, so a family that failed,
+# fell below the subfam-plate size or was --exclude'd leaves no stale plate for the DISC chain and the report (audit 2026-10-14)
+rm -f "$OUTDIR/${SPECIES_CODE}"_*_top100.aln.fa "$OUTDIR/${SPECIES_CODE}"_*_rand100.aln.fa "$OUTDIR/${SPECIES_CODE}"_*_subfam.aln.fa \
+      "$OUTDIR/manifest.tsv" "$OUTDIR/continuation.tsv" "$OUTDIR/continuation.tsv.lock" "$OUTDIR/proposals.tsv"
 
 # Temp working directory under RUN_ROOT
 TMPDIR="$(mktemp -d "${RUN_ROOT}/.step8a_XXXXXX")"
@@ -252,8 +256,9 @@ extract_consensus() {
 extract_flank_align() {
     local loci_tsv="$1" cons_fa="$2" up_flank="$3" down_flank="$4" outfile="$5" mode="${6:-full}"
 
-    # Create BED: chrom, start-1, end, name, score, strand (clamp start >= 0)
-    awk -F'\t' 'BEGIN{OFS="\t"} {s=$4-1; if (s<0) s=0; print $3, s, $5, NR, $2, $6}' \
+    # Create BED: chrom, start, end, name, score, strand. The copy names carry the BED (0-based) start already (bedtools getfasta):
+    # the start - 1 here gave every plate copy one extra base (audit 2026-10-14)
+    awk -F'\t' 'BEGIN{OFS="\t"} {s=$4; if (s<0) s=0; print $3, s, $5, NR, $2, $6}' \
         "$loci_tsv" > "$TMPDIR/cur.bed" || return 1
 
     # Strand-aware slop
@@ -477,7 +482,7 @@ while IFS=$'\t' read -r subfam count; do
 
         if [[ -s "$TMPDIR/subfam_sample_${idx}.tsv" ]]; then
             # Extract element sequences (no flanks)
-            awk -F'\t' 'BEGIN{OFS="\t"} {s=$4-1; if (s<0) s=0; print $3, s, $5, NR, $2, $6}' \
+            awk -F'\t' 'BEGIN{OFS="\t"} {s=$4; if (s<0) s=0; print $3, s, $5, NR, $2, $6}' \
                 "$TMPDIR/subfam_sample_${idx}.tsv" > "$TMPDIR/subfam_${idx}.bed"
 
             # NOT wrapping this in set +e/-e caused a real bug (found live

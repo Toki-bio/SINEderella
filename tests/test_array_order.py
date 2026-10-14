@@ -78,20 +78,33 @@ if __name__ == "__main__":
 
 
 def _regular_runs_wide_reference(loci):
-    """the implementation before 2026-10-06 (quadratic scan of all runs per wide run), kept as the oracle"""
+    """the quadratic scan of all runs per wide run (the implementation before 2026-10-06), kept as the oracle; since 2026-10-14 a
+    narrow run keeps the members the wide run does not take when they are still >= REG_MIN copies"""
     out = ao.regular_runs(loci)
     nxt = max(out.values(), default=-1) + 1
     wide = {}
     for i, r in ao.regular_runs(loci, ao.WIDE_GAP, ao.WIDE_MIN).items():
         wide.setdefault(r, []).append(i)
     for members in wide.values():
+        mset = set(members)
         old = {out[i] for i in members if i in out}
-        for i in [i for i, r in out.items() if r in old]:
-            del out[i]
+        for r in old:
+            rest = [i for i, x in out.items() if x == r and i not in mset]
+            if len(rest) < ao.REG_MIN:
+                for i in rest:
+                    del out[i]
         for i in members:
             out[i] = nxt
         nxt += 1
     return out
+
+
+def test_narrow_array_next_to_wide_run_keeps_its_marks():
+    """audit 2026-10-14: 12 copies 20 kb apart, then an 8-unit array 2 kb apart; the wide run takes the first unit, the
+    other 7 units must stay marked as a run (before: 1 of 8 marked)"""
+    loci = [("c", i * 20000) for i in range(12)] + [("c", 11 * 20000 + 2000 * (k + 1)) for k in range(8)]
+    out = ao.regular_runs_wide(loci)
+    assert all(i in out for i in range(12, 20))
 
 
 def test_regular_runs_wide_equals_reference_on_random_loci():

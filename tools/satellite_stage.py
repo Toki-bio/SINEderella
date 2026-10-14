@@ -39,6 +39,7 @@ import satellite_screen as ss  # noqa: E402
 import satellite_kindB_verify as kb  # noqa: E402
 
 FLAG_PCT = 20.0
+TILE = int(os.environ.get("SATELLITE_KINDB_TILE", "8"))   # a regularly spaced run is checked in tiles of at most TILE hits
 
 
 def read_fa(path):
@@ -51,6 +52,16 @@ def read_fa(path):
         elif n is not None:
             d[n].append(line)
     return {k: "".join(v) for k, v in d.items()}
+
+
+def split_name(k):
+    """the name seqkit split gives a consensus in its part file name: '/' and '|' become '__' (Dfam / RepeatMasker names such as
+    AluY#SINE/Alu were skipped without notice: 'consensus ... not in bank')"""
+    return re.sub(r"[/|]", "__", k)
+
+
+def safe_file(k):
+    return re.sub(r"[^\w.#+-]", "_", k)
 
 
 def query_name(bed):
@@ -95,7 +106,8 @@ def main():
     beds = sorted(glob.glob(os.path.join(a.searches, "gen-*.bed")))
     beds = [b for b in beds if not b.endswith(".before_satellites")]
     if only:
-        beds = [b for b in beds if query_name(b) in only or query_name(b).replace("|", "_") in {x.replace("|", "_") for x in only}]
+        want = set(only) | {x.replace("|", "_") for x in only} | {split_name(x) for x in only}
+        beds = [b for b in beds if query_name(b) in want]
     if not beds:
         print("satellite_stage: no gen-*.bed in %s%s, nothing to do" % (a.searches, " for %s" % ",".join(sorted(only)) if only else ""))
         return 0
@@ -105,16 +117,16 @@ def main():
         q = query_name(bed)
         if q not in cons:
             # the bed may carry the file-part name while the bank carries the id; try both
-            cand = [k for k in cons if k == q or k.replace("|", "_") == q]
+            cand = [k for k in cons if q in (k, k.replace("|", "_"), split_name(k))]
             if not cand:
                 print("satellite_stage: %s: consensus %s not in %s, skipped" % (os.path.basename(bed), q, a.cons))
                 continue
             q = cand[0]
         raw = re.sub(r"\.bed$", ".rawhits.tsv", bed)
         hits_src = raw if os.path.exists(raw) and os.path.getsize(raw) else bed
-        cfa = os.path.join(a.out, q + ".cons.fa")
+        cfa = os.path.join(a.out, safe_file(q) + ".cons.fa")
         open(cfa, "w").write(">%s\n%s\n" % (q, cons[q]))
-        pref = os.path.join(a.out, q + ".kindA")
+        pref = os.path.join(a.out, safe_file(q) + ".kindA")
         subprocess.run([sys.executable, verify, hits_src, "--genome", a.genome, "--cons", cfa, "--out", pref, "--threads", str(a.threads)],
                        check=False, stdout=open(pref + ".log", "w"), stderr=subprocess.STDOUT)
         A = []
@@ -152,6 +164,7 @@ def main():
                 Bn.append(rec)
         # the unit check of every run (sequence, not geometry): verified arrays are satellite loci whatever the family share
         verdicts = {}
+        arrspans = {}     # run -> spans of its ARRAY tiles
         if B and a.exclude_b != "none":
             # one ssearch36 call per run: a hit-dense family (tbr VES, one copy per 3 kb) has tens of thousands of chance runs of
             # 5-9 copies, so only the --max-verify-runs longest runs are checked; the rest keep the geometric verdict "untested"
@@ -162,19 +175,68 @@ def main():
             if rest:
                 print("satellite_stage: %s: %d regularly spaced runs, unit check on the %d longest (--max-verify-runs); %d runs of <= %d hits untested"
                       % (q, len(B), len(todo), len(rest), rest[0][3]), flush=True)
-            runs = [(q, c, s, e, gap, n) for c, s, e, n, gap in todo]
             st = {q: collections.defaultdict(list)}
             for c, s, e, _strand in full:
                 st[q][c].append((s, e))
             for c in st[q]:
                 st[q][c].sort()
+            # A long run is checked as tiles of at most TILE consecutive hits, each on its own: the check reads the first
+            # MAX_UNITS + 1 hits only, and the whole run span was excluded, so an array with ordinary copies beside it in one run
+            # took the copies with it (audit 2026-10-14: a 9-unit array + 8 copies 7 kb apart, all 17 excluded). A run whose
+            # tiles are all ARRAY is excluded whole as before; a run with some ARRAY tiles ("PARTIAL") only over those tiles.
+            def tiles(c, s, e):
+                hs = [h for h in st[q][c] if s <= h[0] and h[1] <= e]
+                if len(hs) <= TILE:
+                    return [(s, e, len(hs))]
+                k = -(-len(hs) // TILE); size = -(-len(hs) // k)
+                return [(hs[i][0], hs[min(i + size, len(hs)) - 1][1], min(size, len(hs) - i)) for i in range(0, len(hs), size)]
+            runs, owner = [], []
+            for c, s, e, n, gap in todo:
+                for ts, te, tn in tiles(c, s, e):
+                    runs.append((q, c, ts, te, gap, tn)); owner.append((c, s, e))
             res = kb.verify_runs(runs, st, a.genome, a.out, threads=a.threads)
-            verdicts = {(runs[i][1], runs[i][2], runs[i][3]): res[i] for i in res}   # (contig, start, end): a wide and a narrow run can share a start
+            per_run = collections.defaultdict(list)
+            for i, key in enumerate(owner):
+                per_run[key].append((runs[i][2], runs[i][3], res.get(i, (0, None, None, "-")), runs[i][4], runs[i][5]))
+            # the tiles at an array edge (an ARRAY tile next to a non-ARRAY one, and that neighbour) are checked again as two halves,
+            # so the edge of the excluded span falls within about TILE / 4 hits of the real array end
+            half_runs, half_of = [], []
+            for key, tl in per_run.items():
+                lab = [t[2][3] == "ARRAY" for t in tl]
+                for j, t in enumerate(tl):
+                    edge = any(0 <= j + d < len(tl) and lab[j + d] != lab[j] for d in (-1, 1))
+                    if not edge or t[4] < 6:
+                        continue
+                    hs = [h for h in st[q][key[0]] if t[0] <= h[0] and h[1] <= t[1]]
+                    m = len(hs) // 2
+                    for part in (hs[:m], hs[m:]):
+                        half_runs.append((q, key[0], part[0][0], part[-1][1], t[3], len(part))); half_of.append((key, j))
+            if half_runs:
+                hres = kb.verify_runs(half_runs, st, a.genome, a.out, threads=a.threads)
+                halves = collections.defaultdict(list)
+                for i, (key, j) in enumerate(half_of):
+                    halves[(key, j)].append((half_runs[i][2], half_runs[i][3], hres.get(i, (0, None, None, "-")), half_runs[i][4], half_runs[i][5]))
+                for key in list(per_run):
+                    new = []
+                    for j, t in enumerate(per_run[key]):
+                        new.extend(halves.get((key, j), [t]))
+                    per_run[key] = new
+            verdicts = {}         # (contig, start, end): a wide and a narrow run can share a start
+            for key, tl in per_run.items():
+                arr = [t for t in tl if t[2][3] == "ARRAY"]
+                if arr and len(arr) == len(tl):
+                    verdicts[key] = arr[0][2] if len(tl) == 1 else (arr[0][2][0], max(t[2][1] for t in arr), None, "ARRAY")
+                elif arr:
+                    verdicts[key] = (arr[0][2][0], max(t[2][1] for t in arr), None, "PARTIAL")
+                else:
+                    verdicts[key] = tl[0][2]
+                arrspans[key] = [(t[0], t[1]) for t in arr]
             for c, s, e, n, gap in rest:
                 verdicts[(c, s, e)] = (0, None, None, "untested")
-        arrB = [x for x in B if verdicts.get((x[0], x[1], x[2]), (0, None, None, "-"))[3] == "ARRAY"]
+        isarr = lambda x: verdicts.get((x[0], x[1], x[2]), (0, None, None, "-"))[3] in ("ARRAY", "PARTIAL")
+        arrB = [x for x in B if isarr(x)]
         # narrow runs verified inside a wide run that failed: excluded too, listed in loci.bed with sine_part "narrow"
-        arrN = [x for x in Bn if verdicts.get((x[0], x[1], x[2]), (0, None, None, "-"))[3] == "ARRAY"
+        arrN = [x for x in Bn if isarr(x)
                 and not any(w[0] == x[0] and w[1] <= x[1] and x[2] <= w[2] for w in arrB)]
         arrB = arrB + arrN
         lmin = bsum.get("long_min")
@@ -205,7 +267,7 @@ def main():
                 ex[c].append((s, e))
         elif a.exclude_b == "verified":
             for c, s, e, n, gap in arrB:
-                ex[c].append((s, e))
+                ex[c].extend(arrspans.get((c, s, e), [(s, e)]))     # PARTIAL runs: only their ARRAY tiles
         if not ex:
             continue
         for c in ex:

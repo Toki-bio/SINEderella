@@ -109,11 +109,11 @@ def plot_divergence(pctid_values, subfamily, outdir):
 # Plot 2: Per-position nucleotide frequency stacked bar chart
 # ---------------------------------------------------------------------------
 
-NUC_COLORS = {
-    "A": "#2ca02c",   # green
-    "T": "#d62728",   # red
-    "C": "#1f77b4",   # blue
-    "G": "#ff7f0e",   # orange
+NUC_COLORS = {          # Okabe-Ito: readable with red-green colour blindness (green A next to red T was not)
+    "A": "#009E73",   # bluish green
+    "T": "#D55E00",   # vermillion
+    "C": "#0072B2",   # blue
+    "G": "#E69F00",   # orange
     "gap": "#cccccc", # grey
 }
 
@@ -202,21 +202,23 @@ def plot_nucfreq(msa_records, consensus_name, subfamily, outdir):
                color=NUC_COLORS[nuc], label=label, linewidth=0)
         bottom += freqs[nuc]
 
-    # X-axis: show consensus nucleotide at each position
-    tick_step = 1 if n_pos <= 80 else (5 if n_pos <= 400 else 10)
-    tick_positions = list(range(0, n_pos, tick_step))
-    tick_labels = [cons_bases[i] if i < n_pos else "" for i in tick_positions]
-
-    ax.set_xticks(tick_positions)
-    ax.set_xticklabels(tick_labels, fontsize=max(4, min(8, 500 // n_pos)),
-                       fontfamily="monospace")
-
-    # Add position numbers on top
+    # X-axis: the consensus base at each position up to 400 bp, numeric positions beyond (one base letter in 10 at 4 pt
+    # could not be read; audit 2026-10-14)
     if n_pos <= 400:
+        tick_step = 1 if n_pos <= 80 else 5
+        tick_positions = list(range(0, n_pos, tick_step))
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels([cons_bases[i] for i in tick_positions], fontsize=max(5, min(8, 500 // n_pos)),
+                           fontfamily="monospace")
+        # position numbers above the bars (annotation_clip=False: at y = 1.01 they are outside the axes and were clipped)
         pos_step = 10 if n_pos <= 200 else 20
         for i in range(0, n_pos, pos_step):
-            ax.annotate(str(i + 1), xy=(i, 1.01), fontsize=6,
+            ax.annotate(str(i + 1), xy=(i, 1.01), fontsize=6, annotation_clip=False,
                         ha="center", va="bottom", color="gray")
+    else:
+        tick_positions = list(range(0, n_pos, 50))
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels([str(i + 1) for i in tick_positions], fontsize=8)
 
     ax.set_xlim(-0.5, n_pos - 0.5)
     ax.set_ylim(0, 1.0)
@@ -225,12 +227,12 @@ def plot_nucfreq(msa_records, consensus_name, subfamily, outdir):
     ax.set_title(
         f"{subfamily}  —  Nucleotide Composition  "
         f"(n={n_copies}, L={n_pos} bp)",
-        fontsize=13, fontweight="bold")
+        fontsize=13, fontweight="bold", pad=22)      # room for the position numbers above the bars
 
-    # Legend outside plot
+    # Legend above the plot, not over the bars
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles, labels, loc="upper right", fontsize=9,
-              ncol=5, framealpha=0.8)
+    ax.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 1.13), fontsize=9,
+              ncol=5, frameon=False)
 
     plt.tight_layout()
     for ext in ("png", "pdf"):

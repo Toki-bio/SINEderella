@@ -97,6 +97,9 @@ def read_kv_manifest(path: Path) -> Dict[str, str]:
     for line in path.read_text(errors="replace").splitlines():
         if "\t" in line:
             k, v = line.split("\t", 1)
+            if k.strip() in ("VERSION", "ENV") and "\t" in v:      # VERSION<TAB>tool<TAB>text: one entry per tool, not the last only
+                sub, v = v.split("\t", 1)
+                k = f"{k.strip()} {sub.strip()}"
             out[k.strip()] = v.strip()
     return out
 
@@ -420,7 +423,7 @@ def fig_similarity_kde(by_sf: Dict[str, List[float]]) -> dict:
             "type": "scatter", "mode": "lines",
             "x": [round(v, 3) for v in x],
             "y": [round(v, 6) for v in y],
-            "name": sf,
+            "name": html.escape(sf),
             "line": {"color": SF_PALETTE[i % len(SF_PALETTE)], "width": 2},
             "hovertemplate": (
                 "%{fullData.name}<br>sim %{x:.1f}%"
@@ -456,7 +459,7 @@ def fig_divergence_kde(by_sf: Dict[str, List[float]]) -> dict:
             "type": "scatter", "mode": "lines",
             "x": [round(max(0.0, v), 3) for v in x],
             "y": [round(v, 6) for v in y],
-            "name": sf,
+            "name": html.escape(sf),
             "line": {"color": SF_PALETTE[i % len(SF_PALETTE)], "width": 2},
             "hovertemplate": (
                 "%{fullData.name}<br>divergence %{x:.1f}%"
@@ -520,18 +523,20 @@ def fig_pctid_spline_divergence(by_sf: Dict[str, List[float]],
         counts = bin_divergence(by_sf[sf], bin_width)
         if not counts:
             continue
-        bins = sorted(counts)
+        # every bin from 0 to the last one, empty bins as 0: plotting only the non-empty bins drew the curve across an empty bin
+        # at the height of its neighbours, and a spline overshot below zero (audit 2026-10-14)
+        bins = [round(k * bin_width, 6) for k in range(int(round(max(counts) / bin_width)) + 1)]
         max_bin_end = max(max_bin_end, max(bins) + bin_width)
         traces.append({
             "type": "scatter",
             "mode": "lines",
             "x": [round(b + bin_width / 2.0, 1) for b in bins],
-            "y": [counts[b] for b in bins],
-            "name": sf,
+            "y": [counts.get(b, 0) for b in bins],
+            "name": html.escape(sf),
             "line": {
                 "color": SF_PALETTE[i % len(SF_PALETTE)],
                 "width": 2,
-                "shape": "spline",
+                "shape": "linear",
             },
             "hovertemplate": (
                 "%{fullData.name}<br>divergence ~%{x:.0f}%"
@@ -913,7 +918,7 @@ def fig_sim_violins(by_sf: Dict[str, List[float]]) -> dict:
         traces.append({
             "type": "violin",
             "y": vals,
-            "name": sf,
+            "name": html.escape(sf),
             "box": {"visible": True},
             "meanline": {"visible": True},
             "points": False,
@@ -940,7 +945,7 @@ def fig_conservation(curves: Dict[str, Tuple[List[int], List[float]]]
         x, y = curves[sf]
         traces.append({
             "type": "scatter", "mode": "lines",
-            "x": x, "y": y, "name": sf,
+            "x": x, "y": y, "name": html.escape(sf),
             "line": {"width": 1.4,
                      "color": SF_PALETTE[i % len(SF_PALETTE)]},
             "hovertemplate": (
@@ -1282,14 +1287,14 @@ def build_pca_fig(run_root: Path, s2_out: Path,
                 continue
             traces.append({
                 "type": "scatter", "mode": "markers",
-                "x": xi, "y": yi, "name": sf, "text": ti,
+                "x": xi, "y": yi, "name": html.escape(sf), "text": ti,
                 "marker": {
                     "size": 5, "opacity": 0.65,
                     "color": SF_PALETTE[idx % len(SF_PALETTE)],
                 },
                 "hovertemplate": (
                     "<b>%{fullData.name}</b><br>%{text}<br>"
-                    "PC1&thinsp;%{x:.3f} &nbsp;PC2&thinsp;%{y:.3f}"
+                    "PC1\u2009%{x:.3f} \u00a0PC2\u2009%{y:.3f}"
                     "<extra></extra>"),
             })
         return {
@@ -1298,10 +1303,10 @@ def build_pca_fig(run_root: Path, s2_out: Path,
                 "title": (
                     f"Mutation-space PCA \u2014 per-copy alignment differences "
                     f"from assigned-subfamily consensus"
-                    f"<br><sub>n\u2009=\u2009{n_copies_actual:,} copies &middot; "
-                    f"{n_var} variable cols &middot; "
-                    f"PC1\u2009{pct1}\u2009% &middot; "
-                    f"PC2\u2009{pct2}\u2009% variance &middot; "
+                    f"<br><sub>n\u2009=\u2009{n_copies_actual:,} copies \u00b7 "
+                    f"{n_var} variable cols \u00b7 "
+                    f"PC1\u2009{pct1}\u2009% \u00b7 "
+                    f"PC2\u2009{pct2}\u2009% variance \u00b7 "
                     f"\u03b7\u00b2(SF\u2192PC1)\u2009=\u2009{eta2}</sub>"
                 ),
                 "xaxis": {"title": f"PC1 ({pct1}\u2009% variance)",
@@ -1447,7 +1452,7 @@ section.card p.intro { color: var(--muted); font-size: 0.9rem;
 .metric .lbl { font-size: 0.78rem; color: var(--muted);
                text-transform: uppercase; letter-spacing: 0.04em; }
 .subfam-grid { display: grid; gap: 18px;
-               grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+               grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); }
 .subfam-block { border: 1px solid var(--border); border-radius: 6px;
                 padding: 10px 12px; background: #fff; }
 .subfam-block h3 { margin: 0 0 8px 0; font-size: 0.95rem; color: #4C72B0; }
@@ -1547,6 +1552,19 @@ details.legend code { background: #f0f3f7; padding: 1px 4px;
              color: #6a5028; font-size: 0.9rem; }
 iframe.embed { width: 100%; height: 800px; border: 1px solid var(--border);
                border-radius: 6px; background: #fff; }
+
+.subfam-block { min-width: 0; }      /* a grid item grew to its widest child: the scrolled profile widened the page */
+.subfam-block img { max-width: 100%; height: auto; }
+.nucfreq-scroll { overflow-x: auto; max-width: 100%; }
+.nucfreq-scroll img { height: 260px; max-width: none; width: auto; }
+/* phone width (audit 2026-10-14: the page was 1,006 px wide at 400 px; tables ran out of their cards) */
+@media (max-width: 700px) {
+  main { padding: 8px 12px; }
+  header { padding: 16px 12px; }
+  .tbl { display: block; overflow-x: auto; white-space: nowrap; }
+  .subfam-grid { grid-template-columns: 1fr; }
+  img { max-width: 100%; height: auto; }
+}
 """
 
 
@@ -1658,7 +1676,7 @@ def step1_hits_table(hits: Dict[str, int]) -> str:
     rows = sorted([(k, v) for k, v in hits.items()],
                   key=lambda x: -x[1])
     total = sum(v for _, v in rows)
-    body = [[k, f"{v:,}"] for k, v in rows]
+    body = [[html.escape(k), f"{v:,}"] for k, v in rows]      # names are inserted unescaped below (escape=False for the TOTAL row)
     body.append(["<b>TOTAL (sum of raw hits)</b>", f"<b>{total:,}</b>"])
     return render_table(["Query", "RawHits"], body,
                         max_rows=10000, escape=False,
@@ -2068,7 +2086,7 @@ def build_alignment_section(
             # illegible (found 2026-09-09 by actually looking at the render).
             href = aln_href(remote_fn, f"{species_code} {tier_key}", remote_fn=remote_fn)
             return (f"<button type='button' class='diag-icon' "
-                    f"data-tier='{tier_key}' data-label='{html.escape(sf)} {tier_label}' "
+                    f"data-tier='{html.escape(tier_key, quote=True)}' data-label='{html.escape(sf)} {tier_label}' "
                     f"data-msa-href='{html.escape(href, quote=True)}' "
                     f"title='{tier_label} alignment diagram'>&#9656;</button>")
 
@@ -2214,9 +2232,10 @@ def build_html(run_root: Path,
             nuc_uri = img_to_data_uri(plots_dir / f"{sf}_nucfreq.png")
             block = [f"<div class='subfam-block'><h3>{html.escape(sf)}</h3>"]
             if div_uri:
-                block.append(f"<img alt='{sf} divergence' src='{div_uri}'>")
+                block.append(f"<img alt='{html.escape(sf, quote=True)} divergence' src='{div_uri}'>")
             if nuc_uri:
-                block.append(f"<img alt='{sf} nucfreq' src='{nuc_uri}'>")
+                # fixed height, scrolled sideways: a 400-bp profile is ~12,000 px wide and shrank to an ~80 px strip in the card
+                block.append(f"<div class='nucfreq-scroll'><img alt='{html.escape(sf, quote=True)} nucfreq' src='{nuc_uri}'></div>")
             block.append("</div>")
             image_blocks.append("".join(block))
 
@@ -2259,9 +2278,11 @@ def build_html(run_root: Path,
 
     # Plotly script
     plotly_tag, plotly_mode = get_plotly_js(inline_plotly)
-    fig_init = "\n".join(
+    # on a narrow screen the legends go under the plots (a side legend left the divergence axis ~30 px wide on a phone)
+    fig_init = "var narrowLegend = function (l) { if (window.innerWidth < 700) { l.legend = Object.assign({}, l.legend || {}, " \
+        "{orientation: 'h', x: 0, y: -0.3}); l.margin = Object.assign({}, l.margin || {}, {l: 40, r: 10}); } return l; };\n" + "\n".join(
         f"Plotly.newPlot('plot_{name}', "
-        f"{json.dumps(spec['data'])}, {json.dumps(spec['layout'])}, "
+        f"{json.dumps(spec['data'])}, narrowLegend({json.dumps(spec['layout'])}), "
         f"{{responsive: true, displaylogo: false}});"
         for name, spec in figs.items()
     )
@@ -2520,6 +2541,9 @@ def build_html(run_root: Path,
   <div class="sub">Genome: <code>{html.escape(genome_name)}</code> &middot;
        Consensus: <code>{html.escape(cons_name)}</code> &middot;
        Generated {generated} &middot; plotly.js: {plotly_mode}</div>
+  <div class="sub">SINEderella <code>{html.escape(manifest.get("PIPELINE_COMMIT", "commit not recorded"))}</code>
+       &middot; SubFam <code>{html.escape(manifest.get("SUBFAM_VERSION", "?"))}</code>
+       &middot; command: <code>{html.escape(manifest.get("COMMAND", "not recorded (run made before 2026-10-14)"))}</code></div>
 </header>
 <main>
   <nav class="toc">

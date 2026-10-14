@@ -72,9 +72,9 @@ for fn in ("consensuses.clean.fa", "consensuses.clean.fa.pre_publish.bak"):
 G = {c: "".join(s) for c, s in ctg.items()}
 with open(os.path.join(s2, "assigned.fasta"), "w") as fh:
     for c, a, b, st, sf, sc in firm:
-        fh.write(">%s:%d-%d(%s)|%s|%d\n%s\n" % (c, a, b, st, sf, sc, G[c][a - 1:b]))
+        fh.write(">%s:%d-%d(%s)|%s|%d\n%s\n" % (c, a - 1, b, st, sf, sc, G[c][a - 1:b]))   # BED start in the name, as bedtools getfasta writes it
 with open(os.path.join(s2, "unassigned.tsv"), "w") as fh:
     fh.write("SeqID\tSoft_Subfamily\tSearch_Score\tAll_Queries\tReason\n")
     for c, a, b, st, sf, sc in soft:
-        fh.write("%s:%d-%d(%s)\t%s\t%d\t%s\tno_unanimous\n" % (c, a, b, st, sf, sc, sf))
+        fh.write("%s:%d-%d(%s)\t%s\t%d\t%s\tno_unanimous\n" % (c, a - 1, b, st, sf, sc, sf))
 print("toy run dir:", root, "firm", len(firm), "soft", len(soft))

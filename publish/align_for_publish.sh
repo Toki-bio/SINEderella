@@ -70,9 +70,13 @@ else
   log "detecting subfamilies needing border loop"
   NEED_ARGS=(python3 "$PUBLISH_DIR/needs_border_loop.py" "$RUN_ROOT")
   [[ -n "$PEEL_FLAGS" && -f "$PEEL_FLAGS" ]] && NEED_ARGS+=(--peel-flags "$PEEL_FLAGS")
-  [[ "${SKIP_BORDER_SCAN:-0}" != "1" ]] && NEED_ARGS+=(--scan)
+  # the column-walk border scan is opt-in (BORDER_SCAN=1): on unaligned extracts it reads flank noise below ~20 copies (random
+  # DNA, 8 copies: 50 of 50 flagged) and the loop then replaced the searched consensus (audit 2026-10-14)
+  [[ "${BORDER_SCAN:-0}" == "1" && "${SKIP_BORDER_SCAN:-0}" != "1" ]] && NEED_ARGS+=(--scan)
   mapfile -t BORDER_SFS < <("${NEED_ARGS[@]}" || true)
 
+  # results of an earlier publish are not re-applied: apply_border_to_assigned / merge_rebuilt_consensus read every file there
+  rm -rf "$RUN_ROOT/border_loop" "$RUN_ROOT/rebuilt_consensus"
   if ((${#BORDER_SFS[@]})); then
     log "border loop: ${#BORDER_SFS[@]} subfamilies"
     for sf in "${BORDER_SFS[@]}"; do

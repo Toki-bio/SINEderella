@@ -106,7 +106,7 @@ def element_extend_scan(run_root, subfams, genome, assigned, flank=1000):
                     continue
                 ctg, start_s, end_s, strand = m.groups()
                 fh.write("%s\t%d\t%d\t%s\t0\t%s\n"
-                         % (ctg, int(start_s) - 1, int(end_s), h, strand))
+                         % (ctg, int(start_s), int(end_s), h, strand))      # the name carries the BED start
         slop = os.path.join(work, "%s.slop.bed" % sf)
         fa = os.path.join(work, "%s.fa" % sf)
         subprocess.call(

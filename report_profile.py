@@ -56,6 +56,17 @@ FL = 70          # flank offsets profiled either side
 WIN, PSTEP = 20, 4
 
 
+def copy_rows(names, k):
+    """indices of the rows that are copies: not the consensus row k, and not plate row 2, the consensus exactly as searched
+    (add_seed_row.py: named <subfamily> when row 1 is <subfamily>_extended; earlier <subfamily>_seed_as_searched or
+    <subfamily>_revcomp). Counting row 2 as a copy added one fully supported copy with no flanks (a 40-copy plate read
+    n_copies 41; audit 2026-10-14)."""
+    c = names[k].split()[0]
+    base = c[:-len("_extended")] if c.endswith("_extended") else c
+    seeds = {base, base + "_seed_as_searched", base + "_revcomp"} - {c}
+    return [i for i in range(len(names)) if i != k and names[i].split()[0] not in seeds and "_seed_as_searched" not in names[i]]
+
+
 def consensus_index(names):
     """Copied verbatim from SINE_discriminator's fix_alignments.py -- trivial
     (3 lines), not worth a cross-repo import for. Keep in sync by inspection,
@@ -157,7 +168,7 @@ def measure(path, seed=0):
         v["error"] = "consensus_absent"
         return v
     lo, hi = int(nz[0]), int(nz[-1])
-    C = np.delete(A, k, axis=0)
+    C = A[copy_rows(names, k)]
     n = C.shape[0]
     v["n_copies"] = int(n)
     v["aln_len"] = int(A.shape[1])
@@ -299,7 +310,7 @@ def profile(path):
     if len(nzc) < 1:
         return None
     lo, hi = int(nzc[0]), int(nzc[-1])
-    C = np.delete(A, k, axis=0)
+    C = A[copy_rows(names, k)]
     n = C.shape[0]
     L = len(nzc)
 

@@ -87,11 +87,18 @@ def regular_runs_wide(loci):
     for i, r in regular_runs(loci, WIDE_GAP, WIDE_MIN).items():
         wide.setdefault(r, []).append(i)
     for members in wide.values():
+        mset = set(members)
         old = {out[i] for i in members if i in out}
         for r in old:
-            for i in by_run.pop(r, ()):
-                if out.get(i) == r:
-                    del out[i]
+            # the narrow run loses only the members the wide run takes; what is left stays a run when it is still >= REG_MIN
+            # copies long (before: one shared copy unmarked the whole narrow array, 1 of 8 units marked; audit 2026-10-14)
+            rest = [i for i in by_run.pop(r, ()) if i not in mset]
+            if len(rest) >= REG_MIN:
+                by_run[r] = rest
+            else:
+                for i in rest:
+                    if out.get(i) == r:
+                        del out[i]
         for i in members:
             out[i] = nxt
         nxt += 1

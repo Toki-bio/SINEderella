@@ -14,18 +14,21 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PY="$SCRIPT_DIR/step6_report.py"
 [[ -f "$PY" ]] || die "missing helper: $PY"
 
-# Pick the newest python on PATH that is >= 3.8 (SINEplot needs it).
+# Pick a python >= 3.8 (SINEplot needs it) WITH numpy: the PCA and similarity panels need numpy, and a python3.12 without it
+# was picked before python3 and the panels were dropped with a note only (audit 2026-10-14). python3 first, as the pipeline uses it.
 pick_python() {
   local cand
   if [[ -n "${SINEDERELLA_PYTHON:-}" ]] && command -v "$SINEDERELLA_PYTHON" >/dev/null 2>&1; then
     echo "$SINEDERELLA_PYTHON"; return
   fi
-  for cand in python3.12 python3.11 python3.10 python3.9 python3.8 python3; do
-    if command -v "$cand" >/dev/null 2>&1; then
-      if "$cand" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' 2>/dev/null; then
+  for need in numpy ""; do
+    for cand in python3 python3.13 python3.12 python3.11 python3.10 python3.9 python3.8; do
+      if command -v "$cand" >/dev/null 2>&1 &&
+         "$cand" -c "import sys${need:+, $need}; sys.exit(0 if sys.version_info >= (3,8) else 1)" 2>/dev/null; then
+        [[ -n "$need" ]] || echo "WARNING: no python >= 3.8 with numpy: the PCA and similarity panels will be missing" >&2
         echo "$cand"; return
       fi
-    fi
+    done
   done
   echo ""
 }

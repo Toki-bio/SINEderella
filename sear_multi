@@ -204,7 +204,7 @@ trap cleanup EXIT
 if compgen -G "*.2k.part_*.bnk" >/dev/null 2>&1; then
   echo "Skipping 2k split (reusing existing)"
 else
-  seqkit sliding -g -s 2000 -W 2500 "$WORKING_BANK" > "$WORKING_BANK".2k.bnk
+  seqkit sliding -g -s 2000 -W 3000 "$WORKING_BANK" > "$WORKING_BANK".2k.bnk    # 1 kb overlap, as sear
   seqkit split2 -p 20 -O . "$WORKING_BANK".2k.bnk
 fi
 

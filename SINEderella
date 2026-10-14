@@ -126,6 +126,7 @@ FLANK="${FLANK:-50}"
 ###############################################################################
 MODE="full"
 ADD_FILE=""
+ORIG_CMD="$(printf '%q ' "$0" "$@")"; ORIG_CMD="${ORIG_CMD% }"; ORIG_PWD="$(pwd -P)"   # for the manifests
 EXCLUDE_NAME=""
 EXISTING_RUN=""
 GENOME_IN=""
@@ -150,7 +151,7 @@ while [[ $# -gt 0 ]]; do
       MODE="add"
       shift
       [[ $# -gt 0 ]] || die "--add requires a FASTA file argument"
-      ADD_FILE="$1"
+      ADD_FILE="$(readlink -f "$1" 2>/dev/null || echo "$1")"     # absolute now: the run dir is entered before it is read
       shift
       ;;
     -e|--exclude)
@@ -354,6 +355,16 @@ sanitize_fasta(){
 ###############################################################################
 # HELPER: record tool versions (for the run manifest)
 ###############################################################################
+# what reproduces a run: the pipeline commit, the command line and where it was started, the environment switches it reads
+manifest_common(){
+  printf "COMMAND\t%s\n" "$ORIG_CMD"
+  printf "INVOKED_FROM\t%s\n" "$ORIG_PWD"
+  printf "PIPELINE_COMMIT\t%s\n" "$(git -C "$SCRIPT_DIR" describe --always --dirty 2>/dev/null || echo unknown)"
+  printf "SUBFAM_VERSION\t%s\n" "$(awk -F= '/^VERSION=/{print $2; exit}' "$SCRIPT_DIR/tools/vendor/SubFam.sh" 2>/dev/null || echo unknown)"
+  env | LC_ALL=C sort | grep -E '^(SKIP_|SATELLITE_|CANON_|LENGTH_VARIANTS_|CONSENSUS_AUDIT_|FS9_|SOFTMASK|BODYCHECK|SEARCH_GENOME|MERGE_STRAND|SUBFAM_|MASK_)' |
+    sed 's/=/\t/; s/^/ENV\t/' || true
+}
+
 tool_versions(){
   # Emit "VERSION<TAB>tool<TAB>first line of version output" for key tools.
   local t out line
@@ -747,11 +758,21 @@ rebuild_from_searches(){
   local BED_COUNT
   BED_COUNT=$(wc -l < merged_hits.bed)
   log "Rebuilt merged_hits.bed: $BED_COUNT intervals"
+  # merged loci inside satellite regions are removed again, as step 1 does (a locus excluded in the source run came back
+  # through another consensus in every --add / --exclude run)
+  if [[ "${SATELLITE_EXCLUDE:-1}" != "0" && -s satellites/exclude_regions.bed ]]; then
+    cp merged_hits.bed merged_hits.bed.before_satellites
+    bedtools intersect -v -a merged_hits.bed.before_satellites -b satellites/exclude_regions.bed > merged_hits.bed
+    log "Satellite regions: $((BED_COUNT - $(wc -l < merged_hits.bed))) of $BED_COUNT merged intervals removed (satellites/exclude_regions.bed)"
+    BED_COUNT=$(wc -l < merged_hits.bed)
+  fi
 
-  # re-extract sequences
-  bedtools getfasta -s -fi "$GENOME" -bed merged_hits.bed > extracted.fasta
+  # re-extract sequences (to a temporary file: a truncated extracted.fasta must never look finished)
+  bedtools getfasta -s -fi "$GENOME" -bed merged_hits.bed > extracted.fasta.tmp
   local EXTRACTED
-  EXTRACTED=$(grep -c "^>" extracted.fasta || echo 0)
+  EXTRACTED=$(grep -c "^>" extracted.fasta.tmp || true)
+  (( EXTRACTED == BED_COUNT )) || die "rebuild: extracted $EXTRACTED sequences from $BED_COUNT merged intervals"
+  mv extracted.fasta.tmp extracted.fasta
   log "Re-extracted $EXTRACTED sequences"
   )  # end outer subshell
 }
@@ -834,6 +855,7 @@ mode_full(){
     printf "CHUNK_BP\t%s\n" "$CHUNK_BP"
     printf "FLANK\t%s\n" "$FLANK"
     printf "MODE\tfull\n"
+    manifest_common
     tool_versions
     printf "DATE\t%s\n" "$(date)"
   } > "$RUN/manifest.txt"
@@ -1048,6 +1070,9 @@ mode_add(){
   # Copy step1 output from old run, preserving searches/
   log "Copying step1 output from source run..."
   cp -r "$SRC_RUN/genome.clean_step1" "$RUN/genome.clean_step1"
+  # the copied extracted.fasta is the SOURCE run's copy set: until the rebuild below has finished, --resume must not take it
+  # for this run's step 1 (an interrupted --add was resumed with the old copies, exit 0)
+  : > "$RUN/genome.clean_step1/.step1_incomplete"; rm -f "$RUN/genome.clean_step1/.step1_complete"
 
   # Fix genome.path to point to this run's genome (absolute)
   echo "$RUN/genome.clean.fa" > "$RUN/genome.clean_step1/genome.path"
@@ -1085,7 +1110,9 @@ mode_add(){
     ' "../../consensuses.clean.fa" > "$qfile"
 
     if [[ -s "$qfile" ]]; then
-      sear -k "$qfile" "$GENOME_PATH" 0.8 65 50 || {
+      ln -sfn "$(readlink -f "$GENOME_PATH")" genome.search.fa      # sear's work files stay here (see step 1)
+      [[ -f "$GENOME_PATH.fai" ]] && ln -sfn "$(readlink -f "$GENOME_PATH").fai" genome.search.fa.fai
+      sear -k "$qfile" genome.search.fa 0.8 65 50 || {
         log "WARNING: sear failed for $cname (continuing)"
       }
     else
@@ -1094,7 +1121,7 @@ mode_add(){
   done <<< "$truly_new"
 
   # Clean sear temp files
-  rm -f *.2k.bnk *.2k.bnk.fai *.2k.part_* *.2k.part_*.bnk.fai *_s.fai 2>/dev/null || true
+  rm -f *.2k.bnk *.2k.bnk.fai *.2k.part_* *.2k.part_*.bnk.fai *_s.fai genome.search* 2>/dev/null || true
 
   cd "$RUN" || die "Cannot cd back to run dir"
 
@@ -1103,6 +1130,7 @@ mode_add(){
 
   # Rebuild all BED/extracted data from combined searches
   rebuild_from_searches "$(pwd -P)/genome.clean_step1" "$CONS_EXT"
+  rm -f genome.clean_step1/.step1_incomplete; : > genome.clean_step1/.step1_complete
 
   # Write manifest
   {
@@ -1114,6 +1142,8 @@ mode_add(){
     printf "NEW_FAMILIES\t%s\n" "$(echo "$truly_new" | tr '\n' ',' | sed 's/,$//')"
     printf "THREADS\t%s\n" "$THREADS"
     printf "MODE\tadd\n"
+    manifest_common
+    tool_versions
     printf "DATE\t%s\n" "$(date)"
   } > manifest.txt
 
@@ -1220,6 +1250,9 @@ mode_exclude(){
   # Copy step1 output, then remove BED files for excluded family
   log "Copying step1 output from source run..."
   cp -r "$SRC_RUN/genome.clean_step1" "$RUN/genome.clean_step1"
+  # the copied extracted.fasta is the SOURCE run's copy set: until the rebuild below has finished, --resume must not take it
+  # for this run's step 1 (an interrupted --add was resumed with the old copies, exit 0)
+  : > "$RUN/genome.clean_step1/.step1_incomplete"; rm -f "$RUN/genome.clean_step1/.step1_complete"
 
   # Fix genome.path to point to this run's genome (absolute)
   echo "$RUN/genome.clean.fa" > "$RUN/genome.clean_step1/genome.path"
@@ -1271,6 +1304,7 @@ mode_exclude(){
 
   # Rebuild all BED/extracted data from remaining searches
   rebuild_from_searches "$(pwd -P)/genome.clean_step1" "$CONS_EXT"
+  rm -f genome.clean_step1/.step1_incomplete; : > genome.clean_step1/.step1_complete
 
   # Write manifest
   {
@@ -1281,6 +1315,8 @@ mode_exclude(){
     printf "EXCLUDED\t%s\n" "$EXCLUDE_NAME"
     printf "THREADS\t%s\n" "$THREADS"
     printf "MODE\texclude\n"
+    manifest_common
+    tool_versions
     printf "DATE\t%s\n" "$(date)"
   } > manifest.txt
 
@@ -1340,7 +1376,11 @@ mode_resume(){
   [[ -s consensuses.clean.fa ]] || die "Missing consensuses.clean.fa — cannot resume"
 
   # ── Step 1 ────────────────────────────────────────────────────────────────
-  if [[ -s genome.clean_step1/extracted.fasta ]]; then
+  # finished = extracted.fasta and the completion marker (runs made before the marker: the last step-1 output, the SubFam
+  # alignment); an --add / --exclude interrupted before its rebuild leaves .step1_incomplete
+  [[ ! -e genome.clean_step1/.step1_incomplete ]] ||
+    die "this --add/--exclude run stopped before its copy set was rebuilt; start the --add/--exclude again (step 1 here holds the source run's copies)"
+  if [[ -s genome.clean_step1/extracted.fasta && ( -e genome.clean_step1/.step1_complete || -s genome.clean_step1/subfam_input/input.clw.al ) ]]; then
     log "Step1 — already complete, skipping"
   else
     log "Step1 — running..."

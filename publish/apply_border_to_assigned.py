@@ -14,7 +14,7 @@ def read_bed_map(border_root):
                 if len(parts) < 6:
                     continue
                 ctg, s, e, name, _sc, strand = parts[:6]
-                m[name.split()[0]] = (ctg, int(s) + 1, int(e), strand)
+                m[name.split()[0]] = (ctg, int(s), int(e), strand)     # names carry the BED start, as bedtools getfasta writes them
     return m
 
 
@@ -23,7 +23,7 @@ def rewrite_header(hdr, bed_map):
     if key not in bed_map:
         return hdr
     ctg, start, end, strand = bed_map[key]
-    start = max(1, start)
+    start = max(0, start)
     end = max(start, end)
     rest = key.split("|", 1)
     if len(rest) != 2:

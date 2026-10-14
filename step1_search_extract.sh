@@ -106,9 +106,14 @@ echo "[$(date)] Found ${#QUERY_FILES[@]} consensus sequences to search"
 
 # KEY CHANGE: keep genome split parts during this entire Step1 run (reuse across queries)
 # sear must implement -k/--keep as discussed
+# sear writes its work files (the 2.5-3 kb window bank, 1.25 x the genome; a cleaned copy when names carry '_') next to the genome
+# it is given: a link here keeps them in searches/, where they are removed below, and fixes the "gen-" prefix of the hit files
+# whatever the genome file is called (a genome called rsi.fa gave "rsi-" files that step 1 never read: 0 hits, exit 0)
+ln -sfn "$(readlink -f "$SEARCH_GENOME")" genome.search.fa
+[[ -f "$SEARCH_GENOME.fai" ]] && ln -sfn "$(readlink -f "$SEARCH_GENOME").fai" genome.search.fa.fai
 for query in "${QUERY_FILES[@]}"; do
     echo "[$(date)] Searching with $(basename "$query")"
-    sear -k "$query" "$SEARCH_GENOME" 0.8 65 50
+    sear -k "$query" genome.search.fa 0.8 65 50
 
     # Report sear results to stderr (visible in SINEderella_multi terminal)
     _qbase="${query%.*}"
@@ -124,7 +129,7 @@ done
 
 # KEY CHANGE: delete genome split parts ONCE, after last query
 echo "[$(date)] Cleaning genome split parts (end of Step1 searches)..."
-rm -f *.2k.bnk *.2k.bnk.fai *.2k.part_* *.2k.part_*.bnk.fai *_s.fai 2>/dev/null || true
+rm -f *.2k.bnk *.2k.bnk.fai *.2k.part_* *.2k.part_*.bnk.fai *_s.fai genome.search* 2>/dev/null || true
 
 cd ..
 
@@ -241,14 +246,16 @@ if [[ "${SATELLITE_EXCLUDE:-1}" != "0" && -s satellites/exclude_regions.bed ]]; 
 fi
 
 echo "[$(date)] Extracting sequences..."
-bedtools getfasta -s -fi "$GENOME" -bed merged_hits.bed > extracted.fasta
+rm -f .step1_complete
+bedtools getfasta -s -fi "$GENOME" -bed merged_hits.bed > extracted.fasta.tmp
 
-EXTRACTED=$(grep -c "^>" extracted.fasta)
+EXTRACTED=$(grep -c "^>" extracted.fasta.tmp || true)
 echo "[$(date)] Extracted $EXTRACTED sequences"
 # every merged interval must come back as one sequence (getfasta skips intervals it cannot read)
 if [[ "$EXTRACTED" -ne "$BED_COUNT" ]]; then
     echo "ERROR: extracted $EXTRACTED sequences from $BED_COUNT merged intervals" >&2; exit 1
 fi
+mv extracted.fasta.tmp extracted.fasta     # written whole or not at all: --resume reads a non-empty file as step 1 output
 
 # --- SAMPLING ---
 if [[ $EXTRACTED -le $SAMPLE_SIZE ]]; then
@@ -332,3 +339,4 @@ for bed in searches/gen-*.bed; do
     fi
 done
 echo "Total merged hits: $BED_COUNT"
+: > .step1_complete     # read by SINEderella --resume: step 1 finished (extracted.fasta alone is written before SubFam and MAFFT)

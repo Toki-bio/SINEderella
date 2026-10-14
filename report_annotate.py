@@ -169,7 +169,7 @@ def annotate(path, prof=None):
     nzc = np.where(cons != M.GAP)[0]
     cseq = "".join("ACGT"[c] for c in cons[nzc])
     L = len(cseq)
-    C = np.delete(A, k, axis=0)
+    C = A[M.copy_rows(names, k)]
     n = C.shape[0]
     lo, hi = int(nzc[0]), int(nzc[-1])
 
