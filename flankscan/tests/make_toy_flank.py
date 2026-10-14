@@ -13,6 +13,8 @@ writes OUTDIR/genome.fa (LINE-like repeat copies in lower case = soft mask), cop
   R      two independent insertions into a duplicated region dup-region only (not twin)
   END    20 bp from a contig end                              untestable
   LC     (TA)n next to the junction, shared by two copies    no twin
+  SM     copy inside a duplicated 3 kb SOFT-MASKED region     twin (the rsi MEG-RS case: flanks all lower case, 96-100 %)
+         (99 % and 96 % identity; planted last, so the cases above are unchanged)
 """
 import os, random, sys
 
@@ -45,7 +47,7 @@ def put(c, pos, seq):
     contig[c][pos:pos + len(seq)] = list(seq)
 
 SINE = rseq(190) + "A" * 12
-def sine_copy(): return mutate(SINE[:-12], 0.05) + "A" * rnd.randint(8, 16)
+def sine_copy(): return mutate(SINE[:-12], 0.15) + "A" * rnd.randint(8, 16)   # 15 %: random copy pairs ~72 % alike, as in a real family (the body check needs it)
 def insert_sine(c, pos, strand="+"):                      # element + 10 bp target-site duplication; returns (start, end) of the element
     s = sine_copy(); tsd = "".join(contig[c][pos:pos + 10])
     el = s if strand == "+" else rc(s)
@@ -96,6 +98,17 @@ for c in range(4):
 for i in range(10):
     c, p = slot(); put(c, p + 400, "TA" * 40); s, e = insert_sine(c, p + 480)
     copies.append((c, s, e, "+", name("LC"), "LC", "-", ""))
+# 9) segmental duplications of a soft-masked (lower-case, repeat-annotated) region carrying a SINE: twins although every flank base
+#    is masked (2026-10-14; under SOFTMASK=1 alone these were "masked", the rsi MEG-RS case)
+for gi, div in enumerate((0.01, 0.04), 1):
+    c1, p1 = slot(); c2, p2 = slot()
+    put(c1, p1, rseq(3000).lower()); s1, e1 = insert_sine(c1, p1 + 1500)
+    seg = "".join(contig[c1][p1:p1 + 3000]); dup, mp = mutate(seg, div, 0.01, True)
+    ds, de = mp[s1 - p1], mp[e1 - p1 - 1] + 1
+    dup = dup[:ds].lower() + dup[ds:de] + dup[de:].lower()          # substitutions come out upper case: the flanks stay masked
+    put(c2, p2, dup); s2, e2 = p2 + ds, p2 + de
+    ident = "%.0f" % (100 * (1 - div))
+    copies.append((c1, s1, e1, "+", name("SM"), "SM", "M%d" % gi, ident)); copies.append((c2, s2, e2, "+", name("SM"), "SM", "M%d" % gi, ident))
 
 with open(os.path.join(out, "genome.fa"), "w") as g:
     for c in range(NC):

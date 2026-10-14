@@ -13,6 +13,15 @@
 #   array   twin pairs of copies on one contig whose neighbours lie less than ARRKB (2 kb) apart: reported as array
 #   untestable  a flank shorter than MINFL (contig end): never counted as unique
 #
+# Soft-masked (lower-case) flank bases and the body check (2026-10-14, flankscan/tests/real_twins/):
+#   SOFTMASK=0 (default) masked bases are compared like any base; 1 = they become N (misses twins inside repeats, rsi MEG-RS);
+#   both = (a) SOFTMASK=1 at the tiers above united with (b) masked bases kept at identity >= IDMASK (95 %).
+#   BODYCHECK=1 (default, fs9_bodycheck.py): a flank pair stays a twin only if the two SINE BODIES are more similar than random
+#   copy pairs of the family (quantile 1 - 0.05/k, k = partners of the busier copy). Hot spots (independent insertions into two
+#   copies of a young repeat or another SINE) fail it: Python Squam3C 930 of 995 SOFTMASK=0 pairs, Anolis Squam1 143,029 of
+#   154,360; copies duplicated with their neighbourhood pass (body identity tracks flank identity). Toy: 0 of 40 hot-spot
+#   copies, 4 of 4 soft-masked duplications, 12 of 16 duplicated copies (the 78 % and 73 % pairs are at the family background).
+#
 # Method (all awk, readable on purpose):
 #  1) flanks with bedtools; masked (lower case) bases become N, and so does every base covered by a 20-mer that occurs
 #     more than GCAP times in the genome: repeats the genome already knows (LINE fragments, simple repeats) are never
@@ -30,30 +39,34 @@
 #      OUT/copy_status.tsv   copy status (twin1 twin2 array untestable masked unique) n_partners group
 #                            (masked = fewer than MINFL testable bases in a flank after the repeat filter: nothing to compare)
 #      OUT/summary.txt       counts and shares
-# Env: MK1=6 MK2=3 (shared seeds needed in pass 1 / 2) W=100 IW=80 MINFL=50 MINLEN=50 START=20 BAND=3 CAP=20 GCAP=20 ID1=85 ID2=70 ARRKB=2000
+# Env: SOFTMASK=both|0|1 IDMASK=95 BODYCHECK=1|0 MK1=6 MK2=3 (shared seeds needed in pass 1 / 2) W=100 IW=80 MINFL=50 MINLEN=50 START=20 BAND=3 CAP=20 GCAP=20 ID1=85 ID2=70 ARRKB=2000
 #      KCOUNT=<file "20-mer TAB count" of the genome, canonical, e.g. jellyfish dump -c>; counted here up to 300 Mb
 set -euo pipefail
 G=${1:?GENOME.fa}; B=${2:?COPIES.bed}; OUT=${3:?OUT_DIR}
 W=${W:-100}; IW=${IW:-80}; MINFL=${MINFL:-50}; MINLEN=${MINLEN:-50}; START=${START:-20}; BAND=${BAND:-3}
 CAP=${CAP:-20}; GCAP=${GCAP:-20}; ID1=${ID1:-85}; ID2=${ID2:-70}; ARRKB=${ARRKB:-2000}; MK1=${MK1:-6}; MK2=${MK2:-3}
+SOFTMASK=${SOFTMASK:-0}; IDMASK=${IDMASK:-95}
+case $SOFTMASK in both|0|1) ;; *) echo "fs9: SOFTMASK must be both, 0 or 1" >&2; exit 1 ;; esac
 mkdir -p "$OUT"; G=$(readlink -f "$G"); B=$(readlink -f "$B"); cd "$OUT"
 [[ -s "$G.fai" ]] || samtools faidx "$G"
 export LC_ALL=C
 RC='function rc(s,   r, i, c) { r = ""; for (i = length(s); i >= 1; i--) { c = substr(s, i, 1); r = r (c == "A" ? "T" : c == "C" ? "G" : c == "G" ? "C" : c == "T" ? "A" : "N") } return r }'
 
-# 1) flanks, outward from the junction (5' flank reversed). SOFTMASK=1 turns soft-masked (lower-case) bases into N as the first
-#    version did; the default keeps them as bases, because an assembly masked by RepeatMasker is lower case over most of its
-#    length (rsi: 79 %), which made the flanks of copies that sit in duplicated repeats untestable and reported them as "unique"
-#    (rsi MEG-RS 2026-10-05: 11 copies with 96-100 % identical flanks on other contigs, all-N in both flanks). The k-mer filter
-#    below (GCAP) still masks the hot spots: a 20-mer seen more than GCAP times in the genome is never evidence of a shared flank.
-SOFTMASK=${SOFTMASK:-0}
+# 1) flanks, outward from the junction (5' flank reversed), soft-masked bases kept in lower case (seqs.raw.tsv); make_seqs SM writes
+#    seqs.tsv in upper case with masked bases as N (SM=1) or as bases (SM=0). History: the first version always used SM=1; SM=0 alone
+#    (2026-10-05) found the rsi MEG-RS twins (11 copies, 96-100 % identical flanks, all-N in both flanks under SM=1) but called
+#    hot-spot copies twins; SOFTMASK=both (header) keeps both properties.
 bedtools flank -i "$B" -g "$G.fai" -l $W -r 0 -s | bedtools getfasta -fi "$G" -bed - -s -nameOnly 2> /dev/null > f5.fa
 bedtools flank -i "$B" -g "$G.fai" -l 0 -r $W -s | bedtools getfasta -fi "$G" -bed - -s -nameOnly 2> /dev/null > f3.fa
 for S in 5 3; do
-    gawk -v S=$S -v SM=$SOFTMASK 'function rev(s,   r, i) { r = ""; for (i = length(s); i >= 1; i--) r = r substr(s, i, 1); return r }
+    gawk -v S=$S 'function rev(s,   r, i) { r = ""; for (i = length(s); i >= 1; i--) r = r substr(s, i, 1); return r }
         /^>/ { n = substr($0, 2); sub(/\([+-]\)$/, "", n); next }
-        { x = $0; if (SM == 1) gsub(/[acgtn]/, "N", x); x = toupper(x); gsub(/[^ACGT]/, "N", x); print n "\t" S "\t" (S == 5 ? rev(x) : x) }' "f$S.fa"
-done > seqs.tsv
+        { x = $0; gsub(/[^ACGTacgt]/, "N", x); print n "\t" S "\t" (S == 5 ? rev(x) : x) }' "f$S.fa"
+done > seqs.raw.tsv
+make_seqs() {   # SM: 1 = soft-masked bases become N; then upper case
+    gawk -F'\t' -v OFS='\t' -v SM=$1 '{ x = $3; if (SM == 1) gsub(/[acgt]/, "N", x); print $1, $2, toupper(x) }' seqs.raw.tsv > seqs.tsv
+}
+make_seqs 0
 # untestable: a copy with a missing or short flank (contig end) on either side
 gawk -F'\t' -v M=$MINFL 'FILENAME == ARGV[1] { c[$4]; next } { if (length($3) >= M) ok[$1 SUBSEP $2] = 1 }
     END { for (n in c) if (!((n SUBSEP 5) in ok) || !((n SUBSEP 3) in ok)) print n }' "$B" seqs.tsv | sort > untestable.txt
@@ -63,8 +76,12 @@ GK=20
 if [[ -n "${KCOUNT:-}" && -s "${KCOUNT:-}" ]]; then
     # jellyfish dump -c writes "KMER COUNT" separated by a SPACE; the first version split on tabs only, so $2 was empty,
     # rep20.tsv came out empty and the repeat filter was silently off in every run with a KCOUNT (rsi, 2026-10-01)
-    gawk -v C=$GCAP 'NF >= 2 && $2 + 0 > C { print toupper($1) }' "$KCOUNT" > rep20.tsv
-    [[ -s rep20.tsv ]] || { echo "fs9: KCOUNT $KCOUNT gave no 20-mers above $GCAP: wrong file or format (expect 'KMER COUNT' lines)" >&2; exit 1; }
+    # only the 20-mers that occur in a flank are kept: a genome's repeated 20-mers can be hundreds of millions (anoCar2)
+    gawk -F'\t' -v K=$GK "$RC"'{ s = $3; n = length(s); for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue
+                                  r = rc(m); if (r < m) m = r; print m } }' seqs.tsv | sort -u > flank20.tsv
+    gawk -v C=$GCAP 'FILENAME == ARGV[1] { want[$1]; next } NF >= 2 { any = 1; m = toupper($1); if ($2 + 0 > C && (m in want)) print m }
+                     END { if (!any) exit 1 }' flank20.tsv "$KCOUNT" > rep20.tsv ||
+        { echo "fs9: KCOUNT $KCOUNT has no 'KMER COUNT' lines: wrong file or format (jellyfish dump -c)" >&2; exit 1; }
 else
     SZ=$(gawk '{ s += $2 } END { print s + 0 }' "$G.fai")
     (( SZ <= 300000000 )) || { echo "fs9: genome > 300 Mb: give KCOUNT (jellyfish dump -c, k=20, canonical)" >&2; exit 1; }
@@ -73,15 +90,14 @@ else
         /^>/ { if (seq != "") scan(); seq = ""; next } { seq = seq toupper($0) }
         END { scan(); for (m in c) if (c[m] > C) print m }' "$G" > rep20.tsv
 fi
-gawk -F'\t' -v K=$GK "$RC"'
-    FILENAME == ARGV[1] { rep[$1]; next }
-    { s = $3; n = length(s); for (i = 1; i <= n; i++) mk[i] = 0
-      for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue; r = rc(m); if (r < m) m = r; if (m in rep) for (j = i; j < i + K; j++) mk[j] = 1 }
-      o = ""; for (i = 1; i <= n; i++) o = o (mk[i] ? "N" : substr(s, i, 1)); print $1 "\t" $2 "\t" o }' rep20.tsv seqs.tsv > seqs.masked.tsv
-mv seqs.masked.tsv seqs.tsv
-# masked: a copy with fewer than MINFL testable (non-N) bases in a flank after masking has nothing to compare on that side; it is
-# reported as "masked", never as "unique" (the first version called such copies unique)
-gawk -F'\t' -v M=$MINFL '{ s = $3; nn = gsub(/N/, "", s); if (length(s) < M) print $1 }' seqs.tsv | sort -u > masked.txt
+rep_mask() {   # bases covered by a repeated 20-mer become N (seqs.tsv in place)
+    gawk -F'\t' -v K=$GK "$RC"'
+        FILENAME == ARGV[1] { rep[$1]; next }
+        { s = $3; n = length(s); for (i = 1; i <= n; i++) mk[i] = 0
+          for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue; r = rc(m); if (r < m) m = r; if (m in rep) for (j = i; j < i + K; j++) mk[j] = 1 }
+          o = ""; for (i = 1; i <= n; i++) o = o (mk[i] ? "N" : substr(s, i, 1)); print $1 "\t" $2 "\t" o }' rep20.tsv seqs.tsv > seqs.masked.tsv
+    mv seqs.masked.tsv seqs.tsv
+}
 
 # 2-4) one pass: pass_run PATTERN MINKEYS IDMIN TAG
 pass_run() {
@@ -134,11 +150,26 @@ pass_run() {
           if (bestl >= ML) printf "%s\t%s\t%s\t%.1f\t%d\t%s\n", $2, $3, $1, bestid, bestl, TAG }' seqs.tsv "cand.$TAG.tsv" > "conf.$TAG.tsv"
 }
 
-pass_run 111111111111 $MK1 $ID1 p1
-pass_run 111010010100110111 $MK2 $ID2 p2
-# a pair found in both passes keeps its pass 1 row; the tier follows the identity
-gawk -F'\t' -v OFS='\t' -v ID1=$ID1 '{ key = $1 SUBSEP $2 SUBSEP $3; if (key in done) next; done[key] = 1
-      print $1, $2, $3, $4, $5, ($4 >= ID1 ? "T1" : "T2"), "twin" }' conf.p1.tsv conf.p2.tsv | sort -k1,1 -k2,2 -k3,3 > pairs.body
+find_pairs() {   # SM IDa IDb OUTFILE: pairs of one masking mode, pass 1 at IDa, pass 2 at IDb
+    make_seqs $1; rep_mask
+    pass_run 111111111111 $MK1 $2 p1
+    pass_run 111010010100110111 $MK2 $3 p2
+    # a pair found in both passes keeps its pass 1 row; the tier follows the identity
+    gawk -F'\t' -v OFS='\t' -v ID1=$ID1 '{ key = $1 SUBSEP $2 SUBSEP $3; if (key in done) next; done[key] = 1
+          print $1, $2, $3, $4, $5, ($4 >= ID1 ? "T1" : "T2"), "twin" }' conf.p1.tsv conf.p2.tsv | sort -k1,1 -k2,2 -k3,3 > "$4"
+}
+if [[ $SOFTMASK == both ]]; then
+    find_pairs 0 $IDMASK $IDMASK pairs.masked95.body       # masked bases kept, near-identical flanks only
+    find_pairs 1 $ID1 $ID2 pairs.strict.body               # masked bases as N, the usual tiers (its seqs.tsv stays)
+    gawk -F'\t' '{ key = $1 SUBSEP $2 SUBSEP $3; if (!(key in done)) { done[key] = 1; print } }' pairs.strict.body pairs.masked95.body |
+        sort -k1,1 -k2,2 -k3,3 > pairs.body
+else
+    find_pairs $SOFTMASK $ID1 $ID2 pairs.body
+fi
+# masked: a copy with fewer than MINFL testable (non-N) bases in a flank after masking has nothing to compare on that side; it is
+# reported as "masked", never as "unique" (the first version called such copies unique). With SOFTMASK=both: the strict pass, so a
+# masked copy was compared only at >= IDMASK.
+gawk -F'\t' -v M=$MINFL '{ s = $3; nn = gsub(/N/, "", s); if (length(s) < M) print $1 }' seqs.tsv | sort -u > masked.txt
 # arrays: copies on one contig closer than ARRKB to a twin partner form one array; every pair inside it is "array", not "twin"
 gawk -F'\t' -v OFS='\t' -v KB=$ARRKB 'FILENAME == ARGV[1] { ctg[$4] = $1; pos[$4] = $2; next }
     function root(x) { while (up[x] != x) x = up[x]; return x }
@@ -157,5 +188,12 @@ gawk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { allc[$4]; next } FILENAME == ARGV
       if ($7 == "twin") { ra = root(a); rb = root(b); if (ra != rb) up[ra] = rb } }
     END { for (c in allc) { st = (c in S) ? S[c] : ((c in unt) ? "untestable" : ((c in msk) ? "masked" : "unique"))
               print c, st, np[c] + 0, ((c in S) && S[c] ~ /twin/ ? "G" root(c) : "-") } }' "$B" untestable.txt masked.txt flank_groups.body | sort > copy_status.tsv
+# element test (BODYCHECK=1, default): a pair stays a twin only if its two SINE bodies are more similar than random copies of the
+# family (fs9_bodycheck.py; hot spots fail it, copies duplicated with their neighbourhood pass); flank-only results are kept
+# as copy_status.flank.tsv and flank_groups.flank.tsv
+if [[ ${BODYCHECK:-1} == 1 ]]; then
+    python3 -I "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/fs9_bodycheck.py" "$G" "$B" . > bodycheck.log 2>&1 ||
+        { cat bodycheck.log >&2; echo "fs9: body check failed" >&2; exit 1; }
+fi
 gawk -F'\t' '{ n[$2]++; t++ } END { printf "copies\t%d\n", t; for (k in n) printf "%s\t%d\t%.1f%%\n", k, n[k], 100 * n[k] / t }' copy_status.tsv | sort > summary.txt
 cat summary.txt

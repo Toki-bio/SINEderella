@@ -179,11 +179,19 @@ Code: `flankscan/fs9_twins.sh` (twins, two tiers, arrays, untestable), `flanksca
 `flankscan/tests/make_toy_flank.py`, test `flankscan/tests/test_fs9.sh`. Run: `fs9_twins.sh GENOME.fa COPIES.bed OUT` (for a genome over 300 Mb give
 `KCOUNT`, a jellyfish dump of canonical 20-mers above 20: `jellyfish count -m 20 -s 8G -t 64 -C`, `jellyfish dump -c -L 21`).
 
-**Toy (all planted):** 300 unique copies, 40 hot-spot copies in a masked LINE-like repeat, 10 (TA)n flanks, 4 contig-end copies: none called a twin
-(contig-end copies are "untestable"); the 10-unit tandem array is called `array`, not twin; shuffled copies give no twin. Segmental duplications carrying a copy,
-same contig, cross contig and inverted: found as tier 1 down to 85 % identity (6 of 6), as tier 2 at 78 %; the 73 % one is missed (about the limit of the
-spaced seed plus a 1 % indel rate). Two copies inserted independently into a duplicated region are not twins and are flagged `dup-region` by fs9_dupregion
-(2 of 2); no unique or hot-spot copy is flagged; the duplicated-region flag also finds the twin copies with >= 85 % identity (12 of 16).
+**Toy (all planted; 2026-10-14 defaults SOFTMASK=0 + body check):** 300 unique copies, 40 hot-spot copies in a soft-masked LINE-like repeat
+(SINE copies 15 % from their master, so random copy pairs are ~75 % alike, as in a real family), 10 (TA)n flanks, 4 contig-end copies: none called a twin
+(contig-end copies are "untestable"); the 10-unit tandem array is `array`; shuffled copies (kept off the planted copies and their flanks) give no twin.
+Segmental duplications carrying a copy, same contig, cross contig and inverted: 85-98 % found (12 of 12 copies); 78 % and 73 % not (their SINE bodies are
+no more alike than random copies, so the body check cannot tell them from chance). Soft-masked duplications (99 %, 96 %; the rsi MEG-RS case): 4 of 4.
+Two copies inserted independently into a duplicated region are not twins and are flagged `dup-region` by fs9_dupregion (2 of 2).
+Before the body check the flank test alone called 40 of 40 hot-spot copies twins with SOFTMASK=0, and missed the soft-masked duplications with SOFTMASK=1.
+
+**Hot spots on real data (2026-10-14, `flankscan/tests/real_twins/`, README there):** Squam1 in *Anolis carolinensis* (anoCar2, 79,225 copies) and Squam3C
+in *Python bivittatus* (GCF_000186305.1, 6,713 copies), two SINEs that multiply into arrays and satellites. With masked flank bases kept, the flank test
+alone makes 21.5 % (Anolis) and 2.6 % (Python) of the copies twins; 82 % and 96 % of those pairs have SINE bodies no more alike than random copies
+(independent insertions next to similar sequence). The body check keeps 5,358 and 60 twin copies; their body identity tracks their flank identity
+(median difference about 0), as copies duplicated together with their neighbourhood must.
 
 **Exact reference on real data (rsi r9, 6 988 copies):** all-pairs ssearch36 of the proximal flanks (same masking, start <= 21 bp from the junction in both
 copies, >= 50 bp, >= 70 %) on a sample of 1 438 copies (all 130 copies in an fs9 pair plus 1 400 random). At copy level the two agree on 50 of 52 flagged copies

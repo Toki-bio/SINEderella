@@ -6,7 +6,10 @@ rm -rf "$W"; mkdir -p "$W"
 python3 "$HERE/make_toy_flank.py" "$W/toy" 1
 bash "$HERE/../fs9_twins.sh" "$W/toy/genome.fa" "$W/toy/copies.bed" "$W/out" 4 > "$W/run.log" 2>&1 || { tail -20 "$W/run.log"; exit 1; }
 # control: the same copies moved to random places (their flanks are unrelated now): no twin may be found
-bedtools shuffle -i "$W/toy/copies.bed" -g "$W/toy/genome.fa.fai" -seed 7 > "$W/toy/shuffled.bed"
+# (the shuffled intervals must not overlap a planted copy or its flanks: a window on top of another SINE shares that SINE's sequence
+#  with any other such window and is a false "twin" of the control, not of fs9; 2 of the 6 control twins of 2026-10-14 were that)
+bedtools slop -i "$W/toy/copies.bed" -g "$W/toy/genome.fa.fai" -b 150 > "$W/toy/copies.slop.bed"
+bedtools shuffle -i "$W/toy/copies.bed" -g "$W/toy/genome.fa.fai" -excl "$W/toy/copies.slop.bed" -noOverlapping -seed 7 > "$W/toy/shuffled.bed"
 bash "$HERE/../fs9_twins.sh" "$W/toy/genome.fa" "$W/toy/shuffled.bed" "$W/ctl" > "$W/ctl.log" 2>&1
 CTL=$(gawk -F'	' '$2 ~ /twin/' "$W/ctl/copy_status.tsv" | wc -l)
 echo "control (shuffled copies): $CTL twin copies, expected 0"
@@ -21,6 +24,7 @@ gawk -F'\t' -v OFS='\t' '
             if (k == "U" || k == "HOT" || k == "LC" || k == "R") { n[k]++; if (s ~ /twin/) { bad[k]++; fail++ } }
             else if (k == "END") { n[k]++; if (s != "untestable") { bad[k]++; fail++ } }
             else if (k == "ARR") { n[k]++; if (s != "array") { bad[k]++; fail++ } }
+            else if (k == "SM") { n[k]++; if (s !~ /twin/) { bad[k]++; fail++ } }     # soft-masked duplication: must be a twin
             else if (k == "S") { g = grp[c]; gn[g]++; gid[g] = id[c]; if (s == "twin1" || s == "twin2") gok[g]++; gs[g] = gs[g] " " s } }
         for (k in n) printf "%-4s copies %3d  wrong %d\n", k, n[k], bad[k] + 0
         for (g in gn) { want = (gid[g] >= 85) ? "twin1" : "twin2"; printf "%-3s identity %s%%  found %d/%d  status:%s\n", g, gid[g], gok[g] + 0, gn[g], gs[g] }
