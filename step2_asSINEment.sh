@@ -25,43 +25,58 @@ abs_path(){ local p="$1"; [[ "$p" = /* ]] && printf '%s\n' "$p" || printf '%s\n'
 cleanup(){ [[ -n "$STEP2_WORK" && -d "$STEP2_WORK" ]] && rm -rf "$STEP2_WORK"; }
 trap cleanup EXIT
 
-# Unit-inside-composite pairs of the bank (once per run): consensus u is "inside" consensus c at c positions a-b when u
-# aligns over >= TIE_COVER_SHORT (0.85) of its length into c and u is at most TIE_COVER_LONG (0.70) of c's length
-# (a unit of a dimer / composite, or a short version of a longer element). Ordinary subfamilies of similar length never
-# form such a pair. Writes "u <TAB> c <TAB> a <TAB> b <TAB> length of c".
+# Declared composites (COMPOSITES=file, optional): one line per composite, "composite <TAB> unit1,unit2,...", e.g.
+# "r1_r3_P1	r1_9seqs,r3_58seqs". Nothing is inferred from the bank: a short consensus inside a longer one can be a unit
+# of a composite, but also a length version or a related subfamily (rsi: auto-detection paired r9 with r7 and P2
+# with P1 and moved 436 firm r9 copies to r7). Each unit is aligned into its composite once; every HSP of >= 30 bp
+# that covers >= TIE_COVER_UNIT (0.5) of the unit is one interval of that unit in the composite (a homodimer has two).
+# Writes "unit <TAB> composite <TAB> start <TAB> end <TAB> composite length", one line per interval; a declared unit
+# that does not align stops the run. Design and sources: docs/COMPOSITES_ASSIGNMENT.md.
 containment_pairs(){
   local cons="$1" out="$2"
-  ssearch36 -m 8 -E 1e-5 -z -1 -T "$THREADS" "$cons" "$cons" 2>/dev/null \
-  | awk -v cshort="${TIE_COVER_SHORT:-0.85}" -v clong="${TIE_COVER_LONG:-0.70}" '
-      FNR == NR { if (/^>/) { n = substr($1, 2) } else { len[n] += length($0) } ; next }
-      $1 != $2 {
-        u = $1; c = $2; qs = $7 + 0; qe = $8 + 0; if (qs > qe) { t = qs; qs = qe; qe = t }
-        a = $9 + 0; b = $10 + 0; if (a > b) { t = a; a = b; b = t }
-        if (len[u] > 0 && len[c] > 0 && len[u] <= clong * len[c] && (qe - qs + 1) >= cshort * len[u]) {
-          k = u SUBSEP c; sc = $12 + 0
-          if (!(k in best) || sc > best[k]) { best[k] = sc; out[k] = u "\t" c "\t" a "\t" b "\t" len[c] }
-        }
-      }
-      END { for (k in out) print out[k] }' "$cons" - > "$out"
+  : > "$out"
+  [[ -n "${COMPOSITES:-}" ]] || return 0
+  [[ -s "$COMPOSITES" ]] || die "COMPOSITES=$COMPOSITES: file not found or empty"
+  local comp units u
+  while IFS=$'\t' read -r comp units _; do
+    [[ -z "$comp" || "$comp" == \#* ]] && continue
+    grep -qx ">$comp" "$cons" || die "COMPOSITES: composite '$comp' is not in the bank"
+    for u in ${units//,/ }; do
+      grep -qx ">$u" "$cons" || die "COMPOSITES: unit '$u' of '$comp' is not in the bank"
+      awk -v n="$comp" '/^>/{p=(substr($1,2)==n)} p' "$cons" > "$TMPDIR/comp_c.fa"
+      awk -v n="$u" '/^>/{p=(substr($1,2)==n)} p' "$cons" > "$TMPDIR/comp_u.fa"
+      local before; before=$(wc -l < "$out")
+      ( cd "$TMPDIR" && ssearch36 -m 8 -E 1e-3 -z -1 -T 1 comp_u.fa comp_c.fa 2>/dev/null ) \
+      | awk -v u="$u" -v c="$comp" -v minu="${TIE_COVER_UNIT:-0.5}" \
+            -v lu="$(awk '!/^>/{n+=length($0)} END{print n}' "$TMPDIR/comp_u.fa")" \
+            -v lc="$(awk '!/^>/{n+=length($0)} END{print n}' "$TMPDIR/comp_c.fa")" '
+          { qs = $7 + 0; qe = $8 + 0; if (qs > qe) { t = qs; qs = qe; qe = t }
+            a = $9 + 0; b = $10 + 0; if (a > b) { t = a; a = b; b = t }
+            if (b - a + 1 >= 30 && qe - qs + 1 >= minu * lu) {
+              for (k = 1; k <= n; k++) if (a <= B[k] && b >= A[k]) next      # overlaps an interval already kept
+              n++; A[n] = a; B[n] = b; print u "\t" c "\t" a "\t" b "\t" lc } }' >> "$out"
+      [[ $(wc -l < "$out") -gt $before ]] || die "COMPOSITES: unit '$u' does not align into '$comp' (>= ${TIE_COVER_UNIT:-0.5} of its length)"
+    done
+  done < "$COMPOSITES"
 }
 
 # One voting cycle: ssearch36 -m 8 lines (query = consensus, library = copies) -> per copy the winning consensus,
 # its bitscore, the runner-up consensus and its bitscore. -m 8 columns: 3 identity, 7-8 span ON THE CONSENSUS, 12 bitscore.
-# Unit vs composite (TIE_COVER=1, default). With -z 11 every consensus gets its own shuffle statistics, so the same
+# Unit vs composite (only with COMPOSITES). With -z 11 every consensus gets its own shuffle statistics, so the same
 # alignment scores up to ~6 % differently against a unit and a composite that contains it (toy: 87.65 % over copy
 # 1-162, bitscore 149-159 vs XB, 137-150 vs the dimer XAB); main called single units of the toy 99/100 firm in one run
-# and 0/40 in the next. When the top two are a pair of containment_pairs (u inside c at a-b) and within
-# TIE_COVER_MARGIN (0.15) in bitscore, the alignments decide:
-#   - the copy's alignment to c reaches >= TIE_COVER_EXTRA (15) bp beyond a-b on a side where c has more than 30 bp of
-#     other sequence (the other unit or the linker): c wins. A longer 3' tail of c's copy of the unit does not count
-#     (rsi: P26's r6 part has a ~15 bp longer tail than r6; counting it moved 643 single r6 copies to P26);
-#   - otherwise c wins only when its identity is more than TIE_COVER_PID (2) points higher (the copy is closer to c's
-#     version of the unit), else u wins.
+# and 0/40 in the next. When the top two are a declared unit u and its composite c and are within TIE_COVER_MARGIN
+# (0.15) in bitscore, the copy's alignment to c decides (coordinate rule, as LTR_retriever's solo-LTR test):
+#   - it reaches >= TIE_COVER_EXTRA (10) bp beyond every interval of u, on a side where c has more than 30 bp of other
+#     sequence (another module or the linker): c. A longer terminal tail of c does not count (rsi: P26's copy of r6
+#     has a ~15 bp longer 3' tail than r6);
+#   - otherwise c only when its identity is more than TIE_COVER_PID (2) points higher, else u.
 # Every change of winner is counted in $OUTDIR/tie_cover.log.
 cycle_votes(){
   awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-0.15}" -v pidtol="${TIE_COVER_PID:-2}" \
-      -v extra="${TIE_COVER_EXTRA:-15}" -v logf="$OUTDIR/tie_cover.log" '
-    FILENAME == ARGV[1] { inside[$1, $2] = 1; pa[$1, $2] = $3; pb[$1, $2] = $4; plen[$1, $2] = $5; next }
+      -v extra="${TIE_COVER_EXTRA:-10}" -v logf="$OUTDIR/tie_cover.log" '
+    FILENAME == ARGV[1] { inside[$1, $2] = 1; ni[$1, $2]++; IA[$1, $2, ni[$1, $2]] = $3; IB[$1, $2, ni[$1, $2]] = $4
+                          plen[$1, $2] = $5; next }
     {
       seq = $2; cons = $1; bs = $12 + 0; key = seq SUBSEP cons
       if (!(key in pair_bs) || bs > pair_bs[key]) {
@@ -86,10 +101,13 @@ cycle_votes(){
           x = best_cons[seq]; y = runner_cons[seq]; u = ""
           if ((x, y) in inside) { u = x; c = y } else if ((y, x) in inside) { u = y; c = x }
           if (u != "") {
-            ku = seq SUBSEP u; kc = seq SUBSEP c; A = pa[u, c]; B = pb[u, c]; L = plen[u, c]
-            jx = 0
-            if (A - 1 > 30 && cs[kc] < A) jx += A - cs[kc]           # reaches into the 5-prime other unit / linker
-            if (L - B > 30 && ce[kc] > B) jx += ce[kc] - B           # reaches into the 3-prime other unit / linker
+            ku = seq SUBSEP u; kc = seq SUBSEP c; L = plen[u, c]; jx = -1
+            for (k = 1; k <= ni[u, c]; k++) {                     # reach beyond the nearest interval of u
+              A = IA[u, c, k]; B = IB[u, c, k]; r = 0
+              if (A - 1 > 30 && cs[kc] < A) r += A - cs[kc]        # into the 5-prime module / linker
+              if (L - B > 30 && ce[kc] > B) r += ce[kc] - B        # into the 3-prime module / linker
+              if (jx < 0 || r < jx) jx = r
+            }
             win = (jx >= extra || pid[kc] - pid[ku] > pidtol) ? c : u
             if (win != x) {
               t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
@@ -257,8 +275,10 @@ run_assignment(){
   fi
 
   containment_pairs "$TMPDIR/consensus_clean.fa" "$TMPDIR/containment.tsv"
-  cp "$TMPDIR/containment.tsv" "$OUTDIR/containment_pairs.tsv"
-  log "Unit-inside-composite pairs in the bank: $(wc -l < "$TMPDIR/containment.tsv") (containment_pairs.tsv)"
+  if [[ -s "$TMPDIR/containment.tsv" ]]; then
+    cp "$TMPDIR/containment.tsv" "$OUTDIR/composite_units.tsv"
+    log "Declared composites ($COMPOSITES): $(wc -l < "$TMPDIR/containment.tsv") unit intervals (composite_units.tsv)"
+  fi
 
   # Run 10 voting cycles
   log "Running 10 ssearch36 voting cycles..."
