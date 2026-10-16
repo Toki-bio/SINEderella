@@ -30,15 +30,15 @@ trap cleanup EXIT
 # CONSENSUS, 9-10 span on the copy, 12 bitscore.
 # Coverage tie-break (TIE_COVER=1, default). With -z 11 every consensus gets its own shuffle statistics, so the SAME
 # alignment scores differently against consensuses of different length (toy: one copy, 87.65 % over copy 1-162,
-# bitscore 149-159 vs XB and 137-150 vs the dimer XAB that contains XB, varying by cycle). Which one wins is then
-# noise, and the copy ends no_unanimous or, worse, firm on the wrong one. When the top two are within
-# TIE_COVER_MARGIN (0.15) of each other in bitscore and within TIE_COVER_PID (2) identity points, the alignment decides:
-#   1. the one that explains >= TIE_COVER_EXTRA (15) bp more of the COPY wins (a truncated dimer that keeps part of
-#      the other unit or the linker stays the dimer);
-#   2. otherwise, when both align the same copy span (+-TIE_COVER_SPAN, 5 bp), the one whose CONSENSUS is covered
-#      >= TIE_COVER_SHORT (0.85) wins over one covered <= TIE_COVER_LONG (0.70) (a single unit is not the composite).
-# Subfamilies of similar length cover the same span and both consensuses fully, so neither rule fires for them.
-# Every change of winner is counted in $OUTDIR/tie_cover.log.
+# bitscore 149-159 vs XB and 137-150 vs the dimer XAB that contains XB, varying by cycle); main called the single
+# A units of the toy 99/100 firm in one run and 0/40 in the next. When the top two are within TIE_COVER_MARGIN (0.15)
+# in bitscore, the alignments decide:
+#   1. one explains >= TIE_COVER_EXTRA (15) bp more of the COPY at an identity within TIE_COVER_PID (2) points: it wins;
+#   2. both align the same copy span (+-TIE_COVER_SPAN, 5 bp) and one consensus is covered >= TIE_COVER_SHORT (0.85)
+#      while the other is covered <= TIE_COVER_LONG (0.70) (a unit and a composite that contains it): the higher
+#      identity wins when the two differ by more than TIE_COVER_PID points, otherwise the better covered consensus.
+# Subfamilies of similar length cover the same span and both consensuses fully, so neither rule fires for them and
+# their near-ties stay to the vote. Every change of winner is counted in $OUTDIR/tie_cover.log.
 cycle_votes(){
   awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-0.15}" -v pidtol="${TIE_COVER_PID:-2}" \
       -v extra="${TIE_COVER_EXTRA:-15}" -v spantol="${TIE_COVER_SPAN:-5}" -v cshort="${TIE_COVER_SHORT:-0.85}" \
@@ -69,15 +69,15 @@ cycle_votes(){
       for (seq in best_cons) {
         if (on == 1 && (seq in runner_cons) && runner_bs[seq] >= best_bs[seq] * (1 - margin)) {
           b = seq SUBSEP best_cons[seq]; r = seq SUBSEP runner_cons[seq]
-          if (absv(pid[b] - pid[r]) <= pidtol) {
-            lb = qe[b] - qs[b] + 1; lr = qe[r] - qs[r] + 1; swap = 0
-            if (lr >= lb + extra) { swap = 1; sw1++ }
-            else if (lb < lr + extra && absv(qs[b] - qs[r]) <= spantol && absv(qe[b] - qe[r]) <= spantol &&
-                     ccov[r] >= cshort && ccov[b] <= clong) { swap = 1; sw2++ }
-            if (swap) {
-              t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
-              t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
-            }
+          lb = qe[b] - qs[b] + 1; lr = qe[r] - qs[r] + 1; dp = pid[r] - pid[b]; swap = 0
+          if (lr >= lb + extra && absv(dp) <= pidtol) { swap = 1; sw1++ }
+          else if (absv(qs[b] - qs[r]) <= spantol && absv(qe[b] - qe[r]) <= spantol &&
+                   ((ccov[r] >= cshort && ccov[b] <= clong) || (ccov[b] >= cshort && ccov[r] <= clong))) {
+            if (dp > pidtol || (absv(dp) <= pidtol && ccov[r] > ccov[b])) { swap = 1; sw2++ }
+          }
+          if (swap) {
+            t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
+            t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
           }
         }
         rb = (seq in runner_bs ? runner_bs[seq] : 0)
