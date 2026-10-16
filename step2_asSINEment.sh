@@ -79,14 +79,16 @@ containment_pairs(){
 # and 0/40 in the next. When the top two are a declared unit u and its composite c, the copy's alignment to c decides
 # whatever their bitscores (TIE_COVER_MARGIN, default 1 = always; 0.15 made rsi r10 copies flip between cycles at the
 # boundary, 261 lost firmness) (coordinate rule, as LTR_retriever's solo-LTR test):
-#   - it reaches >= TIE_COVER_EXTRA (10) bp beyond every interval of u, on a side where c has more than 30 bp of other
-#     sequence (another module or the linker): c. A longer terminal tail of c does not count (rsi: P26's copy of r6
+#   - it covers >= TIE_COVER_OTHER (0.5) of c's other sequence (another module + linker, > 30 bp) on one side of every
+#     interval of u, and at least TIE_COVER_EXTRA (10) bp: c. (10 bp alone was not evidence: rsi r6 copies whose
+#     step-1 locus included 40-130 bp of upstream flank aligned weakly to P26's r5 part and were moved to P26; the
+#     owner judged them single r6 by their unique left flanks, 2026-10-17.) A longer terminal tail of c does not count (rsi: P26's copy of r6
 #     has a ~15 bp longer 3' tail than r6);
 #   - otherwise c only when its identity is more than TIE_COVER_PID (2) points higher, else u.
 # Every change of winner is counted in $OUTDIR/tie_cover.log.
 cycle_votes(){
   awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-1}" -v pidtol="${TIE_COVER_PID:-2}" \
-      -v extra="${TIE_COVER_EXTRA:-10}" -v logf="$OUTDIR/tie_cover.log" '
+      -v extra="${TIE_COVER_EXTRA:-10}" -v other="${TIE_COVER_OTHER:-0.5}" -v logf="$OUTDIR/tie_cover.log" '
     FILENAME == ARGV[1] { inside[$1, $2] = 1; ni[$1, $2]++; IA[$1, $2, ni[$1, $2]] = $3; IB[$1, $2, ni[$1, $2]] = $4
                           plen[$1, $2] = $5; next }
     {
@@ -115,12 +117,12 @@ cycle_votes(){
           if (u != "") {
             ku = seq SUBSEP u; kc = seq SUBSEP c; L = plen[u, c]; jx = -1
             for (k = 1; k <= ni[u, c]; k++) {                     # reach beyond the nearest interval of u
-              A = IA[u, c, k]; B = IB[u, c, k]; r = 0
-              if (A - 1 > 30 && cs[kc] < A) r += A - cs[kc]        # into the 5-prime module / linker
-              if (L - B > 30 && ce[kc] > B) r += ce[kc] - B        # into the 3-prime module / linker
+              A = IA[u, c, k]; B = IB[u, c, k]; r = 0              # reach as a share of the other sequence
+              if (A - 1 > 30 && cs[kc] < A) { f = (A - cs[kc]) / (A - 1); if (A - cs[kc] >= extra && f > r) r = f }
+              if (L - B > 30 && ce[kc] > B) { f = (ce[kc] - B) / (L - B); if (ce[kc] - B >= extra && f > r) r = f }
               if (jx < 0 || r < jx) jx = r
             }
-            win = (jx >= extra || pid[kc] - pid[ku] > pidtol) ? c : u
+            win = (jx >= other || pid[kc] - pid[ku] > pidtol) ? c : u
             if (win != x) {
               t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
               t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
