@@ -76,15 +76,16 @@ containment_pairs(){
 # Unit vs composite (only with COMPOSITES). With -z 11 every consensus gets its own shuffle statistics, so the same
 # alignment scores up to ~6 % differently against a unit and a composite that contains it (toy: 87.65 % over copy
 # 1-162, bitscore 149-159 vs XB, 137-150 vs the dimer XAB); main called single units of the toy 99/100 firm in one run
-# and 0/40 in the next. When the top two are a declared unit u and its composite c and are within TIE_COVER_MARGIN
-# (0.15) in bitscore, the copy's alignment to c decides (coordinate rule, as LTR_retriever's solo-LTR test):
+# and 0/40 in the next. When the top two are a declared unit u and its composite c, the copy's alignment to c decides
+# whatever their bitscores (TIE_COVER_MARGIN, default 1 = always; 0.15 made rsi r10 copies flip between cycles at the
+# boundary, 261 lost firmness) (coordinate rule, as LTR_retriever's solo-LTR test):
 #   - it reaches >= TIE_COVER_EXTRA (10) bp beyond every interval of u, on a side where c has more than 30 bp of other
 #     sequence (another module or the linker): c. A longer terminal tail of c does not count (rsi: P26's copy of r6
 #     has a ~15 bp longer 3' tail than r6);
 #   - otherwise c only when its identity is more than TIE_COVER_PID (2) points higher, else u.
 # Every change of winner is counted in $OUTDIR/tie_cover.log.
 cycle_votes(){
-  awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-0.15}" -v pidtol="${TIE_COVER_PID:-2}" \
+  awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-1}" -v pidtol="${TIE_COVER_PID:-2}" \
       -v extra="${TIE_COVER_EXTRA:-10}" -v logf="$OUTDIR/tie_cover.log" '
     FILENAME == ARGV[1] { inside[$1, $2] = 1; ni[$1, $2]++; IA[$1, $2, ni[$1, $2]] = $3; IB[$1, $2, ni[$1, $2]] = $4
                           plen[$1, $2] = $5; next }
