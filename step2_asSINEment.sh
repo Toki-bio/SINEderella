@@ -26,21 +26,33 @@ cleanup(){ [[ -n "$STEP2_WORK" && -d "$STEP2_WORK" ]] && rm -rf "$STEP2_WORK"; }
 trap cleanup EXIT
 
 # One voting cycle: ssearch36 -m 8 lines (query = consensus, library = copies) -> per copy the winning consensus,
-# its bitscore, the runner-up consensus and its bitscore. Columns 7-8 are the aligned span ON THE CONSENSUS.
-# Coverage tie-break (TIE_COVER=1, default): when the runner-up is within TIE_COVER_MARGIN of the winner's bitscore,
-# covers >= TIE_COVER_SHORT of its own consensus while the winner covers <= TIE_COVER_LONG of its consensus, the
-# runner-up wins. That is a single unit next to a composite / dimer that contains it: both align over the same bases
-# with the same score (toy: XB 179.3 vs XAB 179.3, coverage 100 % vs 53 %), and without the rule the shuffles of
-# -z 11 picked either, so the copy ended no_unanimous. Every swap is counted in $OUTDIR/tie_cover.log.
+# its bitscore, the runner-up consensus and its bitscore. -m 8 columns: 3 identity, 4 aligned length, 7-8 span ON THE
+# CONSENSUS, 9-10 span on the copy, 12 bitscore.
+# Coverage tie-break (TIE_COVER=1, default). With -z 11 every consensus gets its own shuffle statistics, so the SAME
+# alignment scores differently against consensuses of different length (toy: one copy, 87.65 % over copy 1-162,
+# bitscore 149-159 vs XB and 137-150 vs the dimer XAB that contains XB, varying by cycle). Which one wins is then
+# noise, and the copy ends no_unanimous or, worse, firm on the wrong one. When the top two are within
+# TIE_COVER_MARGIN (0.15) of each other in bitscore and within TIE_COVER_PID (2) identity points, the alignment decides:
+#   1. the one that explains >= TIE_COVER_EXTRA (15) bp more of the COPY wins (a truncated dimer that keeps part of
+#      the other unit or the linker stays the dimer);
+#   2. otherwise, when both align the same copy span (+-TIE_COVER_SPAN, 5 bp), the one whose CONSENSUS is covered
+#      >= TIE_COVER_SHORT (0.85) wins over one covered <= TIE_COVER_LONG (0.70) (a single unit is not the composite).
+# Subfamilies of similar length cover the same span and both consensuses fully, so neither rule fires for them.
+# Every change of winner is counted in $OUTDIR/tie_cover.log.
 cycle_votes(){
-  awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-0.02}" -v cshort="${TIE_COVER_SHORT:-0.85}" \
+  awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-0.15}" -v pidtol="${TIE_COVER_PID:-2}" \
+      -v extra="${TIE_COVER_EXTRA:-15}" -v spantol="${TIE_COVER_SPAN:-5}" -v cshort="${TIE_COVER_SHORT:-0.85}" \
       -v clong="${TIE_COVER_LONG:-0.70}" -v logf="$OUTDIR/tie_cover.log" '
+    function absv(x) { return x < 0 ? -x : x }
     FNR == NR { if (/^>/) { n = substr($1, 2) } else { clen[n] += length($0) } ; next }
     {
       seq = $2; cons = $1; bs = $12 + 0; key = seq SUBSEP cons
       if (!(key in pair_bs) || bs > pair_bs[key]) {
-        pair_bs[key] = bs; s = $7 + 0; e = $8 + 0; if (s > e) { t = s; s = e; e = t }
-        pair_cov[key] = (clen[cons] > 0 ? (e - s + 1) / clen[cons] : 1)
+        pair_bs[key] = bs; pid[key] = $3 + 0
+        s = $7 + 0; e = $8 + 0; if (s > e) { t = s; s = e; e = t }
+        ccov[key] = (clen[cons] > 0 ? (e - s + 1) / clen[cons] : 1)
+        s = $9 + 0; e = $10 + 0; if (s > e) { t = s; s = e; e = t }
+        qs[key] = s; qe[key] = e
       }
     }
     END {
@@ -53,19 +65,26 @@ cycle_votes(){
           runner_bs[seq] = bs; runner_cons[seq] = cons
         }
       }
-      swaps = 0
+      sw1 = 0; sw2 = 0
       for (seq in best_cons) {
-        if (on == 1 && (seq in runner_cons) && runner_bs[seq] >= best_bs[seq] * (1 - margin) &&
-            pair_cov[seq, runner_cons[seq]] >= cshort && pair_cov[seq, best_cons[seq]] <= clong) {
-          t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
-          t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
-          swaps++
+        if (on == 1 && (seq in runner_cons) && runner_bs[seq] >= best_bs[seq] * (1 - margin)) {
+          b = seq SUBSEP best_cons[seq]; r = seq SUBSEP runner_cons[seq]
+          if (absv(pid[b] - pid[r]) <= pidtol) {
+            lb = qe[b] - qs[b] + 1; lr = qe[r] - qs[r] + 1; swap = 0
+            if (lr >= lb + extra) { swap = 1; sw1++ }
+            else if (lb < lr + extra && absv(qs[b] - qs[r]) <= spantol && absv(qe[b] - qe[r]) <= spantol &&
+                     ccov[r] >= cshort && ccov[b] <= clong) { swap = 1; sw2++ }
+            if (swap) {
+              t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
+              t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
+            }
+          }
         }
         rb = (seq in runner_bs ? runner_bs[seq] : 0)
         rc = (seq in runner_cons ? runner_cons[seq] : "NA")
         printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq] + 0.5), rc, int(rb + 0.5)
       }
-      if (on == 1) printf "cycle\t%d\tcoverage tie-breaks\n", swaps >> logf
+      if (on == 1) printf "cycle\tmore_of_copy\t%d\tconsensus_coverage\t%d\n", sw1, sw2 >> logf
     }' "$2" "$1"
 }
 
