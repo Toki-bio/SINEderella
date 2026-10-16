@@ -25,34 +25,49 @@ abs_path(){ local p="$1"; [[ "$p" = /* ]] && printf '%s\n' "$p" || printf '%s\n'
 cleanup(){ [[ -n "$STEP2_WORK" && -d "$STEP2_WORK" ]] && rm -rf "$STEP2_WORK"; }
 trap cleanup EXIT
 
+# Unit-inside-composite pairs of the bank (once per run): consensus u is "inside" consensus c at c positions a-b when u
+# aligns over >= TIE_COVER_SHORT (0.85) of its length into c and u is at most TIE_COVER_LONG (0.70) of c's length
+# (a unit of a dimer / composite, or a short version of a longer element). Ordinary subfamilies of similar length never
+# form such a pair. Writes "u <TAB> c <TAB> a <TAB> b <TAB> length of c".
+containment_pairs(){
+  local cons="$1" out="$2"
+  ssearch36 -m 8 -E 1e-5 -z -1 -T "$THREADS" "$cons" "$cons" 2>/dev/null \
+  | awk -v cshort="${TIE_COVER_SHORT:-0.85}" -v clong="${TIE_COVER_LONG:-0.70}" '
+      FNR == NR { if (/^>/) { n = substr($1, 2) } else { len[n] += length($0) } ; next }
+      $1 != $2 {
+        u = $1; c = $2; qs = $7 + 0; qe = $8 + 0; if (qs > qe) { t = qs; qs = qe; qe = t }
+        a = $9 + 0; b = $10 + 0; if (a > b) { t = a; a = b; b = t }
+        if (len[u] > 0 && len[c] > 0 && len[u] <= clong * len[c] && (qe - qs + 1) >= cshort * len[u]) {
+          k = u SUBSEP c; sc = $12 + 0
+          if (!(k in best) || sc > best[k]) { best[k] = sc; out[k] = u "\t" c "\t" a "\t" b "\t" len[c] }
+        }
+      }
+      END { for (k in out) print out[k] }' "$cons" - > "$out"
+}
+
 # One voting cycle: ssearch36 -m 8 lines (query = consensus, library = copies) -> per copy the winning consensus,
-# its bitscore, the runner-up consensus and its bitscore. -m 8 columns: 3 identity, 4 aligned length, 7-8 span ON THE
-# CONSENSUS, 9-10 span on the copy, 12 bitscore.
-# Coverage tie-break (TIE_COVER=1, default). With -z 11 every consensus gets its own shuffle statistics, so the SAME
-# alignment scores differently against consensuses of different length (toy: one copy, 87.65 % over copy 1-162,
-# bitscore 149-159 vs XB and 137-150 vs the dimer XAB that contains XB, varying by cycle); main called the single
-# A units of the toy 99/100 firm in one run and 0/40 in the next. When the top two are within TIE_COVER_MARGIN (0.15)
-# in bitscore, the alignments decide:
-#   1. one explains >= TIE_COVER_EXTRA (15) bp more of the COPY at an identity within TIE_COVER_PID (2) points: it wins;
-#   2. both align the same copy span (+-TIE_COVER_SPAN, 5 bp) and one consensus is covered >= TIE_COVER_SHORT (0.85)
-#      while the other is covered <= TIE_COVER_LONG (0.70) (a unit and a composite that contains it): the higher
-#      identity wins when the two differ by more than TIE_COVER_PID points, otherwise the better covered consensus.
-# Subfamilies of similar length cover the same span and both consensuses fully, so neither rule fires for them and
-# their near-ties stay to the vote. Every change of winner is counted in $OUTDIR/tie_cover.log.
+# its bitscore, the runner-up consensus and its bitscore. -m 8 columns: 3 identity, 7-8 span ON THE CONSENSUS, 12 bitscore.
+# Unit vs composite (TIE_COVER=1, default). With -z 11 every consensus gets its own shuffle statistics, so the same
+# alignment scores up to ~6 % differently against a unit and a composite that contains it (toy: 87.65 % over copy
+# 1-162, bitscore 149-159 vs XB, 137-150 vs the dimer XAB); main called single units of the toy 99/100 firm in one run
+# and 0/40 in the next. When the top two are a pair of containment_pairs (u inside c at a-b) and within
+# TIE_COVER_MARGIN (0.15) in bitscore, the alignments decide:
+#   - the copy's alignment to c reaches >= TIE_COVER_EXTRA (15) bp beyond a-b on a side where c has more than 30 bp of
+#     other sequence (the other unit or the linker): c wins. A longer 3' tail of c's copy of the unit does not count
+#     (rsi: P26's r6 part has a ~15 bp longer tail than r6; counting it moved 643 single r6 copies to P26);
+#   - otherwise c wins only when its identity is more than TIE_COVER_PID (2) points higher (the copy is closer to c's
+#     version of the unit), else u wins.
+# Every change of winner is counted in $OUTDIR/tie_cover.log.
 cycle_votes(){
   awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-0.15}" -v pidtol="${TIE_COVER_PID:-2}" \
-      -v extra="${TIE_COVER_EXTRA:-15}" -v spantol="${TIE_COVER_SPAN:-5}" -v cshort="${TIE_COVER_SHORT:-0.85}" \
-      -v clong="${TIE_COVER_LONG:-0.70}" -v logf="$OUTDIR/tie_cover.log" '
-    function absv(x) { return x < 0 ? -x : x }
-    FNR == NR { if (/^>/) { n = substr($1, 2) } else { clen[n] += length($0) } ; next }
+      -v extra="${TIE_COVER_EXTRA:-15}" -v logf="$OUTDIR/tie_cover.log" '
+    FILENAME == ARGV[1] { inside[$1, $2] = 1; pa[$1, $2] = $3; pb[$1, $2] = $4; plen[$1, $2] = $5; next }
     {
       seq = $2; cons = $1; bs = $12 + 0; key = seq SUBSEP cons
       if (!(key in pair_bs) || bs > pair_bs[key]) {
         pair_bs[key] = bs; pid[key] = $3 + 0
         s = $7 + 0; e = $8 + 0; if (s > e) { t = s; s = e; e = t }
-        ccov[key] = (clen[cons] > 0 ? (e - s + 1) / clen[cons] : 1)
-        s = $9 + 0; e = $10 + 0; if (s > e) { t = s; s = e; e = t }
-        qs[key] = s; qe[key] = e
+        cs[key] = s; ce[key] = e
       }
     }
     END {
@@ -68,24 +83,27 @@ cycle_votes(){
       sw1 = 0; sw2 = 0
       for (seq in best_cons) {
         if (on == 1 && (seq in runner_cons) && runner_bs[seq] >= best_bs[seq] * (1 - margin)) {
-          b = seq SUBSEP best_cons[seq]; r = seq SUBSEP runner_cons[seq]
-          lb = qe[b] - qs[b] + 1; lr = qe[r] - qs[r] + 1; dp = pid[r] - pid[b]; swap = 0
-          if (lr >= lb + extra && absv(dp) <= pidtol) { swap = 1; sw1++ }
-          else if (absv(qs[b] - qs[r]) <= spantol && absv(qe[b] - qe[r]) <= spantol &&
-                   ((ccov[r] >= cshort && ccov[b] <= clong) || (ccov[b] >= cshort && ccov[r] <= clong))) {
-            if (dp > pidtol || (absv(dp) <= pidtol && ccov[r] > ccov[b])) { swap = 1; sw2++ }
-          }
-          if (swap) {
-            t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
-            t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
+          x = best_cons[seq]; y = runner_cons[seq]; u = ""
+          if ((x, y) in inside) { u = x; c = y } else if ((y, x) in inside) { u = y; c = x }
+          if (u != "") {
+            ku = seq SUBSEP u; kc = seq SUBSEP c; A = pa[u, c]; B = pb[u, c]; L = plen[u, c]
+            jx = 0
+            if (A - 1 > 30 && cs[kc] < A) jx += A - cs[kc]           # reaches into the 5-prime other unit / linker
+            if (L - B > 30 && ce[kc] > B) jx += ce[kc] - B           # reaches into the 3-prime other unit / linker
+            win = (jx >= extra || pid[kc] - pid[ku] > pidtol) ? c : u
+            if (win != x) {
+              t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
+              t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
+              if (win == c) sw1++; else sw2++
+            }
           }
         }
         rb = (seq in runner_bs ? runner_bs[seq] : 0)
         rc = (seq in runner_cons ? runner_cons[seq] : "NA")
         printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq] + 0.5), rc, int(rb + 0.5)
       }
-      if (on == 1) printf "cycle\tmore_of_copy\t%d\tconsensus_coverage\t%d\n", sw1, sw2 >> logf
-    }' "$2" "$1"
+      if (on == 1) printf "cycle\tto_composite\t%d\tto_unit\t%d\n", sw1, sw2 >> logf
+    }' "$TMPDIR/containment.tsv" "$1"
 }
 
 check_deps(){
@@ -238,6 +256,10 @@ run_assignment(){
     rm -rf "$TMPDIR/splits_raw"
   fi
 
+  containment_pairs "$TMPDIR/consensus_clean.fa" "$TMPDIR/containment.tsv"
+  cp "$TMPDIR/containment.tsv" "$OUTDIR/containment_pairs.tsv"
+  log "Unit-inside-composite pairs in the bank: $(wc -l < "$TMPDIR/containment.tsv") (containment_pairs.tsv)"
+
   # Run 10 voting cycles
   log "Running 10 ssearch36 voting cycles..."
   : > "$TMPDIR/votes.tsv"
@@ -256,7 +278,7 @@ run_assignment(){
 
     # Best consensus per copy for this cycle, plus the best-scoring distinct runner-up (LEAK detection);
     # unit-inside-composite near-ties go to the consensus the copy covers (cycle_votes, TIE_COVER).
-    cycle_votes "$TMPDIR/raw_${cycle}.m8" "$TMPDIR/consensus_clean.fa" >> "$TMPDIR/votes.tsv"
+    cycle_votes "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
   done
   echo >&2 "  Cycle 10/10 done."
 
@@ -655,6 +677,7 @@ run_incremental_assignment(){
       rm -rf "$TMPDIR/splits_raw"
     fi
 
+    containment_pairs "$TMPDIR/consensus_clean.fa" "$TMPDIR/containment.tsv"
     : > "$TMPDIR/votes.tsv"
     for cycle in $(seq 1 10); do
       printf "  Cycle %2d/10\r" "$cycle" >&2
@@ -665,7 +688,7 @@ run_incremental_assignment(){
           >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
           || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
       done
-      cycle_votes "$TMPDIR/raw_${cycle}.m8" "$TMPDIR/consensus_clean.fa" >> "$TMPDIR/votes.tsv"
+      cycle_votes "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
     done
     echo >&2 "  Cycle 10/10 done."
 
