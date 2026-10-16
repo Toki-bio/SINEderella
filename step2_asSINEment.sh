@@ -26,7 +26,9 @@ cleanup(){ [[ -n "$STEP2_WORK" && -d "$STEP2_WORK" ]] && rm -rf "$STEP2_WORK"; }
 trap cleanup EXIT
 
 # Declared composites (COMPOSITES=file, optional): one line per composite, "composite <TAB> unit1,unit2,...", e.g.
-# "r1_r3_P1	r1_9seqs,r3_58seqs". Nothing is inferred from the bank: a short consensus inside a longer one can be a unit
+# "r1_r3_P1	r1_9seqs,r3_58seqs", or with explicit intervals on the composite, "r1_r3_P1	r1_9seqs:6-161,r3_58seqs:201-401"
+# (preferred: units that share a head with other units can align to the wrong place; tools/place_modules.py places
+# declared unit parts in order). Nothing is inferred from the bank: a short consensus inside a longer one can be a unit
 # of a composite, but also a length version or a related subfamily (rsi: auto-detection paired r9 with r7 and P2
 # with P1 and moved 436 firm r9 copies to r7). Each unit is aligned into its composite once; every HSP of >= 30 bp
 # that covers >= TIE_COVER_UNIT (0.5) of the unit is one interval of that unit in the composite (a homodimer has two).
@@ -41,7 +43,16 @@ containment_pairs(){
   while IFS=$'\t' read -r comp units _; do
     [[ -z "$comp" || "$comp" == \#* ]] && continue
     grep -qx ">$comp" "$cons" || die "COMPOSITES: composite '$comp' is not in the bank"
+    local lcomp; lcomp=$(awk -v n="$comp" '/^>/{p=(substr($1,2)==n); next} p{n2+=length($0)} END{print n2+0}' "$cons")
     for u in ${units//,/ }; do
+      if [[ "$u" == *:* ]]; then                       # explicit interval on the composite: unit:start-end
+        local un="${u%%:*}" rng="${u#*:}"
+        grep -qx ">$un" "$cons" || die "COMPOSITES: unit '$un' of '$comp' is not in the bank"
+        [[ "$rng" =~ ^([0-9]+)-([0-9]+)$ ]] && (( BASH_REMATCH[1] >= 1 && BASH_REMATCH[1] < BASH_REMATCH[2] && BASH_REMATCH[2] <= lcomp ))           || die "COMPOSITES: bad interval '$u' for '$comp' (length $lcomp)"
+        printf '%s	%s	%s	%s	%s
+' "$un" "$comp" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$lcomp" >> "$out"
+        continue
+      fi
       grep -qx ">$u" "$cons" || die "COMPOSITES: unit '$u' of '$comp' is not in the bank"
       awk -v n="$comp" '/^>/{p=(substr($1,2)==n)} p' "$cons" > "$TMPDIR/comp_c.fa"
       awk -v n="$u" '/^>/{p=(substr($1,2)==n)} p' "$cons" > "$TMPDIR/comp_u.fa"
