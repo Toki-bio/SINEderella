@@ -25,6 +25,50 @@ abs_path(){ local p="$1"; [[ "$p" = /* ]] && printf '%s\n' "$p" || printf '%s\n'
 cleanup(){ [[ -n "$STEP2_WORK" && -d "$STEP2_WORK" ]] && rm -rf "$STEP2_WORK"; }
 trap cleanup EXIT
 
+# One voting cycle: ssearch36 -m 8 lines (query = consensus, library = copies) -> per copy the winning consensus,
+# its bitscore, the runner-up consensus and its bitscore. Columns 7-8 are the aligned span ON THE CONSENSUS.
+# Coverage tie-break (TIE_COVER=1, default): when the runner-up is within TIE_COVER_MARGIN of the winner's bitscore,
+# covers >= TIE_COVER_SHORT of its own consensus while the winner covers <= TIE_COVER_LONG of its consensus, the
+# runner-up wins. That is a single unit next to a composite / dimer that contains it: both align over the same bases
+# with the same score (toy: XB 179.3 vs XAB 179.3, coverage 100 % vs 53 %), and without the rule the shuffles of
+# -z 11 picked either, so the copy ended no_unanimous. Every swap is counted in $OUTDIR/tie_cover.log.
+cycle_votes(){
+  awk -v on="${TIE_COVER:-1}" -v margin="${TIE_COVER_MARGIN:-0.02}" -v cshort="${TIE_COVER_SHORT:-0.85}" \
+      -v clong="${TIE_COVER_LONG:-0.70}" -v logf="$OUTDIR/tie_cover.log" '
+    FNR == NR { if (/^>/) { n = substr($1, 2) } else { clen[n] += length($0) } ; next }
+    {
+      seq = $2; cons = $1; bs = $12 + 0; key = seq SUBSEP cons
+      if (!(key in pair_bs) || bs > pair_bs[key]) {
+        pair_bs[key] = bs; s = $7 + 0; e = $8 + 0; if (s > e) { t = s; s = e; e = t }
+        pair_cov[key] = (clen[cons] > 0 ? (e - s + 1) / clen[cons] : 1)
+      }
+    }
+    END {
+      for (key in pair_bs) {
+        split(key, a, SUBSEP); seq = a[1]; cons = a[2]; bs = pair_bs[key]
+        if (!(seq in best_bs) || bs > best_bs[seq]) {
+          if (seq in best_bs) { runner_bs[seq] = best_bs[seq]; runner_cons[seq] = best_cons[seq] }
+          best_bs[seq] = bs; best_cons[seq] = cons
+        } else if (!(seq in runner_bs) || bs > runner_bs[seq]) {
+          runner_bs[seq] = bs; runner_cons[seq] = cons
+        }
+      }
+      swaps = 0
+      for (seq in best_cons) {
+        if (on == 1 && (seq in runner_cons) && runner_bs[seq] >= best_bs[seq] * (1 - margin) &&
+            pair_cov[seq, runner_cons[seq]] >= cshort && pair_cov[seq, best_cons[seq]] <= clong) {
+          t = best_cons[seq]; best_cons[seq] = runner_cons[seq]; runner_cons[seq] = t
+          t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
+          swaps++
+        }
+        rb = (seq in runner_bs ? runner_bs[seq] : 0)
+        rc = (seq in runner_cons ? runner_cons[seq] : "NA")
+        printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq] + 0.5), rc, int(rb + 0.5)
+      }
+      if (on == 1) printf "cycle\t%d\tcoverage tie-breaks\n", swaps >> logf
+    }' "$2" "$1"
+}
+
 check_deps(){
   local req=(seqkit ssearch36 awk sed grep sort)
   local missing=()
@@ -191,29 +235,9 @@ run_assignment(){
         || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
     done
 
-    # Extract best hit per sequence for this cycle, plus the best-scoring distinct
-    # runner-up consensus (second place), for downstream LEAK/ambiguity detection.
-    awk '{
-      seq=$2; cons=$1; bs=$12+0
-      key=seq SUBSEP cons
-      if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
-    }
-    END{
-      for(key in pair_bs){
-        split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
-        if(!(seq in best_bs) || bs > best_bs[seq]){
-          if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
-          best_bs[seq]=bs; best_cons[seq]=cons
-        } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
-          runner_bs[seq]=bs; runner_cons[seq]=cons
-        }
-      }
-      for(seq in best_cons){
-        rb = (seq in runner_bs ? runner_bs[seq] : 0)
-        rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-        printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
-      }
-    }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
+    # Best consensus per copy for this cycle, plus the best-scoring distinct runner-up (LEAK detection);
+    # unit-inside-composite near-ties go to the consensus the copy covers (cycle_votes, TIE_COVER).
+    cycle_votes "$TMPDIR/raw_${cycle}.m8" "$TMPDIR/consensus_clean.fa" >> "$TMPDIR/votes.tsv"
   done
   echo >&2 "  Cycle 10/10 done."
 
@@ -622,27 +646,7 @@ run_incremental_assignment(){
           >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
           || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
       done
-      awk '{
-        seq=$2; cons=$1; bs=$12+0
-        key=seq SUBSEP cons
-        if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
-      }
-      END{
-        for(key in pair_bs){
-          split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
-          if(!(seq in best_bs) || bs > best_bs[seq]){
-            if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
-            best_bs[seq]=bs; best_cons[seq]=cons
-          } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
-            runner_bs[seq]=bs; runner_cons[seq]=cons
-          }
-        }
-        for(seq in best_cons){
-          rb = (seq in runner_bs ? runner_bs[seq] : 0)
-          rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-          printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
-        }
-      }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
+      cycle_votes "$TMPDIR/raw_${cycle}.m8" "$TMPDIR/consensus_clean.fa" >> "$TMPDIR/votes.tsv"
     done
     echo >&2 "  Cycle 10/10 done."
 
