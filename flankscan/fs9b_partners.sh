@@ -12,11 +12,12 @@
 #
 # A group is reported when, within one family:
 #   - its copies are linked by flank_only pairs (fs9: shared flank from the junction outward, bodies at family background) on
-#     one side S, >= MING (10) copies, on >= MINCTG (3) contigs;
-#   - the OTHER side is mostly not shared: at most OPP (25 %) of its copies have a pair on the other side inside the group (an
-#     insertion hot spot inside an older repeat and a segmental duplication share both sides; 10 % rejected the rsi X + r6
-#     group, 30 copies, 6 of them linked at 3' as well, most likely by the element's own 3' tail running past a short
-#     consensus; the toy hot spot shares both sides almost completely);
+#     one side S;
+#   - members that are duplicated loci are REMOVED first: a member that also shares the OTHER side with another member, or
+#     that stage 9 calls a twin / array on any side (an insertion hot spot inside an older repeat and a segmental duplication
+#     share both sides). A group-level share limit was wrong: it let rsi X + r6 keep 6 of 30 copies that were one
+#     duplicated block on NC_142512 (both flanks, the body and an 87 bp insertion shared), owner's check 2026-10-17;
+#   - what is left still has >= MING (10) copies on >= MINCTG (3) contigs;
 # For each group: the partner consensus is built from the members' flanks on side S (MAFFT, plurality), and its extent is how far
 # the members agree from the junction outward (>= AGREE 60 % of the bases, >= COVER 50 % of the members, in windows of 10);
 # the partner is searched against the bank and the partner library (PARTNERS=fa, optional): a known name or "unknown"; the
@@ -26,16 +27,16 @@
 #
 # In : RUN_DIR/results/flank_twins/<family>/{flank_groups.tsv,copies.bed} (stage 9), RUN_DIR/genome.clean.fa(.fai),
 #      RUN_DIR/consensuses.clean.fa, RUN_DIR/results/assignment_full.tsv
-# Out: RUN_DIR/results/unknown_partners.tsv  id family side copies contigs other_side_shared partner_len partner_match carriers
+# Out: RUN_DIR/results/unknown_partners.tsv  id family side copies contigs removed_duplicates partner_len partner_match carriers
 #                                            carriers_by_family verdict
 #      RUN_DIR/results/unknown_partners/<id>.members.txt, <id>.partner.fa, <id>.composite.fa (partner + family consensus, in
 #      the element's orientation), <id>.review.aln.fa (members laid on the candidate composite, fs9b_review.py: anchored
 #      columns, outer flanks lower case and packed against each member's own ends)
-# Env: MING=10 MINCTG=3 OPP=0.25 LF=600 AGREE=0.6 COVER=0.5 PROBE=60 JX=5 MAXREV=60 PARTNERS=<fasta>
+# Env: MING=10 MINCTG=3 LF=600 AGREE=0.6 COVER=0.5 PROBE=60 JX=5 MAXREV=60 PARTNERS=<fasta>
 # Needs: gawk, bedtools, samtools, mafft, ssearch36.
 set -euo pipefail
 RUN=$(readlink -f "${1:?RUN_DIR}"); T=${2:-8}
-MING=${MING:-10}; MINCTG=${MINCTG:-3}; OPP=${OPP:-0.25}; LF=${LF:-600}; AGREE=${AGREE:-0.6}; COVER=${COVER:-0.5}
+MING=${MING:-10}; MINCTG=${MINCTG:-3}; LF=${LF:-600}; AGREE=${AGREE:-0.6}; COVER=${COVER:-0.5}
 PROBE=${PROBE:-60}; JX=${JX:-5}; MAXREV=${MAXREV:-60}; PARTNERS=${PARTNERS:-}
 G="$RUN/genome.clean.fa"; FT="$RUN/results/flank_twins"; AF="$RUN/results/assignment_full.tsv"; CONS="$RUN/consensuses.clean.fa"
 OUT="$RUN/results/unknown_partners"
@@ -50,11 +51,12 @@ W=$(mktemp -d "${TMPDIR:-/tmp}/fs9b.XXXXXX"); trap 'rm -rf "$W"' EXIT
 for D in "$FT"/*/; do
     FAM=$(basename "$D")
     [[ -s "$D/flank_groups.tsv" && -s "$D/copies.bed" ]] || continue
-    gawk -F'\t' -v OFS='\t' -v F="$FAM" -v MING="$MING" -v MINCTG="$MINCTG" -v OPP="$OPP" '
+    gawk -F'\t' -v OFS='\t' -v F="$FAM" -v MING="$MING" -v MINCTG="$MINCTG" '
         function root(x) { while (up[x] != x) x = up[x]; return x }
         NR == 1 { next }
         { a = $1; b = $2; s = $3
           pair[s, a, b] = 1; pair[s, b, a] = 1
+          if ($7 == "twin" || $7 == "array") { dup[a] = 1; dup[b] = 1 }   # duplicated with its neighbourhood (stage 9)
           if ($7 == "flank_only") {                     # shared flank, independent bodies
               ka = s SUBSEP a; kb = s SUBSEP b
               if (!(ka in up)) up[ka] = ka; if (!(kb in up)) up[kb] = kb
@@ -65,14 +67,20 @@ for D in "$FT"/*/; do
           for (r in n) {
               if (n[r] < MING) continue
               split(substr(mem[r], 2), m, SUBSEP)        # m[i] = side, copy alternating
-              delete cs; delete ctg; nc = 0; side = m[1]
-              for (i = 1; i <= length(m); i += 2) { c = m[i + 1]; cs[c] = 1; split(c, q, ":"); if (!(q[1] in ctg)) { ctg[q[1]] = 1; nc++ } }
-              if (nc < MINCTG) continue
-              other = (side == 5) ? 3 : 5; shared = 0; tot = 0
-              for (c in cs) { tot++; for (d in cs) if (d != c && ((other, c, d) in pair)) { shared++; break } }
-              if (shared > OPP * tot) continue           # both sides shared: hot spot in an older repeat, or a duplication
+              delete cs; side = m[1]; other = (side == 5) ? 3 : 5
+              for (i = 1; i <= length(m); i += 2) cs[m[i + 1]] = 1
+              # a member that also shares the OTHER side with another member, or that stage 9 calls a twin / array, is a
+              # duplicated locus, not an independent carrier of the partner: it is removed, the group is judged on the rest
+              # (rsi X + r6: 6 of 30 copies were one duplicated block on NC_142512, both flanks and the body shared)
+              delete rm; nrm = 0
+              for (c in cs) { if (c in dup) { rm[c] = 1; continue }
+                  for (d in cs) if (d != c && ((other, c, d) in pair)) { rm[c] = 1; break } }
+              for (c in rm) nrm++
+              delete ctg; nc = 0; nk = 0
+              for (c in cs) if (!(c in rm)) { nk++; split(c, q, ":"); if (!(q[1] in ctg)) { ctg[q[1]] = 1; nc++ } }
+              if (nk < MING || nc < MINCTG) continue
               gid++
-              for (c in cs) print F "_" side "p" gid, F, side, c, nc, shared / tot }
+              for (c in cs) if (!(c in rm)) print F "_" side "p" gid, F, side, c, nc, nrm }
         }' "$D/flank_groups.tsv" >> "$W/groups.tsv"
 done
 NG=$(cut -f1 "$W/groups.tsv" | sort -u | wc -l)
@@ -88,12 +96,12 @@ bedtools flank -i "$W/all.bed" -g "$G.fai" -l 0 -r $FW -s | bedtools getfasta -f
     sed 's/([+-])$//' > "$W/all3.fa"
 cat "$CONS" ${PARTNERS:+"$PARTNERS"} > "$W/known.fa"
 
-printf "id\tfamily\tside\tcopies\tcontigs\tother_side_shared\tpartner_len\tpartner_match\tcarriers\tcarriers_by_family\tverdict\n" > "$OUT.tsv"
+printf "id\tfamily\tside\tcopies\tcontigs\tremoved_duplicates\tpartner_len\tpartner_match\tcarriers\tcarriers_by_family\tverdict\n" > "$OUT.tsv"
 for ID in $(cut -f1 "$W/groups.tsv" | sort -u); do
     FAM=$(gawk -F'\t' -v I="$ID" '$1 == I { print $2; exit }' "$W/groups.tsv")
     S=$(gawk -F'\t' -v I="$ID" '$1 == I { print $3; exit }' "$W/groups.tsv")
     NC=$(gawk -F'\t' -v I="$ID" '$1 == I { print $5; exit }' "$W/groups.tsv")
-    OS=$(gawk -F'\t' -v I="$ID" '$1 == I { printf "%.2f", $6; exit }' "$W/groups.tsv")
+    OS=$(gawk -F'\t' -v I="$ID" '$1 == I { print $6; exit }' "$W/groups.tsv")
     gawk -F'\t' -v I="$ID" '$1 == I { print $4 }' "$W/groups.tsv" | sort > "$OUT/$ID.members.txt"
     N=$(wc -l < "$OUT/$ID.members.txt")
     # ---- 3. partner: members' LF-bp flanks on side S, read in the element's orientation, aligned; extent from the junction -----

@@ -13,6 +13,8 @@ Classes (U = 200 bp unit, every copy 6-12 % diverged, random strand, >= 5 kb apa
   hotspot   20  U inserted at position 200 of a copy of an older repeat R (400 bp, 160 copies at 15 %): both flanks
                 shared with other hot-spot copies -> two-sided, must NOT be reported
   segdup     8  4 pairs: U with 1 kb on each side duplicated (2 % between the two) -> twins, must NOT be reported
+  X+U dup    6  3 X + U loci duplicated with 1 kb on each side: they share the X side AND the other side, so 9b must
+                remove them from the X group (removed_duplicates = 6); the owner found such a block in rsi (NC_142512)
   V        600  a second family, alone
   Bk+U/V 15+25  partner Bk (180 bp, unknown) next to copies of BOTH families in proportion to their size -> may be grouped,
                 but the summary must call it "all families: background", while X must be "family-specific"
@@ -84,6 +86,10 @@ for k in range(160):                           # old repeat R; the first 20 carr
         e = mut(U, rng.uniform(0.06, 0.12)); place(r[:200] + e + r[200:], 200, len(e), "hotspot", "+")
     else:
         place(r, 0, 0, "R")
+for k in range(3):                             # X + U loci duplicated with 1 kb each side (twice): must leave the X group
+    left, right = rnd(1000), rnd(1000); e = mut(X, 0.05) + mut(U, rng.uniform(0.06, 0.12))
+    for _ in range(2):
+        s = mut(left + e + right, 0.01); place(s, 1000 + len(X), len(s) - 2000 - len(X), "X+U dup")
 for k in range(4):                             # segmental duplications: one locus with 1 kb each side, twice
     left, right = rnd(1000), rnd(1000); e = mut(U, rng.uniform(0.06, 0.12))
     for _ in range(2):
