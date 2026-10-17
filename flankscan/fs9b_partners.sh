@@ -170,7 +170,7 @@ gawk -F'\t' -v OFS='\t' -v MIN=30 '
           for (j in g) { split(row[g[j]], f, "\t"); fams = fams (index("," fams ",", "," f[2] ",") ? "" : f[2] ","); cop += f[4]
               if (f[7] > L) L = f[7]; if (f[9] > car) car = f[9]; if (f[8] != "unknown") mt = f[8]
               # specificity of this group: carriers in its own family vs expected from family size
-              own = 0; nb = split(f[10], b, ","); for (k = 1; k <= nb; k++) { split(b[k], kv, ":"); if (kv[1] == f[2]) own = kv[2] }
+              own = 0; nb = split(f[10], bb, ","); for (k = 1; k <= nb; k++) { split(bb[k], kv, ":"); if (kv[1] == f[2]) own = kv[2] }
               if (f[9] > 0 && size[f[2]] > 0) { sh = own / f[9]; sp = sh / (size[f[2]] / size["__all__"]); if (sh >= 0.5 && sp > best) { best = sp; bf = f[2]; bsh = sh } } }
           sub(/,$/, "", fams)
           kind = (mt != "unknown") ? "known partner" : (best >= 2 ? "family-specific: composite candidate" : "all families: background")
