@@ -145,9 +145,10 @@ for ID in $(cut -f1 "$W/groups.tsv" | sort -u); do
     printf "%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\t%s\tcheck\n" "$ID" "$FAM" "$S" "$N" "$NC" "$OS" "$PL" "$MATCH" "$CAR" "$BYF" >> "$OUT.tsv"
 done
 # ---- 7. summary: drop groups without a common partner, merge the same partner found in several families, family specificity ----
-# specificity of a group = (carriers in its own family / copies of that family) / (all carriers / all copies): a composite's
-# partner is concentrated in its family (well above 1); a sequence that sits next to copies of every family in proportion to
-# their size (rsi: a ~120 bp sequence next to ~1 % of the copies of every family) is background near 1.
+# family specificity of a group: own_share = carriers in its own family / all carriers; enrichment = own_share / the family's
+# share of all copies. "family-specific" = own_share >= 0.5 and enrichment >= 2 (a big family cannot reach more than 1 / its
+# share: rsi P1 holds 22 % of the copies, so at most 4.5); a sequence next to copies of every family in proportion to their
+# size (rsi: a ~120 bp sequence next to ~1 % of the copies of every family) stays near 1: "background".
 gawk -F'\t' '{ split($4, q, "|"); n[q[2]]++; t++ } END { for (f in n) print f "\t" n[f]; print "__all__\t" t }' "$W/all.bed" > "$W/famsize.tsv"
 : > "$W/partners.fa"
 gawk -F'\t' -v M=30 'NR > 1 && $7 >= M { print $1 }' "$OUT.tsv" | while read -r I; do
@@ -162,21 +163,20 @@ gawk -F'\t' -v OFS='\t' -v MIN=30 '
     $7 >= MIN { row[$1] = $0; up[$1] = $1; ids[++n] = $1 }
     END {
       for (k in link) { split(k, p, SUBSEP); if ((p[1] in up) && (p[2] in up)) { a = root(p[1]); b = root(p[2]); if (a != b) up[a] = b } }
-      print "cluster", "groups", "families", "copies_in_groups", "partner_len", "partner_match", "carriers", "best_specificity", "specific_family", "kind"
+      print "cluster", "groups", "families", "copies_in_groups", "partner_len", "partner_match", "carriers", "own_share", "enrichment", "specific_family", "kind"
       for (i = 1; i <= n; i++) { r = root(ids[i]); members[r] = members[r] "," ids[i] }
       for (r in members) {
-          split(substr(members[r], 2), g, ","); fams = ""; cop = 0; best = 0; bf = "-"; L = 0; car = 0; mt = "unknown"
+          split(substr(members[r], 2), g, ","); fams = ""; cop = 0; best = 0; bf = "-"; L = 0; car = 0; mt = "unknown"; bsh = 0
           for (j in g) { split(row[g[j]], f, "\t"); fams = fams (index("," fams ",", "," f[2] ",") ? "" : f[2] ","); cop += f[4]
               if (f[7] > L) L = f[7]; if (f[9] > car) car = f[9]; if (f[8] != "unknown") mt = f[8]
               # specificity of this group: carriers in its own family vs expected from family size
               own = 0; nb = split(f[10], b, ","); for (k = 1; k <= nb; k++) { split(b[k], kv, ":"); if (kv[1] == f[2]) own = kv[2] }
-              if (f[9] > 0 && size[f[2]] > 0) { sp = (own / size[f[2]]) / (f[9] / size["__all__"]); if (sp > best) { best = sp; bf = f[2] } } }
+              if (f[9] > 0 && size[f[2]] > 0) { sh = own / f[9]; sp = sh / (size[f[2]] / size["__all__"]); if (sh >= 0.5 && sp > best) { best = sp; bf = f[2]; bsh = sh } } }
           sub(/,$/, "", fams)
-          kind = (mt != "unknown") ? "known partner" : (best >= 5 ? "family-specific: composite candidate" : "all families: background")
-          printf "%s\t%s\t%s\t%d\t%d\t%s\t%d\t%.1f\t%s\t%s
-", r, substr(members[r], 2), fams, cop, L, mt, car, best, bf, kind } }'     "$W/partners.fa" "$W/famsize.tsv" "$W/pp.m8" "$OUT.tsv" | { read -r h; echo "$h"; sort -t$'\t' -k10,10 -k8,8gr; } > "$OUT.summary.tsv"
+          kind = (mt != "unknown") ? "known partner" : (best >= 2 ? "family-specific: composite candidate" : "all families: background")
+          printf "%s\t%s\t%s\t%d\t%d\t%s\t%d\t%.2f\t%.1f\t%s\t%s\n", r, substr(members[r], 2), fams, cop, L, mt, car, bsh, best, bf, kind } }' \
+    "$W/partners.fa" "$W/famsize.tsv" "$W/pp.m8" "$OUT.tsv" | { read -r h; echo "$h"; sort -t$'\t' -k11,11 -k9,9gr; } > "$OUT.summary.tsv"
 echo "fs9b: $(( $(wc -l < "$OUT.tsv") - 1 )) candidate partner group(s) -> $OUT.tsv"
 echo "fs9b: $(( $(wc -l < "$OUT.summary.tsv") - 1 )) distinct partner(s) with >= 30 bp -> $OUT.summary.tsv"
 column -t -s$'\t' "$OUT.summary.tsv" 2> /dev/null || cat "$OUT.summary.tsv"
 exit 0
-column -t -s$'\t' "$OUT.tsv" 2> /dev/null || cat "$OUT.tsv"

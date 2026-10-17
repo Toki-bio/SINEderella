@@ -2,7 +2,7 @@
 """Toy genome for flankscan stage 9b (unknown partners from one-sided shared flanks).
 
 Usage: make_toy_partners.py OUTDIR [seed=5]
-Writes OUTDIR/genome.fa (4 x 1 Mb), OUTDIR/bank.fa (the unit U only), OUTDIR/partners.fa (partner Y, as a partner
+Writes OUTDIR/genome.fa (8 x 1 Mb), OUTDIR/bank.fa (units U and V), OUTDIR/partners.fa (partner Y, as a partner
 library), OUTDIR/truth.tsv (contig start0 end strand class), where the span is the U element of each copy.
 
 Classes (U = 200 bp unit, every copy 6-12 % diverged, random strand, >= 5 kb apart):
@@ -13,6 +13,9 @@ Classes (U = 200 bp unit, every copy 6-12 % diverged, random strand, >= 5 kb apa
   hotspot   20  U inserted at position 200 of a copy of an older repeat R (400 bp, 160 copies at 15 %): both flanks
                 shared with other hot-spot copies -> two-sided, must NOT be reported
   segdup     8  4 pairs: U with 1 kb on each side duplicated (2 % between the two) -> twins, must NOT be reported
+  V        600  a second family, alone
+  Bk+U/V 15+25  partner Bk (180 bp, unknown) next to copies of BOTH families in proportion to their size -> may be grouped,
+                but the summary must call it "all families: background", while X must be "family-specific"
 """
 import os
 import random
@@ -37,15 +40,17 @@ def rc(s):
 
 
 U = rnd(185, 0.55) + "A" * 15
+V = rnd(190, 0.50) + "T" * 4 + "A" * 12          # a second, unrelated family: makes family specificity testable
 X = rnd(250, 0.35)
 Y = rnd(200, 0.50)
 R = rnd(400, 0.45)
+BK = rnd(180, 0.40)                              # background: next to copies of BOTH families, in proportion to their size
 os.makedirs(out, exist_ok=True)
-open(os.path.join(out, "bank.fa"), "w").write(">U\n%s\n" % U)
+open(os.path.join(out, "bank.fa"), "w").write(">U\n%s\n>V\n%s\n" % (U, V))
 open(os.path.join(out, "partners.fa"), "w").write(">x.Y\n%s\n" % Y)
 open(os.path.join(out, "partner_X_truth.fa"), "w").write(">X\n%s\n" % X)
 
-ctg = {"chr%d" % i: list(rnd(1_000_000)) for i in range(1, 5)}
+ctg = {"chr%d" % i: list(rnd(1_000_000)) for i in range(1, 9)}
 slots = [(c, p) for c in ctg for p in range(5000, 995000, 6000)]
 rng.shuffle(slots)
 slots = iter(slots)
@@ -63,6 +68,12 @@ def place(seq, el_off, el_len, cls, strand=None):
 
 for _ in range(300):
     e = mut(U, rng.uniform(0.06, 0.12)); place(e, 0, len(e), "single")
+for _ in range(600):
+    e = mut(V, rng.uniform(0.06, 0.12)); place(e, 0, len(e), "V")
+for fam, n in ((U, 15), (V, 25)):
+    for _ in range(n):
+        k = mut(BK, rng.uniform(0.04, 0.08)); e = mut(fam, rng.uniform(0.06, 0.12))
+        place(k + e, len(k), len(e), "Bk+U" if fam is U else "Bk+V")
 for _ in range(25):
     x = mut(X, rng.uniform(0.04, 0.08)); e = mut(U, rng.uniform(0.06, 0.12)); place(x + e, len(x), len(e), "X+U")
 for _ in range(15):
