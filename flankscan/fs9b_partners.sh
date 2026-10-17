@@ -13,8 +13,10 @@
 # A group is reported when, within one family:
 #   - its copies are linked by flank_only pairs (fs9: shared flank from the junction outward, bodies at family background) on
 #     one side S, >= MING (10) copies, on >= MINCTG (3) contigs;
-#   - the OTHER side is not shared: at most OPP (10 %) of its copies have a pair on the other side inside the group (an
-#     insertion hot spot inside an older repeat and a segmental duplication share both sides);
+#   - the OTHER side is mostly not shared: at most OPP (25 %) of its copies have a pair on the other side inside the group (an
+#     insertion hot spot inside an older repeat and a segmental duplication share both sides; 10 % rejected the rsi X + r6
+#     group, 30 copies, 6 of them linked at 3' as well, most likely by the element's own 3' tail running past a short
+#     consensus; the toy hot spot shares both sides almost completely);
 # For each group: the partner consensus is built from the members' flanks on side S (MAFFT, plurality), and its extent is how far
 # the members agree from the junction outward (>= AGREE 60 % of the bases, >= COVER 50 % of the members, in windows of 10);
 # the partner is searched against the bank and the partner library (PARTNERS=fa, optional): a known name or "unknown"; the
@@ -28,11 +30,11 @@
 #                                            carriers_by_family verdict
 #      RUN_DIR/results/unknown_partners/<id>.members.txt, <id>.partner.fa, <id>.composite.fa (partner + family consensus, in
 #      the element's orientation), <id>.review.aln.fa (members: LF bp of side-S flank and the element, MAFFT; flanks lower case)
-# Env: MING=10 MINCTG=3 OPP=0.1 LF=600 AGREE=0.6 COVER=0.5 PROBE=60 JX=5 MAXREV=60 PARTNERS=<fasta>
+# Env: MING=10 MINCTG=3 OPP=0.25 LF=600 AGREE=0.6 COVER=0.5 PROBE=60 JX=5 MAXREV=60 PARTNERS=<fasta>
 # Needs: gawk, bedtools, samtools, mafft, ssearch36.
 set -euo pipefail
 RUN=$(readlink -f "${1:?RUN_DIR}"); T=${2:-8}
-MING=${MING:-10}; MINCTG=${MINCTG:-3}; OPP=${OPP:-0.1}; LF=${LF:-600}; AGREE=${AGREE:-0.6}; COVER=${COVER:-0.5}
+MING=${MING:-10}; MINCTG=${MINCTG:-3}; OPP=${OPP:-0.25}; LF=${LF:-600}; AGREE=${AGREE:-0.6}; COVER=${COVER:-0.5}
 PROBE=${PROBE:-60}; JX=${JX:-5}; MAXREV=${MAXREV:-60}; PARTNERS=${PARTNERS:-}
 G="$RUN/genome.clean.fa"; FT="$RUN/results/flank_twins"; AF="$RUN/results/assignment_full.tsv"; CONS="$RUN/consensuses.clean.fa"
 OUT="$RUN/results/unknown_partners"
