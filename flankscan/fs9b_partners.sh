@@ -29,7 +29,8 @@
 # Out: RUN_DIR/results/unknown_partners.tsv  id family side copies contigs other_side_shared partner_len partner_match carriers
 #                                            carriers_by_family verdict
 #      RUN_DIR/results/unknown_partners/<id>.members.txt, <id>.partner.fa, <id>.composite.fa (partner + family consensus, in
-#      the element's orientation), <id>.review.aln.fa (members: LF bp of side-S flank and the element, MAFFT; flanks lower case)
+#      the element's orientation), <id>.review.aln.fa (members laid on the candidate composite, fs9b_review.py: anchored
+#      columns, outer flanks lower case and packed against each member's own ends)
 # Env: MING=10 MINCTG=3 OPP=0.25 LF=600 AGREE=0.6 COVER=0.5 PROBE=60 JX=5 MAXREV=60 PARTNERS=<fasta>
 # Needs: gawk, bedtools, samtools, mafft, ssearch36.
 set -euo pipefail
@@ -138,12 +139,14 @@ for ID in $(cut -f1 "$W/groups.tsv" | sort -u); do
     PS=$(grep -v '^>' "$OUT/$ID.partner.fa" | tr -d '\n')
     if [[ $S == 5 ]]; then printf ">%s_composite partner(%d)+%s\n%s%s\n" "$ID" "$PL" "$FAM" "$PS" "$UC"; else printf ">%s_composite %s+partner(%d)\n%s%s\n" "$ID" "$FAM" "$PL" "$UC" "$PS"; fi > "$OUT/$ID.composite.fa"
     head -n "$MAXREV" "$OUT/$ID.members.txt" > "$W/rv.txt"
+    # members cut with LF + 100 bp on the partner side and 100 bp on the other side, in the element's orientation; laid on the
+    # candidate composite by fs9b_review.py (anchored columns, outer flanks lower case and packed against each member's ends)
     gawk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { m[$1]; next } ($4 in m)' "$W/rv.txt" "$FT/$FAM/copies.bed" |
-        gawk -F'\t' -v OFS='\t' -v S="$S" -v LF="$LF" '{ if (($6 == "+") == (S == 5)) $2 = ($2 > LF ? $2 - LF : 0); else $3 = $3 + LF; print }' > "$W/rv.bed"
-    bedtools getfasta -fi "$G" -bed "$W/rv.bed" -s -nameOnly 2> /dev/null | sed 's/([+-])$//' |
-        gawk -v S="$S" -v LF="$LF" '/^>/ { print; next } { s = toupper($0); if (S == 5) print tolower(substr(s, 1, LF)) substr(s, LF + 1); else print substr(s, 1, length(s) - LF) tolower(substr(s, length(s) - LF + 1)) }' > "$W/rv.fa"
-    cat "$OUT/$ID.partner.fa" <(printf ">CONS_%s\n%s\n" "$FAM" "$UC") "$W/rv.fa" > "$W/rv.in.fa"
-    mafft --quiet --thread "$T" --threadit 0 --localpair --maxiterate 1000 --preservecase "$W/rv.in.fa" > "$OUT/$ID.review.aln.fa" 2> /dev/null || true
+        gawk -F'\t' -v OFS='\t' -v S="$S" -v LF="$LF" '{ up = (S == 5) ? LF + 100 : 100; dn = (S == 5) ? 100 : LF + 100
+            if ($6 == "+") { $2 = ($2 > up ? $2 - up : 0); $3 = $3 + dn } else { $2 = ($2 > dn ? $2 - dn : 0); $3 = $3 + up }; print }' > "$W/rv.bed"
+    bedtools getfasta -fi "$G" -bed "$W/rv.bed" -s -nameOnly 2> /dev/null | sed 's/([+-])$//' > "$W/rv.fa"
+    python3 -I "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/fs9b_review.py" "$OUT/$ID.composite.fa" "$W/rv.fa" "$OUT/$ID.review.aln.fa" "$T" > /dev/null 2>> "$W/review.err" ||
+        echo "fs9b: review alignment of $ID failed (see the run's stderr)" >&2
     printf "%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\t%s\tcheck\n" "$ID" "$FAM" "$S" "$N" "$NC" "$OS" "$PL" "$MATCH" "$CAR" "$BYF" >> "$OUT.tsv"
 done
 # ---- 7. summary: drop groups without a common partner, merge the same partner found in several families, family specificity ----
