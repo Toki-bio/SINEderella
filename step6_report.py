@@ -2166,6 +2166,34 @@ def build_alignment_section(
 # Build
 # ===========================================================================
 
+def flank_verdict_paragraph(fv: Dict[str, Dict[str, str]]) -> str:
+    """Overview sentence from flank_verdict.tsv: assigned copies that are SINE loci (subfamily flanks unique) and those
+    that are not (flanks still shared at the expansion limit, or untested). '' when the run has no verdicts."""
+    if not fv:
+        return ("<p><b>Flank verdict: not computed in this run</b> (no flank_verdict.tsv; it is written by the "
+                "publish run). Copy numbers above are assignments, not yet SINE loci with tested unique flanks.</p>")
+    n = {}
+    names = {}
+    for sf, r in fv.items():
+        v = r.get("verdict", "untested")
+        try:
+            c = int(r.get("assigned_copies", 0) or 0)
+        except ValueError:
+            c = 0
+        n[v] = n.get(v, 0) + c
+        names.setdefault(v, []).append(sf)
+    tot = sum(n.values())
+    ok = n.get("interspersed", 0)
+    bad = [(v, n[v]) for v in ("not_interspersed", "untested", "not_tested") if n.get(v)]
+    words = {"not_interspersed": "flanks still shared at the expansion limit (not interspersed)",
+             "untested": "flank uniqueness could not be tested", "not_tested": "flank test not run"}
+    parts = "; ".join(f"<b>{c:,}</b> in {len(names[v])} subfamil{'y' if len(names[v]) == 1 else 'ies'} "
+                      f"({html.escape(', '.join(sorted(names[v])))}): {words[v]}" for v, c in bad)
+    return (f"<p><b>Flank verdict:</b> <b>{ok:,}</b> of {tot:,} assigned copies are SINE loci "
+            f"(their subfamily's flanks were shown unique). " + (f"Not SINE loci: {parts}. " if parts else "")
+            + "Per-copy verdicts: <code>step2/step2_output/loci_verdict.tsv</code>.</p>")
+
+
 def build_html(run_root: Path,
                out_path: Path,
                inline_plotly: bool,
@@ -2192,6 +2220,12 @@ def build_html(run_root: Path,
 
     stats_hdr, stats_rows = read_tsv(s2 / "assignment_stats.tsv")
     bysf_hdr, bysf_rows   = read_tsv(s2 / "summary.by_subfam.tsv")
+    # flank verdicts (tools/flank_verdict.py, publish runs): only "interspersed" subfamilies are SINE loci (docs/AIM.md)
+    fv_hdr, fv_rows = read_tsv(s2 / "flank_verdict.tsv")
+    flank_verdict = {r[0]: dict(zip(fv_hdr, r)) for r in fv_rows if r}
+    if flank_verdict and bysf_hdr:
+        bysf_hdr = bysf_hdr + ["flank_verdict"]
+        bysf_rows = [r + [flank_verdict.get(r[0], {}).get("verdict", "no result") if r else ""] for r in bysf_rows]
     _, sbr_rows           = read_tsv(s2 / "self_bits_real.tsv",
                                      has_header=False)
 
@@ -2344,6 +2378,7 @@ def build_html(run_root: Path,
            f"{_ipct(unassigned_v, total_v)} remained unassigned."
            if unassigned_v else "")
         + "</p>"
+        + flank_verdict_paragraph(flank_verdict)
     )
 
     mani_html = "<div class='kv'>" + "".join(
