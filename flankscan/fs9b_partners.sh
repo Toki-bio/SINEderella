@@ -157,7 +157,7 @@ gawk -F'\t' -v M=30 'NR > 1 && $7 >= M { print $1 }' "$OUT.tsv" | while read -r 
 gawk -F'\t' -v OFS='\t' -v MIN=30 '
     FILENAME == ARGV[1] { if (/^>/) { id = substr($1, 2) } else { len[id] += length($0) } ; next }
     FILENAME == ARGV[2] { size[$1] = $2; next }
-    FILENAME == ARGV[3] { if ($1 != $2 && $3 >= 80 && $4 >= 0.6 * (len[$1] < len[$2] ? len[$1] : len[$2])) link[$1, $2] = 1; next }
+    FILENAME == ARGV[3] { if ($1 != $2 && $3 >= 80 && $4 >= 0.6 * (len[$1] > len[$2] ? len[$1] : len[$2])) link[$1, $2] = 1; next }
     function root(x) { while (up[x] != x) x = up[x]; return x }
     FNR == 1 { next }
     $7 >= MIN { row[$1] = $0; up[$1] = $1; ids[++n] = $1 }
