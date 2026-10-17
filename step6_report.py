@@ -2167,31 +2167,32 @@ def build_alignment_section(
 # ===========================================================================
 
 def flank_verdict_paragraph(fv: Dict[str, Dict[str, str]]) -> str:
-    """Overview sentence from flank_verdict.tsv: assigned copies that are SINE loci (subfamily flanks unique) and those
-    that are not (flanks still shared at the expansion limit, or untested). '' when the run has no verdicts."""
+    """Overview sentence from flank_verdict.tsv (tools/flank_verdict.py): assigned copies that are SINE loci (flanks tested
+    unique), in the grey zone (flanks masked / untestable), and not SINE (flanks shared, or the same flank at the same place
+    in many copies, or the subfamily's flanks still shared at the expansion limit)."""
     if not fv:
         return ("<p><b>Flank verdict: not computed in this run</b> (no flank_verdict.tsv; it is written by the "
                 "publish run). Copy numbers above are assignments, not yet SINE loci with tested unique flanks.</p>")
-    n = {}
-    names = {}
-    for sf, r in fv.items():
-        v = r.get("verdict", "untested")
+
+    def num(r, k):
         try:
-            c = int(r.get("assigned_copies", 0) or 0)
+            return int(r.get(k, 0) or 0)
         except ValueError:
-            c = 0
-        n[v] = n.get(v, 0) + c
-        names.setdefault(v, []).append(sf)
-    tot = sum(n.values())
-    ok = n.get("interspersed", 0)
-    bad = [(v, n[v]) for v in ("not_interspersed", "untested", "not_tested") if n.get(v)]
-    words = {"not_interspersed": "flanks still shared at the expansion limit (not interspersed)",
-             "untested": "flank uniqueness could not be tested", "not_tested": "flank test not run"}
-    parts = "; ".join(f"<b>{c:,}</b> in {len(names[v])} subfamil{'y' if len(names[v]) == 1 else 'ies'} "
-                      f"({html.escape(', '.join(sorted(names[v])))}): {words[v]}" for v, c in bad)
-    return (f"<p><b>Flank verdict:</b> <b>{ok:,}</b> of {tot:,} assigned copies are SINE loci "
-            f"(their subfamily's flanks were shown unique). " + (f"Not SINE loci: {parts}. " if parts else "")
-            + "Per-copy verdicts: <code>step2/step2_output/loci_verdict.tsv</code>.</p>")
+            return 0
+    tot = sum(num(r, "assigned_copies") for r in fv.values())
+    sine = sum(num(r, "sine") for r in fv.values())
+    grey = sum(num(r, "grey") for r in fv.values())
+    nots = sum(num(r, "not_sine") for r in fv.values())
+    bad = sorted(sf for sf, r in fv.items() if r.get("verdict") == "not_interspersed")
+    unt = sorted(sf for sf, r in fv.items() if r.get("verdict") in ("untested", "not_tested"))
+    return (f"<p><b>Flank verdict:</b> of {tot:,} assigned copies, <b>{sine:,}</b> are SINE loci (flanks tested unique), "
+            f"<b>{grey:,}</b> are in the grey zone (flanks masked as repeats or untestable) and <b>{nots:,}</b> are not "
+            "SINE loci (flanks shared with another copy, the same flank at the same place in many copies, or the "
+            "subfamily's flanks still shared at the expansion limit). "
+            + (f"Subfamilies not interspersed: {html.escape(', '.join(bad))}. " if bad else "")
+            + (f"Subfamilies whose flanks could not be tested (grey): {html.escape(', '.join(unt))}. " if unt else "")
+            + "Copy numbers in the tables below count assigned copies; per-copy verdicts: "
+              "<code>step2/step2_output/loci_verdict.tsv</code>.</p>")
 
 
 def build_html(run_root: Path,
@@ -2224,8 +2225,9 @@ def build_html(run_root: Path,
     fv_hdr, fv_rows = read_tsv(s2 / "flank_verdict.tsv")
     flank_verdict = {r[0]: dict(zip(fv_hdr, r)) for r in fv_rows if r}
     if flank_verdict and bysf_hdr:
-        bysf_hdr = bysf_hdr + ["flank_verdict"]
-        bysf_rows = [r + [flank_verdict.get(r[0], {}).get("verdict", "no result") if r else ""] for r in bysf_rows]
+        bysf_hdr = bysf_hdr + ["flank_verdict", "SINE_loci", "grey_zone", "not_SINE"]
+        bysf_rows = [r + ([flank_verdict.get(r[0], {}).get(k, "no result" if k == "verdict" else "")
+                           for k in ("verdict", "sine", "grey", "not_sine")] if r else []) for r in bysf_rows]
     _, sbr_rows           = read_tsv(s2 / "self_bits_real.tsv",
                                      has_header=False)
 
