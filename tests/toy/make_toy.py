@@ -77,4 +77,23 @@ with open(os.path.join(s2, "unassigned.tsv"), "w") as fh:
     fh.write("SeqID\tSoft_Subfamily\tSearch_Score\tAll_Queries\tReason\n")
     for c, a, b, st, sf, sc in soft:
         fh.write("%s:%d-%d(%s)\t%s\t%d\t%s\tno_unanimous\n" % (c, a - 1, b, st, sf, sc, sf))
+# planted flank-test results (2026-10-18), so that the publish path runs the flank verdict and the SINE-only plate filter:
+# step7 confirmed on both sides for every subfamily (boundary 0, no extension); stage 9: the tandem-array units of TOYS
+# (ctgB) and TOYA (ctgC) are "array", every other firm copy "unique". Expected after the filter: no array unit and no
+# soft copy in any plate, no TOYC plate (soft only), TOYS plates = its 6 dispersed copies, TOYA plates = its 4 independent.
+with open(os.path.join(s2, "boundary_refinement.tsv"), "w") as fh:
+    fh.write("subfamily\tpopulation\tside\tboundary_bp\tstatus\tfinal_identity_pct\tfinal_elevated_frac_pct\t"
+             "background_identity_pct\tbackground_elevated_frac_pct\n")
+    for sf in cons:
+        for pop in ("general", "top100"):
+            for side in ("upstream", "downstream"):
+                fh.write("%s\t%s\t%s\t0\tconfirmed\t25\t0\t25\t0.1\n" % (sf, pop, side))
+for sf in cons:
+    d = os.path.join(root, "results", "flank_twins", sf)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "copy_status.tsv"), "w") as fh:
+        for c, a, b, st, s, sc in firm:
+            if s == sf:
+                fh.write("%s:%d-%d(%s)\t%s\t0\t-\t-\n" % (c, a - 1, b, st, "array" if c in ("ctgB", "ctgC") else "unique"))
+    open(os.path.join(d, "flank_groups.tsv"), "w").write("copy_a\tcopy_b\tside\tidentity\tlength\ttier\tclass\n")
 print("toy run dir:", root, "firm", len(firm), "soft", len(soft))

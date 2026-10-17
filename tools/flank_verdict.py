@@ -46,8 +46,9 @@ if not s2s:
     sys.exit("flank_verdict: no step2/step2_output* in %s" % run_root)
 s2 = s2s[-1]
 assign = os.path.join(s2, "assignment_full.tsv")
-if not os.path.isfile(assign):
-    sys.exit("flank_verdict: missing %s" % assign)
+assigned_fa = os.path.join(s2, "assigned.fasta")
+if not os.path.isfile(assign) and not os.path.isfile(assigned_fa):
+    sys.exit("flank_verdict: neither %s nor %s" % (assign, assigned_fa))
 
 STEP7 = {"confirmed": "independent", "undetermined": "still_shared"}
 
@@ -91,15 +92,23 @@ for js in glob.glob(os.path.join(run_root, "border_loop", "*", "border_loop.json
     loop[sf] = v
 
 copies, nassigned = [], {}
-with open(assign) as fh:
-    fh.readline()
-    for line in fh:
-        p = line.rstrip("\n").split("\t")
-        if len(p) < 5:
-            continue
-        copies.append((p[0], p[1], p[4]))
-        if p[4] == "assigned":
-            nassigned[p[1]] = nassigned.get(p[1], 0) + 1
+if os.path.isfile(assign):
+    with open(assign) as fh:
+        fh.readline()
+        for line in fh:
+            p = line.rstrip("\n").split("\t")
+            if len(p) >= 5:
+                copies.append((p[0], p[1], p[4]))
+else:                                        # a run dir with assigned.fasta only (headers: copy|subfamily|bitscore)
+    with open(assigned_fa) as fh:
+        for line in fh:
+            if line.startswith(">"):
+                p = line[1:].strip().split("|")
+                if len(p) >= 2:
+                    copies.append((p[0], p[1], "assigned"))
+for c, sf, st in copies:
+    if st == "assigned":
+        nassigned[sf] = nassigned.get(sf, 0) + 1
 
 tested_any = bool(step7) or bool(loop)
 sfv = {}

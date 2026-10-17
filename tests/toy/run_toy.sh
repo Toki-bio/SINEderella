@@ -40,7 +40,12 @@ THREADS=4 SKIP_STEP7=1 SKIP_BORDER_LOOP=1 DISC=$DISCD SINEDERELLA_BIN=$SD bash $
 grep -iE "error|traceback|warn|fail" $P/afp.log | head -15
 A=$P/results/alignments
 ls $A | head -30
-chk "final plates keep [soft]/[array] marks (TOYS top100)" '[ $(grep -c "\[soft\]" $A/toy_TOYS_top100.aln.fa) -eq 4 ] && [ $(grep -c "\[array\]" $A/toy_TOYS_top100.aln.fa) -eq 5 ]'
+# publish path: flank verdicts (planted step7 + stage-9 results in make_toy.py) -> plates show SINE loci only (docs/AIM.md)
+chk "flank verdict ran: loci_verdict.tsv written"     '[ -s $P/step2/step2_output/loci_verdict.tsv ]'
+chk "final plates: no soft copy, no array unit"       '[ $(cat $A/*.aln.fa | grep -c -E "\[soft\]|\[array\]|>ctgB|>ctgC|>_R_ctgB|>_R_ctgC") -eq 0 ]'
+chk "TOYS plates = its 6 dispersed SINE copies"       '[ $(grep -c "^>[_R]*ctgA" $A/toy_TOYS_top100.aln.fa) -eq 6 ]'
+chk "TOYA plates = its 4 independent copies"          '[ $(grep -c "^>[_R]*ctgA" $A/toy_TOYA_top100.aln.fa) -eq 4 ]'
+chk "no TOYC plate (soft copies only, not SINE loci)" '[ ! -e $A/toy_TOYC_top100.aln.fa ]'
 chk "final plates: row 1 _extended, row 2 original"  '[ "$(grep "^>" $A/toy_TOYS_top100.aln.fa | sed -n 1p)" = ">TOYS_extended" ] && [ "$(grep "^>" $A/toy_TOYS_top100.aln.fa | sed -n 2p)" = ">TOYS" ]'
 echo "--- proposals.tsv"; column -t -s$'\t' $A/proposals.tsv 2>/dev/null | cut -c1-200
 echo "--- continuation.tsv"; cat $A/continuation.tsv 2>/dev/null
