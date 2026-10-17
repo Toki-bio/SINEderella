@@ -131,6 +131,7 @@ def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
     total_extend = 0
     island = None
     stop_reason = None
+    verdict = "untested"
     for round_i in range(1, max_rounds + 1):
         vf = os.path.join(work, "val_%s_r%d.flank.fa" % (side, round_i))
         F.extract_for_side(bed, genome, side, F.MAX_FLANK, vf, work)
@@ -156,12 +157,22 @@ def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
         })
 
         island_frac = (island or {}).get("island_fraction")
-        if island_frac is None or island_frac < island_frac_stop:
+        if island_frac is None:
+            # Nothing to scan: no flank columns left (the copy-supported element reaches the end of the
+            # validation window, i.e. the flank is shared all the way out) or under 500 flank bases.
+            # A test that could not be done is not a pass (docs/AIM.md). Until 2026-10-17 this case
+            # was reported "independent (island_fraction=None)": rsi MEG-RS 3', a tandem-array family.
+            stop_reason = "untested: no flank left to scan -- STILL BAD"
+            verdict = "untested"
+            break
+        if island_frac < island_frac_stop:
             stop_reason = "independent (island_fraction=%s)" % island_frac
+            verdict = "independent"
             break
         if ext_bp <= 0:
             stop_reason = ("extension exhausted, still shared (island_fraction=%s) "
                             "-- STILL BAD" % island_frac)
+            verdict = "still_shared"
             break
         bed = (F.update_bed_5prime(bed, ext_bp, work) if side == "5prime"
                else update_bed_3prime(bed, ext_bp, work))
@@ -170,13 +181,17 @@ def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
             stop_reason = ("hit MAX_FLANK cap (%d bp), still shared "
                             "(island_fraction=%s) -- STILL BAD"
                             % (F.MAX_FLANK, island_frac))
+            verdict = "still_shared"
             break
     else:
         island_frac = (island or {}).get("island_fraction")
         stop_reason = ("hit max_rounds=%d cap, still shared (island_fraction=%s) "
                         "-- STILL BAD" % (max_rounds, island_frac))
+        verdict = "still_shared"
 
     out_log["stop_reason_%s" % side] = stop_reason
+    # read by tools/flank_verdict.py: only "independent" on both sides makes a subfamily interspersed
+    out_log["verdict_%s" % side] = verdict
     return bed, total_extend
 
 

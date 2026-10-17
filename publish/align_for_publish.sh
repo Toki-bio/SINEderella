@@ -101,6 +101,13 @@ else
   fi
 fi
 
+# flank verdicts: the expansion's end state decides (docs/AIM.md). A subfamily whose flanks are still shared at the limit,
+# or could not be tested, is not interspersed: its copies are not SINE loci in loci_verdict.tsv and step6 leaves them out
+# of the SINE totals. Until 2026-10-17 nothing read the end state of step7 or of the border loop.
+log "flank verdicts"
+python3 "$SINEDERELLA_BIN/tools/flank_verdict.py" "$RUN_ROOT" >&2 || {
+  echo "ERROR: tools/flank_verdict.py failed" >&2; exit 1; }
+
 for need in step7_boundary_refine.sh step8a_extract_alignments.sh; do
   [[ -x "$SINEDERELLA_BIN/$need" ]] || {
     echo "ERROR: missing $SINEDERELLA_BIN/$need" >&2; exit 1; }
