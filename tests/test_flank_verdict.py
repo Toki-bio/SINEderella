@@ -89,3 +89,16 @@ def test_no_flank_test_is_not_a_pass(tmp_path):
     assert {v[1] for v in fv.values()} == {"not_tested"}
     assert lv["cA1"] == lv["cB2"] == "grey"
     assert lv["cX"] == "not_SINE"
+
+
+def test_plate_filter_keeps_sine_only(tmp_path):
+    v = tmp_path / "v.tsv"
+    v.write_text("copy\tsubfamily\tassignment_status\tverdict\treason\n"
+                 "c1:100-200(+)\tA\tassigned\tSINE\tx\nc1:500-600(+)\tA\tassigned\tgrey\tx\n"
+                 "c2:100-200(-)\tA\tassigned\tSINE\tx\n")
+    loci = tmp_path / "l.tsv"
+    loci.write_text("A\t10\tc1\t100\t200\t+\nA\t9\tc1\t500\t600\t+\n"   # SINE kept, grey dropped
+                    "A\t8\tc2\t90\t260\t-\nA\t7\tc2\t100\t200\t+\n")    # extended by the border loop kept, wrong strand dropped
+    tool = os.path.join(os.path.dirname(__file__), "..", "tools", "plate_filter.py")
+    out = subprocess.run([sys.executable, tool, str(loci), str(v)], capture_output=True, text=True, check=True).stdout
+    assert [l.split("\t")[1] for l in out.splitlines()] == ["10", "8"]

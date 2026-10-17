@@ -226,6 +226,25 @@ if [[ "${SOFT_TOPUP:-1}" == "1" && -s "$UNASSIGNED" ]]; then
 fi
 
 ###############################################################################
+# Plates show SINE loci only (docs/AIM.md: interspersed = unique flanks). When the run has per-copy flank verdicts
+# (step2_output/loci_verdict.tsv, tools/flank_verdict.py, written by the publish run before this step), only copies with
+# verdict SINE stay: copies with shared flanks, the same flank at the same place in many copies, masked / untested flanks
+# (grey zone) and soft-assigned copies (not assigned, so not SINE loci) never enter top100, rand100 or the SubFam plate.
+# A subfamily with no SINE copy gets no plate. Until 2026-10-18 the plates were drawn from every assigned copy (rsi: 32 %
+# of the rows had no tested-unique flanks). PLATE_VERDICT=off restores the old behaviour (runs without verdicts).
+###############################################################################
+VERDICT_TSV="$STEP2_OUT/loci_verdict.tsv"
+if [[ "${PLATE_VERDICT:-SINE}" != "off" && -s "$VERDICT_TSV" ]]; then
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/plate_filter.py" "$TMPDIR/loci.tsv" "$VERDICT_TSV" "${PLATE_VERDICT:-SINE}" \
+        > "$TMPDIR/loci.sine.tsv" || { echo "ERROR: tools/plate_filter.py failed" >&2; exit 1; }
+    mv "$TMPDIR/loci.sine.tsv" "$TMPDIR/loci.tsv"
+    : > "$TMPDIR/soft.tsv"
+elif [[ "${PLATE_VERDICT:-SINE}" != "off" ]]; then
+    echo "WARNING: no $VERDICT_TSV (flank verdicts are written by the publish run): plates are drawn from all assigned" \
+         "copies, including copies whose flanks were never shown unique" >&2
+fi
+
+###############################################################################
 # Subfamily list and member counts
 ###############################################################################
 cut -f1 "$TMPDIR/loci.tsv" | sort | uniq -c | awk '{print $2 "\t" $1}' > "$TMPDIR/counts.tsv"
