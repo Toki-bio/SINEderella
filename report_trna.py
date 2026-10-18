@@ -20,23 +20,29 @@ def _num(x):
         return None
 
 
-def _call(r):
-    """origin call: tRNA when the gene hit passes SINEBase's 60/60 rule AND beats every shuffle; 5S / 7SL from Rfam"""
-    rf = r.get("Rfam", "-")
-    for rna, lab in (("5S_rRNA", "5S rRNA"), ("SRP", "7SL RNA"), ("7SK", "7SK RNA")):
-        if rf.startswith(rna):
-            return lab, "ok", "Rfam: " + rf
+def _calls(r):
+    """every head of a query: [(label, kind, tip, span, tRNA-hit?)]. tRNA when the gene hit beats every shuffle (passing
+    SINEBase's 60 % / 60 nt rule, else '?'); 5S / 7SL / 7SK from Rfam, with Rfam's span. A query can carry both
+    (MEG-TR: tRNA-Val 1-55 + 5S 65-180)."""
+    out = []
     bits, null = _num(r.get("bits")), _num(r.get("null_max_bits"))
-    if r.get("best_tRNA", "-") != "-" and bits is not None and null is not None:
+    if r.get("best_tRNA", "-") != "-" and bits is not None and null is not None and bits > null:
         aa = r["best_tRNA"].split("-")[0]
         tip = "%s %% over %s nt (query %s) to tRNA-%s; %s bits vs at most %s for the shuffles; next amino acid %s" % (
             r.get("ident%"), r.get("aln_bp"), r.get("q_span"), r["best_tRNA"], r.get("bits"), r.get("null_max_bits"),
             r.get("2nd_isotype"))
-        if r.get("SINEBase_60/60") == "yes" and bits > null:
-            return "tRNA-%s" % aa, "ok", tip
-        if bits > null:
-            return "tRNA-%s?" % aa, "edge", tip + " (below SINEBase's 60 %% / 60 nt)"
-    return "none detected", "muted", "no tRNA gene hit above the shuffled sequences, no Rfam hit"
+        if r.get("SINEBase_60/60") == "yes":
+            out.append(("tRNA-%s" % aa, "ok", tip, r.get("q_span", "-"), True))
+        else:
+            out.append(("tRNA-%s?" % aa, "edge", tip + " (below SINEBase's 60 % / 60 nt)", r.get("q_span", "-"), True))
+    for hit in (r.get("Rfam", "-") or "-").split("; "):
+        for rna, lab in (("5S_rRNA", "5S rRNA"), ("SRP", "7SL RNA"), ("7SK", "7SK RNA")):
+            if hit.startswith(rna):
+                f = hit.split()
+                out.append((lab, "ok", "Rfam: " + hit, f[1] if len(f) > 1 else "-", False))
+    if not out:
+        out.append(("none detected", "muted", "no tRNA gene hit above the shuffled sequences, no 5S / 7SL in Rfam", "-", False))
+    return out
 
 
 def section(run_root):
@@ -51,30 +57,39 @@ def section(run_root):
     for r in rows:
         if ":" in r["query"]:
             parts.setdefault(r["query"].split(":")[0], []).append(r)
+    def cells(r, offset=0):
+        """Head chips, their spans (in the consensus's coordinates), and identity / bits of the tRNA hit when there is one"""
+        cs = _calls(r)
+        spans = []
+        for lab, kind, tip, sp, is_trna in cs:
+            if sp not in ("-", "") and offset:
+                try:
+                    a, b = (int(x) for x in sp.split("-"))
+                    sp = "%d-%d" % (offset + a - 1, offset + b - 1)
+                except ValueError:
+                    pass
+            spans.append(sp)
+        heads = "<br>".join(_chip(l, k, t) for l, k, t, _, _ in cs)
+        trna = any(c[4] for c in cs)
+        ident = r.get("ident%", "-") if trna else "-"
+        bits = ("%s / %s" % (r.get("bits", "-"), r.get("null_max_bits", "-"))) if trna else ("- / %s" % r.get("null_max_bits", "-"))
+        return heads, "<br>".join(html.escape(s) for s in spans), html.escape(ident), html.escape(bits)
+
     body = []
     for r in whole:
-        lab, kind, tip = _call(r)
-        sub = parts.get(r["query"], [])
-        span = r.get("q_span", "-")
+        heads, spans, ident, bits = cells(r)
         body.append("<tr><td><code>%s</code></td><td class='num'>%s</td><td>%s</td><td>%s</td><td class='num'>%s</td>"
-                    "<td class='num'>%s / %s</td><td class='small'>%s</td><td class='small'>%s</td></tr>"
-                    % (html.escape(r["query"]), r["len"], _chip(lab, kind, tip), html.escape(span),
-                       html.escape(r.get("ident%", "-")), html.escape(r.get("bits", "-")), html.escape(r.get("null_max_bits", "-")),
+                    "<td class='num'>%s</td><td class='small'>%s</td><td class='small'>%s</td></tr>"
+                    % (html.escape(r["query"]), r["len"], heads, spans, ident, bits,
                        html.escape(r.get("Rfam", "-")), html.escape(r.get("tRNAscan", "-")[:70])))
-        for p in sub:
-            lab, kind, tip = _call(p)
+        for p in parts.get(r["query"], []):
             seg, unit = p["query"].split(":", 1)[1].split("|")
-            qa = int(seg.split("-")[0])
-            sp = p.get("q_span", "-")
-            if sp != "-":                       # part coordinates -> composite coordinates
-                a, b = (int(x) for x in sp.split("-"))
-                sp = "%d-%d" % (qa + a - 1, qa + b - 1)
+            heads, spans, ident, bits = cells(p, int(seg.split("-")[0]))      # part coordinates -> composite coordinates
             body.append("<tr style='opacity:.92'><td style='padding-left:22px' class='small'>&#8627; %s <span class='muted'>(%s)</span></td>"
-                        "<td class='num'>%s</td><td>%s</td><td>%s</td><td class='num'>%s</td><td class='num'>%s / %s</td>"
+                        "<td class='num'>%s</td><td>%s</td><td>%s</td><td class='num'>%s</td><td class='num'>%s</td>"
                         "<td class='small'>%s</td><td class='small'>%s</td></tr>"
-                        % (html.escape(seg), html.escape(unit if unit != "-" else "no unit"), p["len"], _chip(lab, kind, tip),
-                           html.escape(sp), html.escape(p.get("ident%", "-")), html.escape(p.get("bits", "-")),
-                           html.escape(p.get("null_max_bits", "-")), html.escape(p.get("Rfam", "-")), html.escape(p.get("tRNAscan", "-")[:70])))
+                        % (html.escape(seg), html.escape(unit if unit != "-" else "no unit"), p["len"], heads, spans, ident, bits,
+                           html.escape(p.get("Rfam", "-")), html.escape(p.get("tRNAscan", "-")[:70])))
     return ("<section class='card' id='trna'><h2>Where the heads come from: tRNA, 5S, 7SL</h2>"
             "<p class='intro'>Every consensus, and under each composite every stretch of it as read by its units, compared with "
             "<b>tRNA genes</b> (ssearch36; the best tRNA, identity and its span), against <b>20 dinucleotide-preserving shuffles</b> "
