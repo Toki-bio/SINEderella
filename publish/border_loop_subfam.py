@@ -124,6 +124,23 @@ def _flank_seqs(bed, genome, side, n, work, tag):
     return out
 
 
+def _pack_outside_anchor(cons, rows):
+    """as postprocess_flanks: every base outside the anchor's span (flank, and element bases MAFFT left beside the
+    anchor) packed against the anchor's edge, so column d past the edge = d bp from it in every copy. Without this the
+    element overhang (rsi MEG-RS: up to 54 bp) left sparse columns between anchor and flank that stopped the
+    extension walk after 38 bp instead of 638."""
+    nz = [i for i, c in enumerate(cons) if c not in "-."]
+    if not nz:
+        return rows
+    lo, hi = nz[0], nz[-1]
+    out = []
+    for r in rows:
+        lb = "".join(c for c in r[:lo] if c not in "-.")
+        rb = "".join(c for c in r[hi + 1:] if c not in "-.")
+        out.append("-" * (lo - len(lb)) + lb + r[lo:hi + 1] + rb + "-" * (len(cons) - hi - 1 - len(rb)))
+    return out
+
+
 def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
              max_rounds=MAX_ROUNDS, island_frac_stop=ISLAND_FRAC_STOP):
     """Iteratively extend one flank until it's independent, or extension runs
@@ -181,13 +198,16 @@ def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
                 rows.append(crow + packed)
                 flank_rows.append(packed)
         cons = ("-" * need + anchor_row) if side == "5prime" else (anchor_row + "-" * need)
+        rows = _pack_outside_anchor(cons, rows)
         lo2, hi2, bdiag = F.element_window(cons, rows)
         ext_total = bdiag.get("extended_left" if side == "5prime" else "extended_right", 0)
         ext_bp = max(0, ext_total - total_extend)
         # the flank scanned = MAX_FLANK bp beyond the current element edge (total_extend), shared part included -
         # the same region the old per-round MAFFT version scanned, so the verdicts do not change with the speed-up
         a = total_extend
-        block_cols = [list(r[a:a + F.MAX_FLANK]) for r in flank_rows]
+        nz = [i for i, c in enumerate(cons) if c not in "-."]
+        outside = ([r[:nz[0]][::-1] for r in rows] if side == "5prime" else [r[nz[-1] + 1:] for r in rows]) if nz else []
+        block_cols = [list(r[a:a + F.MAX_FLANK]) for r in outside]   # column d = d bp from the anchor edge
         block = F.np.array(block_cols) if block_cols and block_cols[0] else None
         island = F.island_scan_block(block)
 
