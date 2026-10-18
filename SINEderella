@@ -823,15 +823,16 @@ satellite_stage_add(){
   if [[ "${SKIP_SATELLITES:-0}" == "1" ]]; then
     log "SKIP_SATELLITES=1 - satellite screen skipped for the added consensuses"; return 0
   fi
+  # not run / crashed is not a pass (docs/AIM.md; GLM audit 2026-10-19): stop, as step 1 does, unless SKIP_SATELLITES=1
   if [[ ! -f "$tools/satellite_stage.py" ]] || ! command -v trf >/dev/null 2>&1; then
-    log "Satellite screen skipped for the added consensuses (tools/satellite_stage.py or trf not found)"; return 0
+    die "satellite screen cannot run for the added consensuses (tools/satellite_stage.py or trf not found); install trf, or set SKIP_SATELLITES=1"
   fi
   log "Satellite screen (tools/satellite_stage.py --only $names)"
   local -a args=(--searches "$run/genome.clean_step1/searches" --genome "$run/genome.clean.fa" --cons "$run/consensuses.clean.fa"
                  --out "$run/genome.clean_step1/satellites" --threads "$THREADS" --only "$names" --exclude-b "${SATELLITE_EXCLUDE_B:-verified}")
   [[ "${SATELLITE_EXCLUDE:-1}" == "0" ]] && args+=(--no-exclude)
   python3 "$tools/satellite_stage.py" "${args[@]}" 2>&1 | tee -a "$run/genome.clean_step1/satellites.log" >&2 \
-    || log "WARNING: satellite screen failed for the added consensuses (see genome.clean_step1/satellites.log); their hits stay unfiltered"
+    || die "satellite screen failed for the added consensuses (see genome.clean_step1/satellites.log); rerun, or set SKIP_SATELLITES=1"
   return 0
 }
 
