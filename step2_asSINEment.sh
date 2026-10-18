@@ -339,8 +339,8 @@ run_assignment(){
   if [[ $assigned_count -gt 0 ]]; then
     awk 'BEGIN{FS="\t"}
     NR==FNR{
-      cons[$1] = $2
-      bs[$1] = $3
+      # only copies that passed: until 2026-10-19 rejected_low_bitscore rows went in too (rsi: 1,731 of 65,500)
+      if($5 == "assigned"){ cons[$1] = $2; bs[$1] = $3 }
       next
     }
     /^>/{
@@ -390,8 +390,7 @@ run_assignment(){
       # Extract sequences with renamed headers
       awk 'BEGIN{FS="\t"}
       NR==FNR{
-        cons[$1] = $2
-        bs[$1] = $3
+        if($5 == "assigned"){ cons[$1] = $2; bs[$1] = $3 }   # only copies that passed (rejected_low_bitscore excluded)
         next
       }
       /^>/{
@@ -745,7 +744,7 @@ run_incremental_assignment(){
   if [[ $assigned_count -gt 0 ]]; then
     awk 'BEGIN{FS="\t"}
     NR==FNR{
-      cons[$1] = $2; bs[$1] = $3; next
+      if($5 == "assigned"){ cons[$1] = $2; bs[$1] = $3 }; next     # only copies that passed (rejected_low_bitscore excluded)
     }
     /^>/{
       name = substr($0, 2); split(name, a, " "); seqid = a[1]
@@ -780,7 +779,7 @@ run_incremental_assignment(){
       [[ -z "$subfamily" ]] && continue
       awk 'BEGIN{FS="\t"}
       NR==FNR{
-        cons[$1] = $2; bs[$1] = $3; next
+        if($5 == "assigned"){ cons[$1] = $2; bs[$1] = $3 }; next   # only copies that passed (rejected_low_bitscore excluded)
       }
       /^>/{
         name = substr($0, 2); split(name, a, " "); seqid = a[1]
