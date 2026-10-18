@@ -137,8 +137,8 @@ def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
     junction anyway, so the tests below already read junction-packed flanks; rsi MEG-RS took 15 min.
 
     Each round: element_window on core + packed flank (copy-supported extension, measured from the anchor's edge, so a
-    round's extension is the growth over the rounds before) -> island scan on the flank beyond the copy-supported edge
-    (up to MAX_FLANK bp). Stops as soon as ANY of:
+    round's extension is the growth over the rounds before) -> island scan on the MAX_FLANK bp beyond the current
+    element edge (as before). Stops as soon as ANY of:
       - island_fraction < island_frac_stop           -> genuinely independent
       - no further copy-supported extension is found -> extension exhausted
       - total extension for this side hits MAX_FLANK  -> capped, "STILL BAD"
@@ -184,7 +184,9 @@ def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
         lo2, hi2, bdiag = F.element_window(cons, rows)
         ext_total = bdiag.get("extended_left" if side == "5prime" else "extended_right", 0)
         ext_bp = max(0, ext_total - total_extend)
-        a = min(ext_total, need)
+        # the flank scanned = MAX_FLANK bp beyond the current element edge (total_extend), shared part included -
+        # the same region the old per-round MAFFT version scanned, so the verdicts do not change with the speed-up
+        a = total_extend
         block_cols = [list(r[a:a + F.MAX_FLANK]) for r in flank_rows]
         block = F.np.array(block_cols) if block_cols and block_cols[0] else None
         island = F.island_scan_block(block)
