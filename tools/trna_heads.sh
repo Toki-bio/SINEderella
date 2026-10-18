@@ -61,14 +61,16 @@ PY
 fi
 ssearch36 -3 -m 8 -E 10 -T "$T" shuf.fa ref.fa > shuf.m8 2>/dev/null || { echo "trna_heads: ssearch36 (null) failed" >&2; exit 1; }
 PATHX="${RNATOOLS_BIN:+$RNATOOLS_BIN:}$PATH"
-: > cm.tbl; : > trnascan.out
+# no pre-made output files: tRNAscan-SE asks before overwriting one and, with no input, loops forever at 100 % CPU
+# (rsi 2026-10-18: 2 h); -Q = never prompt
+rm -f cm.tbl trnascan.out trnascan.ss
 if [[ -n "${RFAM_CM:-}" && -s "${RFAM_CM:-}" ]] && PATH="$PATHX" command -v cmscan > /dev/null; then
   PATH="$PATHX" cmscan --cpu "$T" -E 1 --tblout cm.tbl -o /dev/null "$RFAM_CM" queries.fa || echo "trna_heads: cmscan failed (Rfam column empty)" >&2
 else
   echo "trna_heads: no RFAM_CM / cmscan - Rfam column empty" >&2
 fi
 if PATH="$PATHX" command -v tRNAscan-SE > /dev/null; then
-  PATH="$PATHX" tRNAscan-SE -E -H --detail -X 10 -q -o trnascan.out -f trnascan.ss queries.fa > /dev/null 2>&1 \
+  PATH="$PATHX" tRNAscan-SE -Q -E -H --detail -X 10 -q -o trnascan.out -f trnascan.ss queries.fa < /dev/null > /dev/null 2>&1 \
     || echo "trna_heads: tRNAscan-SE failed (column empty)" >&2
 else
   echo "trna_heads: no tRNAscan-SE - column empty" >&2
