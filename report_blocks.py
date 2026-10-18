@@ -280,7 +280,10 @@ def _blocks_section(run_root, bank, cb, tables):
                     % (a, b, 0.12 + 0.8 * f, "#fff" if f > 0.55 else "inherit", html.escape(N[a]), round(100 * f), LEN[a], html.escape(N[b]), round(100 * f)))
         rows.append(row + "</tr>")
     rows.append("</table>")
-    data = {"names": [lab(n) for n in N], "lens": LEN, "blocks": B}
+    # the sequences too: the pair view prints each shared block as a text alignment (owner's choice 2026-10-18); the
+    # blocks are ungapped, so the two stretches are compared base for base in the page, no aligner needed
+    seqmap = dict(zip(names, seqs))
+    data = {"names": [lab(n) for n in N], "lens": LEN, "blocks": B, "seqs": [seqmap.get(n, "").upper() for n in N]}
     first = 0
     second = 1
     if B:   # open on the pair with the largest shared block
@@ -300,7 +303,23 @@ bl.forEach(function(k,i){var c=['#3b7ddd','#d9822b','#2f9e6f','#c0554d','#8e5fc7
 var p=[[x0+(k.a0-1)*sc,32],[x0+k.a1*sc,32],[k.s=='+'?x0+k.b1*sc:x0+(k.b0-1)*sc,108],[k.s=='+'?x0+(k.b0-1)*sc:x0+k.b1*sc,108]];
 h+='<polygon points="'+p.map(function(q){return q.join(',')}).join(' ')+'" fill="'+c+'" fill-opacity="'+(0.25+0.5*(k.id-78)/22)+'" stroke="'+c+'"/>';
 rows.push('<tr><td>'+k.a0+'&ndash;'+k.a1+'</td><td>'+k.s+'</td><td>'+k.b0+'&ndash;'+k.b1+'</td><td>'+(k.a1-k.a0+1)+' bp</td><td>'+k.id+' %</td></tr>')});
-S.innerHTML=h;T.innerHTML=a==b?'':(bl.length?'<table><tr><th>'+D.names[a]+'</th><th>strand</th><th>'+D.names[b]+'</th><th>length</th><th>identity</th></tr>'+rows.join('')+'</table>':'No block of 30 bp or more at 80 % or better.')}
+S.innerHTML=h;T.innerHTML=a==b?'':(bl.length?'<table><tr><th>'+D.names[a]+'</th><th>strand</th><th>'+D.names[b]+'</th><th>length</th><th>identity</th></tr>'+rows.join('')+'</table>'+alns(a,b,bl):'No block of 30 bp or more at 80 % or better.')}
+var CP={A:'T',C:'G',G:'C',T:'A',N:'N'};
+function rc(s){var o='';for(var i=s.length-1;i>=0;i--)o+=(CP[s[i]]||'N');return o}
+function pad(s,n){s=String(s);while(s.length<n)s+=' ';return s}
+function lpad(s,n){s=String(s);while(s.length<n)s=' '+s;return s}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function alns(a,b,bl){if(!D.seqs||!D.seqs[a]||!D.seqs[b])return'';var W=60,na=D.names[a],nb=D.names[b],nw=Math.max(na.length,nb.length),o='';
+bl.forEach(function(k,bi){var c=['#3b7ddd','#d9822b','#2f9e6f','#c0554d','#8e5fc7'][bi%5];
+var sa=D.seqs[a].substr(k.a0-1,k.a1-k.a0+1),sb=D.seqs[b].substr(k.b0-1,k.b1-k.b0+1);if(k.s=='-')sb=rc(sb);
+var n=Math.min(sa.length,sb.length),same=0,t='';for(var i=0;i<n;i++)if(sa[i]==sb[i])same++;
+t+='<div style="margin-top:10px;border-left:4px solid '+c+';padding-left:8px"><b>block '+(bi+1)+'</b>: '+na+' '+k.a0+'-'+k.a1+' / '+nb+' '+(k.s=='+'?k.b0+'-'+k.b1:k.b1+'-'+k.b0+' (reverse strand)')+', '+n+' bp, '+same+' identical ('+(n?Math.round(1000*same/n)/10:0)+' %)';
+t+='<pre style="font:12px/1.35 ui-monospace,Consolas,monospace;margin:4px 0;overflow-x:auto">';
+for(var p=0;p<n;p+=W){var e=Math.min(n,p+W),la='',lm='',lb='';
+for(var j=p;j<e;j++){var x=sa[j],y=sb[j];if(x==y){la+=x;lb+=y;lm+='|'}else{la+='<span style="color:#c0392b;font-weight:700">'+esc(x)+'</span>';lb+='<span style="color:#c0392b;font-weight:700">'+esc(y)+'</span>';lm+=' '}}
+var pa0=k.a0+p,pa1=k.a0+e-1,pb0=(k.s=='+')?k.b0+p:k.b1-p,pb1=(k.s=='+')?k.b0+e-1:k.b1-e+1;
+t+=esc(pad(na,nw))+' '+lpad(pa0,4)+' '+la+' '+pa1+'\\n'+pad('',nw)+'      '+lm+'\\n'+esc(pad(nb,nw))+' '+lpad(pb0,4)+' '+lb+' '+pb1+'\\n\\n'}
+o+=t+'</pre></div>'});return '<div style="margin-top:6px"><b>Shared blocks as alignments</b> <span style="opacity:.7">(mismatches in red; numbers = positions in each consensus)</span>'+o+'</div>'}
 A.onchange=B.onchange=draw;document.querySelectorAll('td.bc').forEach(function(t){t.onclick=function(){A.value=t.dataset.a;B.value=t.dataset.b;draw();document.getElementById('bpair').scrollIntoView({block:'nearest'})}});A.value=__A__;B.value=__B__;draw();})();
 </script>""".replace("__DATA__", json.dumps(data)).replace("__A__", str(first)).replace("__B__", str(second))
     return """<style>.bm{border-collapse:collapse;font-size:11px}.bm th{text-transform:none;letter-spacing:0}.bm th.bh{writing-mode:vertical-rl;transform:rotate(180deg);font-weight:500;padding:2px;white-space:nowrap}.bm td.bc{width:30px;height:22px;text-align:center;border:1px solid #8883;cursor:pointer}.bm td.bc:hover{outline:2px solid #d9822b}</style>
