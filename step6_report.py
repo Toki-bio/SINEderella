@@ -2467,6 +2467,13 @@ def build_html(run_root: Path,
         blocks_section = RB.section(run_root)
     except Exception as e:  # optional panel
         sys.stderr.write("WARNING: similarity blocks skipped: %s\n" % e)
+    # tRNA / 5S / 7SL origin of the heads (tools/trna_heads.sh in the publish run); "" without its table
+    trna_section = ""
+    try:
+        import report_trna as RT
+        trna_section = RT.section(run_root)
+    except Exception as e:  # optional panel
+        sys.stderr.write("WARNING: tRNA section skipped: %s\n" % e)
     profiles_json = json.dumps(aln_profiles, separators=(",", ":"))
     annotations_json = json.dumps(aln_annotations, separators=(",", ":"))
 
@@ -2589,6 +2596,7 @@ def build_html(run_root: Path,
     <a href="#overview">Overview</a>
     {'<a href="#hierarchy">Hierarchy</a>' if hierarchy_section else ''}
     {'<a href="#blocks">Similarity</a>' if blocks_section else ''}
+    {'<a href="#trna">tRNA heads</a>' if trna_section else ''}
     <a href="#composition">Composition</a>
     <a href="#divergence">Divergence&thinsp;/&thinsp;Similarity</a>
     <a href="#pca">PCA</a>
@@ -2606,6 +2614,8 @@ def build_html(run_root: Path,
   {hierarchy_section}
 
   {blocks_section}
+
+  {trna_section}
 
   <section class="card" id="overview">
     <h2>Overview</h2>
