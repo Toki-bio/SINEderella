@@ -80,18 +80,21 @@ def main(argv):
     for n, s in zip(en, es):
         loc = locus(n)
         if loc:
-            by_ctg.setdefault((loc[0], loc[3]), []).append((loc[1], loc[2], s))
+            by_ctg.setdefault((loc[0], loc[3]), []).append((loc[1], loc[2], s, n))
     left, right = {}, {}       # plate side -> {row: new segment in plate orientation}
+    newname = {}
     for i, name in enumerate(pn):
         if i == 0:
             continue
         loc = locus(name)
         if not loc:
             continue
-        cand = [(nb - na, sq) for na, nb, sq in by_ctg.get((loc[0], loc[3]), ()) if na <= loc[1] and nb >= loc[2]]
+        cand = [(nb - na, sq, en) for na, nb, sq, en in by_ctg.get((loc[0], loc[3]), ()) if na <= loc[1] and nb >= loc[2]]
         if not cand:
             continue
-        s = min(cand)[1]           # the smallest interval that contains this row's old one
+        _, s, en_name = min(cand)  # the smallest interval that contains this row's old one
+        # the row now holds the extended region: its name says so (step8a delivers this plate, 2026-10-18)
+        newname[i] = ("_R_" if name.startswith("_R_") else "") + en_name.replace("@U@", "_")
         g5 = s[:add5] if add5 else ""                      # genomic 5' new bases
         g3 = s[len(s) - add3:] if add3 else ""             # genomic 3' new bases
         if name.startswith("_R_"):                          # row is reverse-complemented in the plate
