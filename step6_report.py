@@ -1857,6 +1857,10 @@ def status_flank_context(top, rand):
             parts.append("%s %s: %s" % (label, f["side"], f["text"]))
     if not top and not rand:
         return _vchip("n/a", "muted", "no alignment")
+    # a scan that failed or could not run is not a pass (docs/AIM.md; GLM audit 2026-10-19: it showed a green "Independent")
+    if not any(r and not r.get("error") for r in (top, rand)):
+        errs = "; ".join(str(r.get("error")) for r in (top, rand) if r and r.get("error"))
+        return _vchip("Not measured", "muted", "Flank scan not measured: " + errs)
     if not parts:
         note = ""
         if top and top.get("left", {}).get("measured"):

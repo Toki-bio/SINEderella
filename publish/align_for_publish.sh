@@ -73,7 +73,11 @@ else
   # the column-walk border scan is opt-in (BORDER_SCAN=1): on unaligned extracts it reads flank noise below ~20 copies (random
   # DNA, 8 copies: 50 of 50 flagged) and the loop then replaced the searched consensus (audit 2026-10-14)
   [[ "${BORDER_SCAN:-0}" == "1" && "${SKIP_BORDER_SCAN:-0}" != "1" ]] && NEED_ARGS+=(--scan)
-  mapfile -t BORDER_SFS < <("${NEED_ARGS[@]}" || true)
+  # a crash of the detection must stop the publish, not publish as "none flagged" (GLM audit 2026-10-19)
+  "${NEED_ARGS[@]}" > "$RUN_ROOT/.needs_border_loop.out" || {
+    echo "ERROR: needs_border_loop.py failed - the border loop cannot be decided" >&2; exit 1; }
+  mapfile -t BORDER_SFS < "$RUN_ROOT/.needs_border_loop.out"
+  rm -f "$RUN_ROOT/.needs_border_loop.out"
 
   # results of an earlier publish are not re-applied: apply_border_to_assigned / merge_rebuilt_consensus read every file there
   rm -rf "$RUN_ROOT/border_loop" "$RUN_ROOT/rebuilt_consensus"

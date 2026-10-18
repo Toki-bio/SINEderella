@@ -1033,7 +1033,8 @@ def full_verdict(path_top100, path_flank_L=None, path_flank_R=None):
     try:
         import edge_profile as E
     except ImportError:
-        return {"verdict": v, "edge": None, "status": "FINAL" if not v.get("flags") else "NEEDS_ADDITIONAL_WORK",
+        # an edge that was not checked is not a pass (docs/AIM.md; GLM audit 2026-10-19)
+        return {"verdict": v, "edge": None, "status": "NEEDS_ADDITIONAL_WORK",
                 "recommended_next_steps": ["edge_profile.py not available -- edge pattern not checked"]}
 
     edge_classifications = []
@@ -1051,6 +1052,14 @@ def full_verdict(path_top100, path_flank_L=None, path_flank_R=None):
     # enough to say (the "clean SINE" / "LINE-like rugged edge" / "needs
     # subgrouping" distinction asked for) -- never invented when ambiguous.
     steps = list(edge_steps)
+    # a side without a long-flank alignment, or whose classification failed, is untested - not clean (the docstring's
+    # promise; until 2026-10-19 such a run came out FINAL / "clean SINE", GLM audit)
+    done = {c["side"] for c in edge_classifications if c.get("pattern") not in (None, "ERROR")}
+    for side in ("L", "R"):
+        if side not in done:
+            err = next((c.get("error") for c in edge_classifications if c["side"] == side and c.get("error")), None)
+            steps.append("edge %s not checked: %s" % (side, ("classification failed (%s)" % err) if err else
+                                                       "no long-flank validation alignment"))
     if v.get("flags"):
         for f in v["flags"]:
             steps.append("verdict flag %s: %s" % (f["code"], f.get("text", "")[:160]))

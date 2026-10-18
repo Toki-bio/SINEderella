@@ -138,16 +138,32 @@ cd ..
 #     SATELLITE_EXCLUDE=0 writes the tables but removes nothing; SATELLITE_EXCLUDE_B=verified|flagged|long|all|none for kind-B
 #     arrays (default verified: runs whose units are near-identical, docs/SATELLITES.md 5h; the tool's own default is the same).
 _TOOLS="${SINEDERELLA_TOOLS:-$(dirname "$(readlink -f "$0")")/tools}"
+# A screen that could not run, or crashed, is not a pass (docs/AIM.md; GLM audit 2026-10-19: a missing trf and a crash both
+# continued with the unfiltered hits after a warning). Now: missing tool ->
+# stop unless SKIP_SATELLITES=1 is set on purpose; crash -> stop. satellites/screen_status.txt says what happened.
+mkdir -p satellites
 if [[ "${SKIP_SATELLITES:-0}" == "1" ]]; then
     echo "[$(date)] SKIP_SATELLITES=1 - satellite screen skipped"
+    echo "skipped (SKIP_SATELLITES=1)" > satellites/screen_status.txt
 elif [[ -f "$_TOOLS/satellite_stage.py" ]] && command -v trf >/dev/null 2>&1; then
     echo "[$(date)] Satellite screen (tools/satellite_stage.py) on searches/"
     _SAT_ARGS=(--searches searches --genome "$GENOME" --cons "$CONSENSUS" --out satellites --threads "${THREADS:-$(nproc 2>/dev/null || echo 8)}")
     [[ "${SATELLITE_EXCLUDE:-1}" == "0" ]] && _SAT_ARGS+=(--no-exclude)
     _SAT_ARGS+=(--exclude-b "${SATELLITE_EXCLUDE_B:-verified}")
-    python3 "$_TOOLS/satellite_stage.py" "${_SAT_ARGS[@]}" 2>&1 | tee satellites.log >&2         || echo "[$(date)] WARNING: satellite screen failed (see satellites.log); continuing with the unfiltered hits" >&2
+    set +e
+    python3 "$_TOOLS/satellite_stage.py" "${_SAT_ARGS[@]}" 2>&1 | tee satellites.log >&2
+    _sat_rc=${PIPESTATUS[0]}
+    set -e
+    if (( _sat_rc != 0 )); then
+        echo "failed (exit $_sat_rc, see satellites.log)" > satellites/screen_status.txt
+        echo "ERROR: satellite screen failed (exit $_sat_rc, see satellites.log); rerun, or set SKIP_SATELLITES=1 to go on without it" >&2
+        exit 1
+    fi
+    echo "ran" > satellites/screen_status.txt
 else
-    echo "[$(date)] Satellite screen skipped (tools/satellite_stage.py or trf not found)"
+    echo "not run: tools/satellite_stage.py or trf not found" > satellites/screen_status.txt
+    echo "ERROR: satellite screen cannot run (tools/satellite_stage.py or trf not found on PATH); install trf, or set"          "SKIP_SATELLITES=1 to go on without it" >&2
+    exit 1
 fi
 
 # --- REQUIRE sear output ---

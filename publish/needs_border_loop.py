@@ -109,12 +109,13 @@ def element_extend_scan(run_root, subfams, genome, assigned, flank=1000):
                          % (ctg, int(start_s), int(end_s), h, strand))      # the name carries the BED start
         slop = os.path.join(work, "%s.slop.bed" % sf)
         fa = os.path.join(work, "%s.fa" % sf)
-        subprocess.call(
-            "bedtools slop -s -l %d -r %d -g %s -i %s > %s 2>/dev/null"
-            % (flank, flank, shlex.quote(sizes), shlex.quote(bed), shlex.quote(slop)), shell=True)
-        subprocess.call(
-            "bedtools getfasta -s -nameOnly -fi %s -bed %s > %s 2>/dev/null"
-            % (shlex.quote(genome), shlex.quote(slop), shlex.quote(fa)), shell=True)
+        for cmd in ("bedtools slop -s -l %d -r %d -g %s -i %s > %s"
+                    % (flank, flank, shlex.quote(sizes), shlex.quote(bed), shlex.quote(slop)),
+                    "bedtools getfasta -s -nameOnly -fi %s -bed %s > %s"
+                    % (shlex.quote(genome), shlex.quote(slop), shlex.quote(fa))):
+            r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            if r.returncode != 0:        # a failed tool is an error, not an empty result (GLM audit 2026-10-19)
+                raise RuntimeError("%s: %s" % (cmd.split()[1], r.stderr.strip()[:300]))
         if not os.path.getsize(fa):
             continue
         cons_seq = None
@@ -160,7 +161,8 @@ def main():
             try:
                 need |= element_extend_scan(run_root, all_sf, genome, assigned)
             except Exception as exc:
-                print("WARN border scan failed: %s" % exc, file=sys.stderr)
+                # a scan that was asked for and failed is not "none flagged" (docs/AIM.md; GLM audit 2026-10-19)
+                sys.exit("ERROR border scan failed: %s" % exc)
 
     for sf in sorted(need):
         print(sf)
