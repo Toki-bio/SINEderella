@@ -78,10 +78,12 @@ if [[ ! -s "$SIM_SCORES" ]]; then
   # --- A) Real self_bits: ssearch36 consensus vs itself ---
   log "  Running consensus self-alignment for real self_bits..."
   # raw Smith-Waterman scores (-m 10 "sw_score"): the -z 11 bit score of a 3-sequence library varies 5-10 % run to run
+  # a failed self-alignment stops the run: it gave ratio 0 instead of NA for every copy (GLM audit 2026-10-19)
   ssearch36 -Q -n -z 11 -E 100 -T "$THREADS" -m 10 -d 1000000 -b 1000000 \
-    "$CONS" "$CONS" 2>/dev/null \
-  | awk 'BEGIN{OFS="\t"} /^>>>/{q=substr($1,4); sub(/,$/,"",q)} /^>>[^>]/{s=substr($1,3)} /^; sw_score:/{print q,s,$3}' \
-    > "$tmpdir/self.m8" || true
+    "$CONS" "$CONS" > "$tmpdir/self.out" 2> "$tmpdir/self.err" \
+    || { tail -5 "$tmpdir/self.err" >&2; log "ERROR: consensus self-alignment (ssearch36) failed"; exit 1; }
+  awk 'BEGIN{OFS="\t"} /^>>>/{q=substr($1,4); sub(/,$/,"",q)} /^>>[^>]/{s=substr($1,3)} /^; sw_score:/{print q,s,$3}' \
+    "$tmpdir/self.out" > "$tmpdir/self.m8"
 
   awk -F'\t' '{
     q=$1; s=$2; bs=$3+0
@@ -91,6 +93,9 @@ if [[ ! -s "$SIM_SCORES" ]]; then
   }' "$tmpdir/self.m8" | sort -k1,1 > "$REAL_SELF_BITS"
 
   log "  Self-bits computed for $(wc -l < "$REAL_SELF_BITS") subfamilies"
+  _ncons=$(grep -c '^>' "$CONS")
+  [[ $(wc -l < "$REAL_SELF_BITS") -eq "$_ncons" ]] \
+    || { log "ERROR: self-bits for $(wc -l < "$REAL_SELF_BITS") of $_ncons consensuses (see $tmpdir/self.err)"; exit 1; }
 
   # --- B) Per-copy single alignment grouped by subfamily ---
   awk -F'\t' 'NR>1 && $5=="assigned"{print $1 "\t" $2}' "$ASSIGN" \

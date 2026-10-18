@@ -1113,9 +1113,8 @@ mode_add(){
     if [[ -s "$qfile" ]]; then
       ln -sfn "$(readlink -f "$GENOME_PATH")" genome.search.fa      # sear's work files stay here (see step 1)
       [[ -f "$GENOME_PATH.fai" ]] && ln -sfn "$(readlink -f "$GENOME_PATH").fai" genome.search.fa.fai
-      sear -k "$qfile" genome.search.fa 0.8 65 50 || {
-        log "WARNING: sear failed for $cname (continuing)"
-      }
+      # a failed search of an added consensus stops the run: the family was silently missing from a "successful" run (GLM audit)
+      sear -k "$qfile" genome.search.fa 0.8 65 50 || die "sear failed for the added consensus $cname"
     else
       log "WARNING: Could not extract consensus for $cname"
     fi

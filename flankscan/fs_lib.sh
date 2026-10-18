@@ -121,7 +121,9 @@ fs_build_cons() {
 fs_fold() {
     local LIST=$1 STATUS=$2 XMIN=${XMIN:-40}
     cut -f1 "$LIST" | while read -r N; do cat "cand/$N.fa"; done > cand/all.fa
-    ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> /dev/null > cand/self.m8 || true
+    # a failed self-search is an error, not "no pair" (every candidate came out "kept"; GLM audit 2026-10-19)
+    ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> cand/self.err > cand/self.m8 \
+        || { echo "fs_fold: ssearch36 failed: $(tail -3 cand/self.err)" >&2; return 1; }
     # pairs that pass rules 1 and 3, with the uncovered stretches (name start end) of both candidates
     gawk -F'\t' -v OFS='\t' -v XMIN=$XMIN '
         FILENAME == ARGV[1] { L[$1] = $2; K[$1] = $3; next }

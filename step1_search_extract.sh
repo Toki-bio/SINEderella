@@ -111,6 +111,9 @@ echo "[$(date)] Found ${#QUERY_FILES[@]} consensus sequences to search"
 # whatever the genome file is called (a genome called rsi.fa gave "rsi-" files that step 1 never read: 0 hits, exit 0)
 ln -sfn "$(readlink -f "$SEARCH_GENOME")" genome.search.fa
 [[ -f "$SEARCH_GENOME.fai" ]] && ln -sfn "$(readlink -f "$SEARCH_GENOME").fai" genome.search.fa.fai
+# every query is searched again below, so hit files of an earlier attempt in this directory (a --resume, or a rerun after a
+# bank change) go first: the merge read them all, the derived all_hits.labeled.bed / regions.by_subfam.bed included (GLM audit)
+rm -f gen-*.bed all_hits.labeled.bed regions.by_subfam.bed
 for query in "${QUERY_FILES[@]}"; do
     echo "[$(date)] Searching with $(basename "$query")"
     sear -k "$query" genome.search.fa 0.8 65 50

@@ -395,13 +395,19 @@ done
 
 # --- Split creation/reuse (directory-local) ---
 # Create splits only once per working directory (reused across queries in Step1)
-if compgen -G "*.2k.part_*.bnk" >/dev/null 2>&1; then
-  echo "skipping 2k split"
+# Reuse only the splits of THIS bank, unchanged: a stamp (path, size, mtime) is written with them. Until 2026-10-19 any
+# *.2k.part_*.bnk in the directory was reused and searched, also another genome's (GLM audit).
+WB_BASE="$(basename "$WORKING_BANK")"
+WB_STAMP="$(readlink -f "$WORKING_BANK") $(stat -c '%s %Y' "$(readlink -f "$WORKING_BANK")")"
+if compgen -G "${WB_BASE}.2k.part_*.bnk" >/dev/null 2>&1 && [[ -f "${WB_BASE}.2k.stamp" && "$(cat "${WB_BASE}.2k.stamp")" == "$WB_STAMP" ]]; then
+  echo "skipping 2k split (reusing the splits of this bank)"
 else
+  rm -f "${WB_BASE}".2k.part_* "${WB_BASE}.2k.stamp"
   # windows of 3,000 bp every 2,000 bp: neighbouring windows share 1,000 bp, so a copy up to 1 kb lies whole in one window (the
   # length filter is applied per window: with 2,500 bp windows copies over 500 bp across a border were lost or cut, audit 2026-10-14)
   seqkit sliding -g -s 2000 -W 3000 "$WORKING_BANK" > "$WORKING_BANK"."2k.bnk"
   seqkit split2 -p 20 -O . "$WORKING_BANK"."2k.bnk"
+  echo "$WB_STAMP" > "${WB_BASE}.2k.stamp"
 fi
 
 : > "$WORKING_BANK".all_hits.txt
@@ -410,7 +416,7 @@ HIT_COUNT=0
 STOP_NOW=0
 : > "$(basename "$WORKING_BANK" | cut -c 1-3)-$qname.rawhits.tsv"      # the raw-hit file of this query starts empty (same prefix as the part files)
 
-for bank in *.2k.part_*.bnk; do
+for bank in "${WB_BASE}".2k.part_*.bnk; do
   [[ "$bank" == minus_* ]] && continue
   [[ "$bank" == *.fai ]] && continue
   [[ "$bank" == *_s.fai ]] && continue
