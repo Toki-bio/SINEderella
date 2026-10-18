@@ -309,17 +309,43 @@ function rc(s){var o='';for(var i=s.length-1;i>=0;i--)o+=(CP[s[i]]||'N');return 
 function pad(s,n){s=String(s);while(s.length<n)s+=' ';return s}
 function lpad(s,n){s=String(s);while(s.length<n)s=' '+s;return s}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
-function alns(a,b,bl){if(!D.seqs||!D.seqs[a]||!D.seqs[b])return'';var W=60,na=D.names[a],nb=D.names[b],nw=Math.max(na.length,nb.length),o='';
-bl.forEach(function(k,bi){var c=['#3b7ddd','#d9822b','#2f9e6f','#c0554d','#8e5fc7'][bi%5];
-var sa=D.seqs[a].substr(k.a0-1,k.a1-k.a0+1),sb=D.seqs[b].substr(k.b0-1,k.b1-k.b0+1);if(k.s=='-')sb=rc(sb);
-var n=Math.min(sa.length,sb.length),same=0,t='';for(var i=0;i<n;i++)if(sa[i]==sb[i])same++;
-t+='<div style="margin-top:10px;border-left:4px solid '+c+';padding-left:8px"><b>block '+(bi+1)+'</b>: '+na+' '+k.a0+'-'+k.a1+' / '+nb+' '+(k.s=='+'?k.b0+'-'+k.b1:k.b1+'-'+k.b0+' (reverse strand)')+', '+n+' bp, '+same+' identical ('+(n?Math.round(1000*same/n)/10:0)+' %)';
-t+='<pre style="font:12px/1.35 ui-monospace,Consolas,monospace;margin:4px 0;overflow-x:auto">';
-for(var p=0;p<n;p+=W){var e=Math.min(n,p+W),la='',lm='',lb='';
-for(var j=p;j<e;j++){var x=sa[j],y=sb[j];if(x==y){la+=x;lb+=y;lm+='|'}else{la+='<span style="color:#c0392b;font-weight:700">'+esc(x)+'</span>';lb+='<span style="color:#c0392b;font-weight:700">'+esc(y)+'</span>';lm+=' '}}
-var pa0=k.a0+p,pa1=k.a0+e-1,pb0=(k.s=='+')?k.b0+p:k.b1-p,pb1=(k.s=='+')?k.b0+e-1:k.b1-e+1;
-t+=esc(pad(na,nw))+' '+lpad(pa0,4)+' '+la+' '+pa1+'\\n'+pad('',nw)+'      '+lm+'\\n'+esc(pad(nb,nw))+' '+lpad(pb0,4)+' '+lb+' '+pb1+'\\n\\n'}
-o+=t+'</pre></div>'});return '<div style="margin-top:6px"><b>Shared blocks as alignments</b> <span style="opacity:.7">(mismatches in red; numbers = positions in each consensus)</span>'+o+'</div>'}
+function sga(x,y){/* global alignment, free end gaps, affine gaps (Gotoh): match 2, mismatch -2, open -6, extend -1 */
+var n=x.length,m=y.length,MA=2,MI=-2,GO=-6,GE=-1,NEG=-1e9,W=m+1,i,j;
+var M=new Float64Array((n+1)*W),X=new Float64Array((n+1)*W),Y=new Float64Array((n+1)*W);
+for(i=0;i<=n;i++)for(j=0;j<=m;j++){var k=i*W+j;if(i==0||j==0){M[k]=(i==0&&j==0)?0:NEG;X[k]=(j==0&&i>0)?0:NEG;Y[k]=(i==0&&j>0)?0:NEG;continue}
+var s=(x[i-1]==y[j-1])?MA:MI,d=(i-1)*W+(j-1);M[k]=Math.max(M[d],X[d],Y[d])+s;
+var u=(i-1)*W+j;X[k]=Math.max(M[u]+GO,X[u]+GE,Y[u]+GO);if(j==m)X[k]=Math.max(M[u],X[u],Y[u]);
+var l=i*W+(j-1);Y[k]=Math.max(M[l]+GO,Y[l]+GE,X[l]+GO);if(i==n)Y[k]=Math.max(M[l],Y[l],X[l]);}
+var e=n*W+m,st=(M[e]>=X[e]&&M[e]>=Y[e])?0:(X[e]>=Y[e]?1:2),ax='',ay='',ai=[],bj=[];i=n;j=m;
+while(i>0||j>0){var k2=i*W+j;
+if(i==0){st=2}else if(j==0){st=1}
+if(st==0){var d2=(i-1)*W+(j-1),s2=(x[i-1]==y[j-1])?MA:MI,v=M[k2]-s2;st=(Math.abs(M[d2]-v)<1e-9)?0:(Math.abs(X[d2]-v)<1e-9?1:2);ax=x[i-1]+ax;ay=y[j-1]+ay;ai.unshift(i);bj.unshift(j);i--;j--;}
+else if(st==1){var u2=(i-1)*W+j,fr=(j==m)?0:1;st=(Math.abs(X[k2]-((j==m)?M[u2]:M[u2]+GO))<1e-9)?0:(Math.abs(X[k2]-((j==m)?X[u2]:X[u2]+GE))<1e-9?1:2);ax=x[i-1]+ax;ay='-'+ay;ai.unshift(i);bj.unshift(0);i--;}
+else{var l2=i*W+(j-1);st=(Math.abs(Y[k2]-((i==n)?M[l2]:M[l2]+GO))<1e-9)?0:(Math.abs(Y[k2]-((i==n)?Y[l2]:Y[l2]+GE))<1e-9?2:1);ax='-'+ax;ay=y[j-1]+ay;ai.unshift(0);bj.unshift(j);j--;}}
+return{ax:ax,ay:ay,ai:ai,bj:bj}}
+function alns(a,b,bl){if(!D.seqs||!D.seqs[a]||!D.seqs[b])return'';var Wd=60,na=D.names[a],nb=D.names[b],nw=Math.max(na.length,nb.length);
+var cols=['#3b7ddd','#d9822b','#2f9e6f','#c0554d','#8e5fc7'];
+var plus=0,minus=0;bl.forEach(function(k){if(k.s=='+')plus+=k.a1-k.a0+1;else minus+=k.a1-k.a0+1});var rev=minus>plus;
+var sa=D.seqs[a],sb=rev?rc(D.seqs[b]):D.seqs[b],LB=D.seqs[b].length;
+var r=sga(sa,sb),L=r.ax.length,blk=new Array(L).fill(-1),same=0,al=0;
+for(var c=0;c<L;c++){var ia=r.ai[c],jb=r.bj[c],jo=jb?(rev?LB-jb+1:jb):0;
+bl.forEach(function(k,bi){if(blk[c]>=0)return;if((k.s=='-')!=rev)return;if(ia&&jo&&ia>=k.a0&&ia<=k.a1&&jo>=k.b0&&jo<=k.b1)blk[c]=bi;});
+if(r.ax[c]!='-'&&r.ay[c]!='-'){al++;if(r.ax[c]==r.ay[c])same++;}}
+var o='<div style="margin-top:8px"><b>Full alignment</b> of '+esc(na)+' ('+sa.length+' bp) and '+esc(nb)+' ('+LB+' bp'+(rev?', reverse complement':'')+'): '+L+' columns, '+same+' identical of '+al+' aligned positions. <span style="opacity:.75">Shared blocks (the regions in focus) are shaded in their colour and marked on the line above; outside them the alignment is drawn lighter; mismatches in red.</span>';
+o+='<pre style="font:12px/1.4 ui-monospace,Consolas,monospace;margin:6px 0;overflow-x:auto">';
+var pa=0,pb=0;
+for(var p=0;p<L;p+=Wd){var e=Math.min(L,p+Wd),la='',lm='',lb='',lf='',a0=pa+1,b0=pb+1;
+for(var c2=p;c2<e;c2++){var x=r.ax[c2],y=r.ay[c2],bi=blk[c2],bg=bi>=0?cols[bi%5]:'';
+if(x!='-')pa++;if(y!='-')pb++;
+var mis=(x!='-'&&y!='-'&&x!=y),sty=bi>=0?'background:'+bg+'33;':'opacity:.45;';
+var cs=mis?'color:#c0392b;font-weight:700;':'';
+la+='<span style="'+sty+cs+'">'+esc(x)+'</span>';lb+='<span style="'+sty+cs+'">'+esc(y)+'</span>';
+lm+=(x!='-'&&x==y)?'|':' ';
+var st=bi>=0&&(c2==0||blk[c2-1]!=bi),en=bi>=0&&(c2==L-1||blk[c2+1]!=bi);
+lf+=bi>=0?'<span style="color:'+bg+';font-weight:700">'+(st?'[':(en?']':(((c2-p)%10==5)?String(bi+1):'=')))+'</span>':' ';}
+var bA=rev?(LB-b0+1):b0,eB=rev?(LB-pb+1):pb;
+t=esc(pad('',nw))+'      '+lf+'\\n'+esc(pad(na,nw))+' '+lpad(a0,4)+' '+la+' '+pa+'\\n'+pad('',nw)+'      '+lm+'\\n'+esc(pad(nb,nw))+' '+lpad(bA,4)+' '+lb+' '+eB+'\\n\\n';o+=t;}
+var seen={};blk.forEach(function(v){if(v>=0)seen[v]=1});var miss=[];bl.forEach(function(k,bi){if(!seen[bi])miss.push('block '+(bi+1)+' ('+esc(na)+' '+k.a0+'-'+k.a1+' ~ '+esc(nb)+' '+k.b0+'-'+k.b1+(k.s=='-'?', reverse strand':'')+')')});return o+'</pre>'+(miss.length?'<div style="font-size:12px;opacity:.85">Not in this alignment (a second similarity of the same stretch; one pairwise alignment places each base once): '+miss.join('; ')+'.</div>':'')+'</div>'}
 A.onchange=B.onchange=draw;document.querySelectorAll('td.bc').forEach(function(t){t.onclick=function(){A.value=t.dataset.a;B.value=t.dataset.b;draw();document.getElementById('bpair').scrollIntoView({block:'nearest'})}});A.value=__A__;B.value=__B__;draw();})();
 </script>""".replace("__DATA__", json.dumps(data)).replace("__A__", str(first)).replace("__B__", str(second))
     return """<style>.bm{border-collapse:collapse;font-size:11px}.bm th{text-transform:none;letter-spacing:0}.bm th.bh{writing-mode:vertical-rl;transform:rotate(180deg);font-weight:500;padding:2px;white-space:nowrap}.bm td.bc{width:30px;height:22px;text-align:center;border:1px solid #8883;cursor:pointer}.bm td.bc:hover{outline:2px solid #d9822b}</style>
