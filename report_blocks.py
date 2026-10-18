@@ -323,7 +323,7 @@ if(st==0){var d2=(i-1)*W+(j-1),s2=(x[i-1]==y[j-1])?MA:MI,v=M[k2]-s2;st=(Math.abs
 else if(st==1){var u2=(i-1)*W+j,fr=(j==m)?0:1;st=(Math.abs(X[k2]-((j==m)?M[u2]:M[u2]+GO))<1e-9)?0:(Math.abs(X[k2]-((j==m)?X[u2]:X[u2]+GE))<1e-9?1:2);ax=x[i-1]+ax;ay='-'+ay;ai.unshift(i);bj.unshift(0);i--;}
 else{var l2=i*W+(j-1);st=(Math.abs(Y[k2]-((i==n)?M[l2]:M[l2]+GO))<1e-9)?0:(Math.abs(Y[k2]-((i==n)?Y[l2]:Y[l2]+GE))<1e-9?2:1);ax='-'+ax;ay=y[j-1]+ay;ai.unshift(0);bj.unshift(j);j--;}}
 return{ax:ax,ay:ay,ai:ai,bj:bj}}
-function alns(a,b,bl){if(!D.seqs||!D.seqs[a]||!D.seqs[b])return'';var Wd=60,na=D.names[a],nb=D.names[b],nw=Math.max(na.length,nb.length);
+function alns(a,b,bl){if(!D.seqs||!D.seqs[a]||!D.seqs[b])return'';var Wd=1e9,na=D.names[a],nb=D.names[b],nw=Math.max(na.length,nb.length);
 var cols=['#3b7ddd','#d9822b','#2f9e6f','#c0554d','#8e5fc7'];
 var plus=0,minus=0;bl.forEach(function(k){if(k.s=='+')plus+=k.a1-k.a0+1;else minus+=k.a1-k.a0+1});var rev=minus>plus;
 var sa=D.seqs[a],sb=rev?rc(D.seqs[b]):D.seqs[b],LB=D.seqs[b].length;
