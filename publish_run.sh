@@ -113,6 +113,11 @@ if [[ "${USE_DISC:-1}" == "1" && -n "$DISC" ]]; then
     INJ_ARGS=( "$OUT_HTML" "$RUN_ROOT/results/alignments" "$SPECIES" )
     [[ -n "${RAW_ALN_BASE:-}" ]] && INJ_ARGS+=( "--raw-base" "$RAW_ALN_BASE" )
     INJ_ARGS+=( "--summary-tsv" "$S2/summary.by_subfam.tsv" )
+    # flank verdicts (tools/flank_verdict.py): copies column = SINE loci, and a row for every subfamily, also those
+    # without SINE loci and therefore without plates (the row says why). The overlay ignores the option if it is older.
+    if [[ -s "$S2/flank_verdict.tsv" ]] && grep -q -- "--verdict-tsv" "$INJECT"; then
+      INJ_ARGS+=( "--verdict-tsv" "$S2/flank_verdict.tsv" )
+    fi
     python3 "$INJECT" "${INJ_ARGS[@]}"
   else
     log "WARNING: inject_disc_report.py not found under DISC"
