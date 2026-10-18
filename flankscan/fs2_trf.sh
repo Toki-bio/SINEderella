@@ -31,8 +31,11 @@ cd "$OUT"
 # TRF is single-threaded: split the windows into T parts and run them side by side; the -ngs output
 # ("@window" line, then its repeats) of the parts simply concatenates
 rm -rf trf_parts; seqkit split2 -p "$T" -O trf_parts windows.fa 2> /dev/null
-ls trf_parts/*.fa* | xargs -P "$T" -I{} sh -c 'trf "$1" 2 5 7 80 10 20 2000 -h -ngs > "$1.trf" 2> /dev/null || true' _ {}
-cat trf_parts/*.trf > trf.raw; rm -rf trf_parts                   # trf's exit code is not an error code
+# trf's exit code is not an error code (it is non-zero on success), but a missing trf (127) or a crash (signal, >= 128) is:
+# until 2026-10-19 both gave an empty trf.raw and "no repeats" (GLM audit)
+command -v trf > /dev/null || { echo "fs2: trf not found on PATH" >&2; exit 1; }
+ls trf_parts/*.fa* | xargs -P "$T" -I{} sh -c 'trf "$1" 2 5 7 80 10 20 2000 -h -ngs > "$1.trf" 2> "$1.trf.err"; rc=$?; [ "$rc" -lt 127 ] || { echo "fs2: trf failed on $1 (exit $rc)" >&2; exit 255; }' _ {}
+cat trf_parts/*.trf > trf.raw; rm -rf trf_parts
 
 gawk -F'\t' -v OFS='\t' '
     FNR == NR { if (FNR > 1) { fam[$1]=$3; cs[$1]=$8; ce[$1]=$9 }; next }      # loci.tsv
