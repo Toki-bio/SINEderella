@@ -226,19 +226,21 @@ if [[ "${SOFT_TOPUP:-1}" == "1" && -s "$UNASSIGNED" ]]; then
 fi
 
 ###############################################################################
-# Plates show SINE loci only (docs/AIM.md: interspersed = unique flanks). When the run has per-copy flank verdicts
-# (step2_output/loci_verdict.tsv, tools/flank_verdict.py, written by the publish run before this step), only copies with
-# verdict SINE stay: copies with shared flanks, the same flank at the same place in many copies, masked / untested flanks
-# (grey zone) and soft-assigned copies (not assigned, so not SINE loci) never enter top100, rand100 or the SubFam plate.
-# A subfamily with no SINE copy gets no plate. Until 2026-10-18 the plates were drawn from every assigned copy (rsi: 32 %
-# of the rows had no tested-unique flanks). PLATE_VERDICT=off restores the old behaviour (runs without verdicts).
+# Plates show SINE loci first (docs/AIM.md: interspersed = unique flanks). When the run has per-copy flank verdicts
+# (step2_output/loci_verdict.tsv, tools/flank_verdict.py, written by the publish run before this step), the plates are
+# drawn from copies with verdict SINE; a subfamily with fewer than 100 is topped up with its grey-zone copies (flanks
+# masked or untestable; owner 2026-10-18: grey ones are still aligned and shown), marked " [grey]" - the soft top-up
+# path below, which now carries grey copies instead of soft-assigned ones. A subfamily with grey copies only gets plates
+# of grey copies. Copies with verdict not_SINE (shared flanks, the same flank at the same place in many copies) and
+# soft-assigned copies (not assigned) never enter a plate. Until 2026-10-18 the plates were drawn from every assigned copy
+# (rsi: 32 % of the rows had no tested-unique flanks). PLATE_VERDICT=off restores the old behaviour.
 ###############################################################################
 VERDICT_TSV="$STEP2_OUT/loci_verdict.tsv"
 if [[ "${PLATE_VERDICT:-SINE}" != "off" && -s "$VERDICT_TSV" ]]; then
     python3 "$(dirname "${BASH_SOURCE[0]}")/tools/plate_filter.py" "$TMPDIR/loci.tsv" "$VERDICT_TSV" "${PLATE_VERDICT:-SINE}" \
-        > "$TMPDIR/loci.sine.tsv" || { echo "ERROR: tools/plate_filter.py failed" >&2; exit 1; }
+        "$TMPDIR/grey.tsv" > "$TMPDIR/loci.sine.tsv" || { echo "ERROR: tools/plate_filter.py failed" >&2; exit 1; }
     mv "$TMPDIR/loci.sine.tsv" "$TMPDIR/loci.tsv"
-    : > "$TMPDIR/soft.tsv"
+    mv "$TMPDIR/grey.tsv" "$TMPDIR/soft.tsv"
 elif [[ "${PLATE_VERDICT:-SINE}" != "off" ]]; then
     echo "WARNING: no $VERDICT_TSV (flank verdicts are written by the publish run): plates are drawn from all assigned" \
          "copies, including copies whose flanks were never shown unique" >&2
@@ -291,8 +293,9 @@ extract_flank_align() {
     # Mark soft-assigned rows (loci column 7 == "soft"); getfasta keeps BED order;
     # loci in tandem clusters (column 8 == "array", tools/array_order.py) and copies whose flanks are shared with other
     # copies of the family (column 8 == "twin", flankscan stage 9 through array_order --twins)
-    awk -F'\t' 'NR==FNR{ soft[NR] = ($7 == "soft"); arr[NR] = ($8 == "array"); twn[NR] = ($8 == "twin"); next }
-        /^>/ { k++; tag = (soft[k] ? " [soft]" : "") (arr[k] ? " [array]" : "") (twn[k] ? " [twin]" : "")
+    # (column 7 == "grey": grey-zone top-up copies of the flank verdict, marked " [grey]")
+    awk -F'\t' 'NR==FNR{ soft[NR] = ($7 == "soft"); grey[NR] = ($7 == "grey"); arr[NR] = ($8 == "array"); twn[NR] = ($8 == "twin"); next }
+        /^>/ { k++; tag = (soft[k] ? " [soft]" : "") (grey[k] ? " [grey]" : "") (arr[k] ? " [array]" : "") (twn[k] ? " [twin]" : "")
                if (tag != "") { print $0 tag; next } }
         { print }' "$loci_tsv" "$TMPDIR/cur_extracted.fa" > "$TMPDIR/cur_marked.fa" || return 1
     mv "$TMPDIR/cur_marked.fa" "$TMPDIR/cur_extracted.fa"
@@ -437,7 +440,7 @@ while IFS=$'\t' read -r subfam count; do
     awk -F'\t' -v sf="$subfam" '$1==sf' "$BASE_TMP/soft.tsv" > "$TMPDIR/soft_${idx}.tsv"
     if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
         sort -t$'\t' -k2,2nr "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"
-        echo "  $subfam: $count firm copies; top100/rand100 filled with soft copies (marked [soft])" >&2
+        echo "  $subfam: $count firm copies; top100/rand100 topped up (soft copies marked [soft], grey-zone copies [grey])" >&2
     fi
     # independent loci first: one copy per tandem cluster and per twin group before any second one (tools/array_order.py;
     # twin groups from flankscan stage 9, results/flank_twins/<subfam>/copy_status.tsv, when the run has them)

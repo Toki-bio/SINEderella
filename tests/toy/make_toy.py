@@ -92,8 +92,12 @@ for sf in cons:
     d = os.path.join(root, "results", "flank_twins", sf)
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "copy_status.tsv"), "w") as fh:
+        nm = 0
         for c, a, b, st, s, sc in firm:
             if s == sf:
-                fh.write("%s:%d-%d(%s)\t%s\t0\t-\t-\n" % (c, a - 1, b, st, "array" if c in ("ctgB", "ctgC") else "unique"))
+                cs = "array" if c in ("ctgB", "ctgC") else "unique"
+                if sf == "TOYS" and cs == "unique" and nm < 2:     # 2 TOYS copies with masked flanks: grey zone
+                    cs, nm = "masked", nm + 1
+                fh.write("%s:%d-%d(%s)\t%s\t0\t-\t-\n" % (c, a - 1, b, st, cs))
     open(os.path.join(d, "flank_groups.tsv"), "w").write("copy_a\tcopy_b\tside\tidentity\tlength\ttier\tclass\n")
 print("toy run dir:", root, "firm", len(firm), "soft", len(soft))

@@ -194,4 +194,27 @@ if [[ "$OUT_DIR" != "$STEP8_OUT" ]]; then
     "$STEP8_OUT"/*_subfam.aln.fa "$OUT_DIR/" 2>/dev/null || true
 fi
 
+# Consensus alignments, a regular output (owner 2026-10-18): every consensus of the searched bank, and separately the
+# consensuses of subfamilies whose flanks were shown unique (flank_verdict.tsv: interspersed). MAFFT L-INS-i with
+# --threadit 0 (same input -> same alignment). Written after the DISC tools above, which must not touch them.
+CONS_BANK="$RUN_ROOT/consensuses.clean.fa"
+if [[ -s "$CONS_BANK" ]]; then
+  log "consensus alignments"
+  mafft --quiet --localpair --maxiterate 1000 --threadit 0 --thread "${THREADS:-4}" "$CONS_BANK" \
+    > "$STEP8_OUT/${SPECIES}_consensuses.aln.fa" || log "WARNING: consensus alignment failed"
+  FV="$RUN_ROOT/step2/step2_output/flank_verdict.tsv"
+  if [[ -s "$FV" ]]; then
+    awk -F'\t' 'FILENAME == ARGV[1] { if (FNR > 1 && $2 == "interspersed") ok[$1] = 1; next }
+                /^>/ { n = substr($1, 2); p = (n in ok) } p' "$FV" "$CONS_BANK" > "$STEP8_OUT/.sine_cons.fa"
+    if [[ $(grep -c '^>' "$STEP8_OUT/.sine_cons.fa") -ge 2 ]]; then
+      mafft --quiet --localpair --maxiterate 1000 --threadit 0 --thread "${THREADS:-4}" "$STEP8_OUT/.sine_cons.fa" \
+        > "$STEP8_OUT/${SPECIES}_consensuses_sine.aln.fa" || log "WARNING: SINE consensus alignment failed"
+    fi
+    rm -f "$STEP8_OUT/.sine_cons.fa"
+  fi
+  if [[ "$OUT_DIR" != "$STEP8_OUT" ]]; then
+    cp -a "$STEP8_OUT/${SPECIES}"_consensuses*.aln.fa "$OUT_DIR/" 2>/dev/null || true
+  fi
+fi
+
 log "Done: $STEP8_OUT"

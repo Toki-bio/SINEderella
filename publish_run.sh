@@ -92,6 +92,9 @@ cp -f "$SINEDERELLA_BIN"/report_*.py "$RUN_ROOT/" 2>/dev/null || true
 mkdir -p "$RUN_ROOT/tools" && cp -f "$SINEDERELLA_BIN/tools/consensus_blocks.py" "$RUN_ROOT/tools/" 2>/dev/null || true
 mkdir -p "$RUN_ROOT/results"
 OUT_HTML="$RUN_ROOT/results/report.html"
+# composites of the bank as units, for the Element hierarchy (grey = stretches no unit explains; 2026-10-18)
+python3 "$SINEDERELLA_BIN/tools/composite_units.py" "$RUN_ROOT" "${THREADS:-4}" \
+  || log "WARNING: tools/composite_units.py failed; the hierarchy is drawn without unit composition"
 
 STEP6_ARGS=( "$RUN_ROOT" "--out" "$OUT_HTML" "--no-sineplot" )
 [[ -n "${RAW_ALN_BASE:-}" ]] && \

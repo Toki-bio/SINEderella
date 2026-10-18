@@ -43,7 +43,9 @@ ls $A | head -30
 # publish path: flank verdicts (planted step7 + stage-9 results in make_toy.py) -> plates show SINE loci only (docs/AIM.md)
 chk "flank verdict ran: loci_verdict.tsv written"     '[ -s $P/step2/step2_output/loci_verdict.tsv ]'
 chk "final plates: no soft copy, no array unit"       '[ $(cat $A/*.aln.fa | grep -c -E "\[soft\]|\[array\]|>ctgB|>ctgC|>_R_ctgB|>_R_ctgC") -eq 0 ]'
-chk "TOYS plates = its 6 dispersed SINE copies"       '[ $(grep -c "^>[_R]*ctgA" $A/toy_TOYS_top100.aln.fa) -eq 6 ]'
+chk "TOYS plates = its 6 dispersed copies (4 SINE + 2 grey)" '[ $(grep -c "^>[_R]*ctgA" $A/toy_TOYS_top100.aln.fa) -eq 6 ]'
+chk "TOYS: the 2 masked-flank copies are marked [grey]" '[ $(grep -c "\[grey\]" $A/toy_TOYS_top100.aln.fa) -eq 2 ] && [ $(grep -c "\[grey\]" $A/toy_TOYS_rand100.aln.fa) -eq 2 ]'
+chk "consensus alignments: all 5 and SINE-confirmed"   '[ $(grep -c "^>" $A/toy_consensuses.aln.fa) -eq 5 ] && [ -s $A/toy_consensuses_sine.aln.fa ]'
 chk "TOYA plates = its 4 independent copies"          '[ $(grep -c "^>[_R]*ctgA" $A/toy_TOYA_top100.aln.fa) -eq 4 ]'
 chk "no TOYC plate (soft copies only, not SINE loci)" '[ ! -e $A/toy_TOYC_top100.aln.fa ]'
 chk "final plates: row 1 _extended, row 2 original"  '[ "$(grep "^>" $A/toy_TOYS_top100.aln.fa | sed -n 1p)" = ">TOYS_extended" ] && [ "$(grep "^>" $A/toy_TOYS_top100.aln.fa | sed -n 2p)" = ">TOYS" ]'
