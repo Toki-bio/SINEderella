@@ -7,6 +7,8 @@ Validation slop 1000 bp/side; peel-rebuilt or loop conse consensus preferred.
 import argparse
 import json
 import os
+import re
+import shlex
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -106,62 +108,99 @@ ISLAND_FRAC_STOP = 0.10   # below this, treat the flank as independent (matches
 MAX_ROUNDS = 5            # rounds per side; each round is one extend+rescan
 
 
+def _flank_seqs(bed, genome, side, n, work, tag):
+    """the n bp next to each element on one side, in the element's orientation (bedtools flank -s; no alignment)"""
+    sizes = os.path.join(work, "genome.sizes")
+    F.sh("cut -f1,2 %s > %s" % (shlex.quote(genome + ".fai"), shlex.quote(sizes)))
+    fb = os.path.join(work, "flank_%s.bed" % tag)
+    ff = os.path.join(work, "flank_%s.fa" % tag)
+    lr = ("-l %d -r 0" % n) if side == "5prime" else ("-l 0 -r %d" % n)
+    F.sh("bedtools flank -s %s -g %s -i %s > %s 2>/dev/null" % (lr, shlex.quote(sizes), shlex.quote(bed), shlex.quote(fb)))
+    F.sh("bedtools getfasta -s -nameOnly -fi %s -bed %s > %s 2>/dev/null" % (shlex.quote(genome), shlex.quote(fb), shlex.quote(ff)))
+    out = {}
+    if os.path.isfile(ff) and os.path.getsize(ff):
+        for nm, sq in zip(*F.read_fa(ff)):
+            out[re.sub(r"\([+-]\)$", "", nm.split()[0])] = sq.upper()
+    return out
+
+
 def run_side(side, bed, genome, anchor_name, anchor_seq, work, out_log,
              max_rounds=MAX_ROUNDS, island_frac_stop=ISLAND_FRAC_STOP):
     """Iteratively extend one flank until it's independent, or extension runs
     out, or MAX_FLANK/max_rounds is hit -- and says honestly which happened.
 
-    This REPLACES a single extend-then-ignore-the-result pass. The old
-    version already computed an island scan before and after extending
-    (isl_pre/isl_post in flank_border_iterate.py's prototype) but nothing
-    ever read the result to decide whether to extend further -- the
-    "iterate" in this file's name was aspirational, not implemented. Found
-    2026-09-10 on oma_SINE16: extension applied once, flank-sharing
-    unresolved, and the pipeline reported the family as clean anyway.
+    The core (the copies' elements with the anchor consensus) is aligned ONCE per side; each round only takes the flank
+    from the genome (bedtools, seconds) and joins it to the core, every copy's flank packed against its own junction
+    (column d = d bp from the junction). Owner's design (2026-10-18): the core stays aligned, the expanded flanks are added
+    separately and junctioned. Until then every round re-extracted element + the whole 1 kb flank of all copies and ran
+    MAFFT on it - and postprocess_flanks then discarded the flank alignment by packing the flank bases against the
+    junction anyway, so the tests below already read junction-packed flanks; rsi MEG-RS took 15 min.
 
-    Each round: extract element+this-flank-only -> MAFFT -> element_window
-    (copy-supported extension) -> island scan on the (possibly still
-    unresolved) flank. Stops as soon as ANY of:
+    Each round: element_window on core + packed flank (copy-supported extension, measured from the anchor's edge, so a
+    round's extension is the growth over the rounds before) -> island scan on the flank beyond the copy-supported edge
+    (up to MAX_FLANK bp). Stops as soon as ANY of:
       - island_fraction < island_frac_stop           -> genuinely independent
       - no further copy-supported extension is found -> extension exhausted
       - total extension for this side hits MAX_FLANK  -> capped, "STILL BAD"
       - max_rounds reached                            -> capped, "STILL BAD"
-    The last two cases are reported as such, not silently accepted as clean.
+      - nothing left to scan                          -> untested, "STILL BAD"
+    The capped and untested cases are reported as such, not silently accepted as clean.
     """
+    bed0 = bed
+    ef = os.path.join(work, "core_%s.elements.fa" % side)
+    F.extract_elements(bed0, genome, ef, work)
+    F.write_fa(os.path.join(work, "anchor.fa"), [(anchor_name, anchor_seq)])
+    combined = os.path.join(work, "core_%s.combined.fa" % side)
+    F.sh("cat %s %s > %s" % (os.path.join(work, "anchor.fa"), ef, combined))
+    core_aln = os.path.join(work, "core_%s.aln.fa" % side)
+    F.mafft(combined, core_aln, opts=F.MAFFT_VAL)
+    cn, cs = F.read_fa(core_aln)
+    ka = next((i for i, n in enumerate(cn) if n.split()[0] == anchor_name), F.consensus_index(cn))
+    anchor_row = cs[ka].upper()
+    core = {re.sub(r"\([+-]\)$", "", n.split()[0]): s.upper() for i, (n, s) in enumerate(zip(cn, cs)) if i != ka}
+    W = len(anchor_row)
+
     total_extend = 0
     island = None
     stop_reason = None
     verdict = "untested"
     for round_i in range(1, max_rounds + 1):
-        vf = os.path.join(work, "val_%s_r%d.flank.fa" % (side, round_i))
-        F.extract_for_side(bed, genome, side, F.MAX_FLANK, vf, work)
-        F.write_fa(os.path.join(work, "anchor.fa"), [(anchor_name, anchor_seq)])
-        combined = os.path.join(work, "val_%s_r%d.combined.fa" % (side, round_i))
-        F.sh("cat %s %s > %s" % (os.path.join(work, "anchor.fa"), vf, combined))
-        aln = os.path.join(work, "val_%s_r%d.aln.fa" % (side, round_i))
-        F.mafft(combined, aln, opts=F.MAFFT_VAL)
-        F.postprocess_flanks(aln, anchor_name)
-        names, seqs = F.read_fa(aln)
-        k = F.consensus_index(names)
-        rows = [s.upper() for i, s in enumerate(seqs) if i != k]
-        cons = seqs[k].upper()
+        need = total_extend + F.MAX_FLANK
+        fl = _flank_seqs(bed0, genome, side, need, work, "%s_r%d" % (side, round_i))
+        rows, flank_rows = [], []
+        for name, crow in core.items():
+            f = fl.get(name, "")
+            if side == "5prime":
+                f = f[-need:] if f else ""
+                packed = "-" * (need - len(f)) + f                 # junction-adjacent base in the last column
+                rows.append(packed + crow)
+                flank_rows.append(packed[::-1])                    # flank_rows: column d = d bp from the junction
+            else:
+                f = f[:need]
+                packed = f + "-" * (need - len(f))
+                rows.append(crow + packed)
+                flank_rows.append(packed)
+        cons = ("-" * need + anchor_row) if side == "5prime" else (anchor_row + "-" * need)
         lo2, hi2, bdiag = F.element_window(cons, rows)
-        scan_side = "L" if side == "5prime" else "R"
-        island = F.island_scan_side(aln, scan_side)
-        ext_bp = bdiag.get("extended_left" if side == "5prime" else "extended_right", 0)
+        ext_total = bdiag.get("extended_left" if side == "5prime" else "extended_right", 0)
+        ext_bp = max(0, ext_total - total_extend)
+        a = min(ext_total, need)
+        block_cols = [list(r[a:a + F.MAX_FLANK]) for r in flank_rows]
+        block = F.np.array(block_cols) if block_cols and block_cols[0] else None
+        island = F.island_scan_block(block)
 
         out_log["steps"].append({
             "side": side, "round": round_i, "extend_cols": ext_bp, "extend_bp": ext_bp,
-            "copy_supported": bdiag, "island": island,
-            "extract": "element+%s_flank_only" % ("left" if side == "5prime" else "right"),
+            "extend_total": ext_total, "copy_supported": bdiag, "island": island,
+            "extract": "core aligned once (%d cols) + %d bp %s flank packed at the junction, no flank alignment"
+                       % (W, need, "left" if side == "5prime" else "right"),
         })
 
         island_frac = (island or {}).get("island_fraction")
         if island_frac is None:
-            # Nothing to scan: no flank columns left (the copy-supported element reaches the end of the
-            # validation window, i.e. the flank is shared all the way out) or under 500 flank bases.
-            # A test that could not be done is not a pass (docs/AIM.md). Until 2026-10-17 this case
-            # was reported "independent (island_fraction=None)": rsi MEG-RS 3', a tandem-array family.
+            # Nothing to scan: no flank columns left beyond the copy-supported edge (the element reaches the end of the
+            # window, i.e. the flank is shared all the way out) or under 500 flank bases. A test that could not be done
+            # is not a pass (docs/AIM.md). Until 2026-10-17 this case was reported "independent (island_fraction=None)".
             stop_reason = "untested: no flank left to scan -- STILL BAD"
             verdict = "untested"
             break

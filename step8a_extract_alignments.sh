@@ -354,9 +354,11 @@ align_until_resolved() {
         (( extra_up + n5 > CONT_MAX_EXTRA )) && n5=0
         (( extra_down + n3 > CONT_MAX_EXTRA )) && n3=0
         if (( n5 + n3 == 0 )); then
-            # the flanks grew: the delivered plate is ONE full L-INS-i run at the final size
+            # the flanks grew: the delivered plate is the joined one - the core plate as aligned in round 0 with each
+            # round's new flank block aligned on its own and appended (owner's design, 2026-10-18). Until then a final
+            # full L-INS-i at the final size re-aligned everything (minutes per extended plate on rsi).
             if (( extra_up + extra_down > 0 )); then
-                extract_flank_align "$loci_tsv" "$cons_fa" "$((up + extra_up))" "$((down + extra_down))" "$outfile" || return 1
+                cp "$work" "$outfile" || return 1
             fi
             return 0
         fi
