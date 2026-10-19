@@ -12,5 +12,9 @@ mut = lambda s: "".join(random.choice("ACGT") if random.random() < 0.1 else c fo
 open("copies.fasta", "w").write("".join(">c%d\n%s\n" % (i, mut(e)) for i in range(30)))'
 bash "$SC" copies.fasta 10 2 0.01 > sc.log 2>&1
 L=$(grep '^>FINAL' convergence_trace.fasta 2> /dev/null)
-if [[ "$L" == ">FINAL_not_converged" ]]; then echo "test_sine_consensus_label: PASS"
-else echo "test_sine_consensus_label: FAIL (last trace record '$L')"; exit 1; fi
+[[ "$L" == ">FINAL_not_converged" ]] || { echo "test_sine_consensus_label: FAIL (last trace record '$L')"; exit 1; }
+# the border loop's strict mode: not converged -> exit 2 and status.txt says so (GLM audit 65)
+rm -rf strict; mkdir strict; cp copies.fasta strict/; cd strict || exit 1
+SINE_CONSENSUS_FAIL_NOTCONVERGED=1 bash "$SC" copies.fasta 10 2 0.01 > sc.log 2>&1; rc=$?
+[[ $rc -eq 2 && "$(cut -f1 status.txt 2> /dev/null)" == not_converged ]] || { echo "test_sine_consensus_label: FAIL (strict rc $rc, status '$(cat status.txt 2> /dev/null)')"; exit 1; }
+echo "test_sine_consensus_label: PASS"

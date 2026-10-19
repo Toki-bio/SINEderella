@@ -130,6 +130,18 @@ def test_run_sine_failed_rerun_not_stale(tmp_path):
     assert seq is None
 
 
+def test_run_sine_not_converged_is_a_failed_rebuild(tmp_path):
+    # finding 65 (owner decision 2026-10-19): run_sine asks sine_consensus.sh for strict mode; a script that writes a consensus
+    # but exits 2 only when SINE_CONSENSUS_FAIL_NOTCONVERGED=1 (= did not converge) must give no consensus
+    sys.path.insert(0, str(ROOT / "publish"))
+    import flank_border_iterate as F
+    (tmp_path / "c.fa").write_text(">a\nACGT\n")
+    (tmp_path / "nc.sh").write_text('printf ">x\\nACGTACGT\\n" > final_consensus.fasta\n'
+                                    '[ "${SINE_CONSENSUS_FAIL_NOTCONVERGED:-0}" = 1 ] && exit 2\nexit 0\n')
+    seq, err = F.run_sine(str(tmp_path / "c.fa"), str(tmp_path / "w"), str(tmp_path / "nc.sh"))
+    assert seq is None
+
+
 def test_step4_diagnostic_picks_highest_run(tmp_path):
     # finding 75: a string sort picked step2_output_run9 over step2_output_run10
     import re

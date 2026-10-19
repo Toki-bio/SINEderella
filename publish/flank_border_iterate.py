@@ -424,7 +424,9 @@ def run_sine(copies_fa, work, script):
     # earlier run had left there, and the exit code was not read (GLM audit 2026-10-19, findings 42 / 151)
     for old in set(Path(scw).glob("*_consensus.fasta")):      # final_consensus.fasta included
         old.unlink()
-    code, _, err = sh("bash %s copies.fa 100 50 0.01" % (shlex.quote(script), ), cwd=scw, timeout=7200)
+    # a consensus that did not converge is a failed rebuild here (exit 2): the border loop then keeps the copies' borders and
+    # an independent side becomes untested, as for any failed rebuild (GLM audit 65, owner decision 2026-10-19)
+    code, _, err = sh("SINE_CONSENSUS_FAIL_NOTCONVERGED=1 bash %s copies.fa 100 50 0.01" % (shlex.quote(script), ), cwd=scw, timeout=7200)
     if code != 0:
         return None, err[-300:]
     hits = list(Path(scw).glob("*_consensus.fasta")) + list(Path(scw).glob("final_consensus.fasta"))
