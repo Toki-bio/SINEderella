@@ -169,8 +169,18 @@ def compute_plate(records):
     elem = element_columns(cons)
     cpg_sites = cpg_columns(cons)
     n_cpg_elem = sum(1 for col in elem if col in cpg_sites)
+    # no element column: every copy came out NA and the plate passed, until 2026-10-19 (GLM audit 2026-10-19)
+    if not elem:
+        raise ValueError("row 1 has no upper-case (element) column")
+    # current plates: row 1 <sf>_extended, row 2 <sf> = the consensus as searched (tools/add_seed_row.py); it was counted
+    # as a copy until 2026-10-19 (GLM audit 2026-10-19)
+    rest = records[1:]
+    if cons_name.split()[0].endswith("_extended") and rest:
+        sf = cons_name.split()[0][:-len("_extended")]
+        if rest[0][0].split()[0] in (sf, sf + "_revcomp"):
+            rest = rest[1:]
     copies = []
-    for name, seq in records[1:]:
+    for name, seq in rest:
         if len(seq) != len(cons):
             raise ValueError(f"row {name!r} has length {len(seq)} but the "
                              f"consensus has {len(cons)}")

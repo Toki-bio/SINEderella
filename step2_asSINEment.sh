@@ -141,6 +141,9 @@ run_assignment(){
 
   local dup; dup="$(awk '/^>/{n[substr($1,2)]++} END{for(k in n) if(n[k]>1) print k}' "$TMPDIR/consensus_clean.fa")"
   [[ -z "$dup" ]] || die "duplicate consensus names: $dup"
+  # votes are kept per copy name: two copies with one name would share one verdict (GLM audit 2026-10-19)
+  dup="$(awk '/^>/{if(n[substr($1,2)]++){print substr($1,2); exit}}' "$TMPDIR/sines_clean.fa")"
+  [[ -z "$dup" ]] || die "duplicate copy names in $SINE_FILE: $dup"
   local consensus_count sine_count
   consensus_count="$(count_fasta "$TMPDIR/consensus_clean.fa")"
   sine_count="$(count_fasta "$TMPDIR/sines_clean.fa")"
@@ -515,6 +518,9 @@ run_incremental_assignment(){
 
   local dup; dup="$(awk '/^>/{n[substr($1,2)]++} END{for(k in n) if(n[k]>1) print k}' "$TMPDIR/consensus_clean.fa")"
   [[ -z "$dup" ]] || die "duplicate consensus names: $dup"
+  # votes are kept per copy name: two copies with one name would share one verdict (GLM audit 2026-10-19)
+  dup="$(awk '/^>/{if(n[substr($1,2)]++){print substr($1,2); exit}}' "$TMPDIR/sines_clean.fa")"
+  [[ -z "$dup" ]] || die "duplicate copy names in $SINE_FILE: $dup"
   local consensus_count sine_count
   consensus_count="$(count_fasta "$TMPDIR/consensus_clean.fa")"
   sine_count="$(count_fasta "$TMPDIR/sines_clean.fa")"

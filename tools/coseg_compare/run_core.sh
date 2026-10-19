@@ -9,6 +9,9 @@ W=${1:?workdir}
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 COSEG=${COSEG:-/data/V/toki/coseg/src}
 SUBFAM=${SUBFAM:-$HERE/../../SubFam}
+# SUBFAM may be the wrapper file itself (the default) or a directory holding it; until 2026-10-19 "/SubFam" was always
+# appended, so the default never ran and every SubFam arm was skipped (GLM audit 2026-10-19)
+SF_BIN=$SUBFAM; [ -d "$SUBFAM" ] && SF_BIN="$SUBFAM/SubFam"
 PY=${PYTHON:-python3.12}
 THREADS=${THREADS:-16}
 cd "$W" || exit 1
@@ -29,20 +32,20 @@ for mode in drop keep; do
     tr 'acgt' 'ACGT' < ref.fa | awk 'NR==1{print;next}{printf "%s",$0} END{print ""}' > "cs_$mode.cons"
 done
 
-SPECS=()
+SPECS=(); FAILED=()     # failed arms are listed in scores.txt and the exit status (GLM audit 2026-10-19)
 for mode in drop keep; do
     for m in $MS; do
         d="cs_${mode}_m$m"; rm -rf "$d"; mkdir "$d"
         ( cd "$d" || exit 1
           cp "../cs_$mode.seqs" "../cs_$mode.ins" "../cs_$mode.cons" .
-          perl "$COSEG/runcoseg.pl" -k -d -m "$m" -c "cs_$mode.cons" -s "cs_$mode.seqs" -i "cs_$mode.ins" > run.log 2>&1 ) || echo "COSEG failed: $d (see $d/run.log)"
+          perl "$COSEG/runcoseg.pl" -k -d -m "$m" -c "cs_$mode.cons" -s "cs_$mode.seqs" -i "cs_$mode.ins" > run.log 2>&1 ) || { echo "COSEG failed: $d (see $d/run.log)"; FAILED+=("$d"); }
         if [ -f "$d/cs_$mode.seqs.assign" ]; then SPECS+=("$d/cs_$mode.seqs.assign@cs_$mode.names:COSEG_${mode}_m$m"); fi
     done
 done
 
 for n in $NS; do
     d="sf_n$n"; rm -rf "$d"; mkdir "$d"
-    ( cd "$d" || exit 1; bash "$SUBFAM/SubFam" ../copies.fa "$n" > log.txt 2>&1 ) || echo "SubFam failed: $d"
+    ( cd "$d" || exit 1; bash "$SF_BIN" ../copies.fa "$n" > log.txt 2>&1 ) || { echo "SubFam failed: $d"; FAILED+=("$d"); }
     [ -f "$d/copies.chunks.tsv" ] && SPECS+=("$d/copies.chunks.tsv:SubFam_n$n")
 done
 
@@ -56,7 +59,7 @@ if [ -f "$PEELPY" ]; then
         [ "$(cut -f2 "$d/copies.chunks.tsv" | sort -u | wc -l)" -ge 40 ] || { echo "peel_n$n skipped: fewer than 40 chunks"; continue; }
         $PY "$HERE/peel_labels.py" truth "$d/copies.chunks.tsv" copies.labels "$d/chunk_truth.json"
         rm -rf "peel_n$n"; mkdir "peel_n$n"
-        $PY "$PEELPY" "$d/copies.clw" "peel_n$n" "$d/chunk_truth.json" > "peel_n$n/peel.log" 2>&1 || echo "peel failed: peel_n$n (see peel_n$n/peel.log)"
+        $PY "$PEELPY" "$d/copies.clw" "peel_n$n" "$d/chunk_truth.json" > "peel_n$n/peel.log" 2>&1 || { echo "peel failed: peel_n$n (see peel_n$n/peel.log)"; FAILED+=("peel_n$n"); }
         if [ -f "peel_n$n/peel_features.json" ]; then
             $PY "$HERE/peel_labels.py" groups "$d/copies.chunks.tsv" "peel_n$n/peel_features.json" "peel_n$n/copy_groups.tsv"
             SPECS+=("peel_n$n/copy_groups.tsv:SubFam+peel_n$n")
@@ -67,3 +70,4 @@ else
 fi
 
 $PY "$HERE/score.py" copies.labels "${SPECS[@]}" | tee scores.txt
+if [ ${#FAILED[@]} -gt 0 ]; then echo "FAILED arms (not scored): ${FAILED[*]}" | tee -a scores.txt; exit 1; fi

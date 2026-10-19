@@ -87,7 +87,9 @@ ssearch36 -m 8 -E 1 -Z 1 -z 11 -T "$T" cons.masked.fa "$D/flanks.fa" 2> /dev/nul
       END { for (k in be) { split(k, p, "|"); print p[1], p[2], bq[k] } }' > "$D/relaxed.tsv"
 
 # per group: align, ends from conservation, one TSD search per copy
-REF=$(seqkit grep -p "$FAM" cons.masked.fa 2> /dev/null | seqkit seq -s -w 0 | tr -d 'N')
+# exactly one bank record named FAM; until 2026-10-19 a missing one gave an empty reference row without a word (GLM audit 2026-10-19)
+REF=$(seqkit grep -p "$FAM" cons.masked.fa | seqkit seq -s -w 0 | tr -d 'N')
+[[ -n "$REF" && $(seqkit grep -p "$FAM" cons.masked.fa | grep -c '^>') -eq 1 ]] || { echo "fs8: not exactly one record $FAM in $OUT/cons.masked.fa" >&2; exit 1; }
 : > "$D/ends.tsv"; : > "$D/tsd.tsv"; : > "$D/tsd_calibration.tsv"
 for G in S B A; do
     grep -q "^$G	" "$D/unit.tsv" || continue

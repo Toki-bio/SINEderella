@@ -628,6 +628,8 @@ generate_summary(){
     else
       log "WARNING: python3 not available — skipping SINE-KB report"
     fi
+  else      # skipped without a word until 2026-10-19 (GLM audit 2026-10-19)
+    log "WARNING: $report_gen not found — SINE-KB report (sinekb_report.json) not written"
   fi
 
   # ── Print the table to stderr for quick review ────────────────────────

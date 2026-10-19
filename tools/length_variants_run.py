@@ -51,11 +51,16 @@ def main():
     if len(pairs) > a.max_pairs:
         print("length_variants_run: %d candidate pairs, testing the first %d (--max-pairs); the rest are listed as NOT_TESTED" % (len(pairs), a.max_pairs))
         pairs, capped = pairs[:a.max_pairs], pairs[a.max_pairs:]
-    rows = []
+    rows, failed = [], []
     for p in pairs:
         tag = "%s__%s" % (p["short"], p["long"])
         print("length_variants_run: %s (%.1f %% identity, +%d bp)" % (tag, p["identity"], p["extra"]), flush=True)
-        copies, lcons, skipped, nrows = lv.collect(genome, hits, {p["short"], p["long"]}, bank, p["long"], os.path.join(out, tag + ".work"), a.threads)
+        try:
+            copies, lcons, skipped, nrows = lv.collect(genome, hits, {p["short"], p["long"]}, bank, p["long"], os.path.join(out, tag + ".work"), a.threads)
+        except RuntimeError as e:      # a failed search is FAILED in the table, not a verdict (GLM audit 2026-10-19)
+            print("length_variants_run: %s FAILED: %s" % (tag, e), file=sys.stderr)
+            failed.append((p, str(e)))
+            continue
         rep = lv.analyse(copies, lcons)
         txt = lv.format_report(rep, len(lcons)) + "\n(%d hits used, %d with mixed strand skipped)\n" % (nrows, skipped)
         open(os.path.join(out, tag + ".report.txt"), "w").write(txt)
@@ -83,6 +88,9 @@ def main():
         import shutil
         shutil.rmtree(os.path.join(out, tag + ".work"), ignore_errors=True)
     empty = {"copies_5prime_complete": "", "mode_ends": "", "valley_ratio": "", "linkage_index": "", "diagnostic_columns": "", "tsd_excess_points": ""}
+    for p, why in failed:
+        rows.append(dict(empty, short=p["short"], long=p["long"], consensus_identity=p["identity"], extra_bp=p["extra"], verdict="FAILED",
+                         notes="the test could not run: %s" % why))
     for p in capped:     # beyond --max-pairs: listed, so that no candidate pair disappears from the table (2026-10-05)
         rows.append(dict(empty, short=p["short"], long=p["long"], consensus_identity=p["identity"], extra_bp=p["extra"], verdict="NOT_TESTED",
                          notes="beyond --max-pairs %d: rerun with LENGTH_VARIANTS_MAX_PAIRS raised, or by hand (tools/length_variants.py)" % a.max_pairs))

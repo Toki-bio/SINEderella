@@ -1,12 +1,14 @@
 import sys, math
 f=sys.argv[1]; left=int(sys.argv[2]); right=int(sys.argv[3])
-seqs=[]
+seqs=[]; names=[]
 for l in open(f):
     l=l.rstrip()
-    if l.startswith(">"): seqs.append("")
+    if l.startswith(">"): seqs.append(""); names.append(l[1:].split()[0] if len(l) > 1 else "")
     else: seqs[-1]+=l
-rows=seqs[2:] if seqs[1].startswith("-")*0 else seqs[1:]   # row1 consensus; plate may have a second seed row
-rows=[r for r in seqs[1:] if sum(c.isupper() for c in r)>0]
+# row 1 consensus; current plates have row 2 = <sf>, the consensus as searched, after row 1 <sf>_extended (tools/add_seed_row.py).
+# The skip was multiplied by 0 and row 2 counted as a copy until 2026-10-19 (GLM audit 2026-10-19)
+seed2=len(names)>1 and names[0].endswith("_extended") and names[1] in (names[0][:-9], names[0][:-9]+"_revcomp")
+rows=[r for r in seqs[2 if seed2 else 1:] if sum(c.isupper() for c in r)>0]
 isb=lambda c: c.upper() in "ACGT"
 def flank(r):
     up=""; 

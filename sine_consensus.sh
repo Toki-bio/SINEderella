@@ -25,6 +25,9 @@ INPUT_FASTA=${1:-input.fasta}
 SUBSAMPLE_SIZE=${2:-100}
 MAX_ITERS=${3:-50}
 STABILITY_THRESH=${4:-0.01}
+# the 2nd argument is the subsample size; a name there (as the MANUAL said until 2026-10-19) gave empty subsamples and an
+# empty consensus without an error (GLM audit 2026-10-19)
+[[ "$SUBSAMPLE_SIZE" =~ ^[0-9]+$ && "$MAX_ITERS" =~ ^[0-9]+$ ]] || { echo "Usage: bash sine_consensus.sh input.fasta [subsample_size=100] [max_iters=50] [stability_thresh=0.01]" >&2; exit 1; }
 
 MASTER_RAW="master_raw.fasta"   # plain concatenation of all mini-consensuses
 MASTER_ALN="master.aln.fasta"   # re-aligned each iteration with mafft --auto
@@ -175,7 +178,9 @@ for f in $(ls mini_cons_*.fasta 2>/dev/null | sort -t_ -k3 -n); do
     ITER_NUM=$(echo "$f" | grep -oP '\d+')
     awk -v n="$ITER_NUM" '/^>/{print ">iter_"n; next}{print}' "$f" >> "$TRACE"
 done
-awk '/^>/{print ">FINAL_converged"; next}{print}' "$CURR_CONS" >> "$TRACE"
+# labelled converged also when it did not converge, until 2026-10-19 (GLM audit 2026-10-19)
+FINAL_TAG=$([ "$CONVERGED" -eq 1 ] && echo converged || echo not_converged)
+awk -v t="$FINAL_TAG" '/^>/{print ">FINAL_" t; next}{print}' "$CURR_CONS" >> "$TRACE"
 echo "Convergence trace: $TRACE (all mini-consensuses + final)" >> "$LOG"
 
 # ── Cleanup (temp files only; keep master, trace and final output) ─────────

@@ -191,7 +191,7 @@ done
 # later re-score or re-correction measures the copies only.
 if [[ "${SKIP_SEED_ROW:-0}" != "1" && -f "$SINEDERELLA_BIN/tools/add_seed_row.py" ]]; then
   log "add the consensus as searched as row 2"
-  python3 "$SINEDERELLA_BIN/tools/add_seed_row.py" "$RUN_ROOT/consensuses.clean.fa" "$SPECIES"     "$STEP8_OUT"/*_top100.aln.fa "$STEP8_OUT"/*_rand100.aln.fa "$STEP8_OUT"/*_subfam.aln.fa     --threads "${THREADS:-4}" || log "WARNING: add_seed_row failed; plates published without the seed row"
+  python3 "$SINEDERELLA_BIN/tools/add_seed_row.py" "$RUN_ROOT/consensuses.clean.fa" "$SPECIES"     "$STEP8_OUT"/*_top100.aln.fa "$STEP8_OUT"/*_rand100.aln.fa "$STEP8_OUT"/*_subfam.aln.fa     --threads "${THREADS:-4}" || { log "ERROR: add_seed_row failed: the plates would go out without the consensus as searched"; exit 1; }   # a WARNING until 2026-10-19 (GLM audit 2026-10-19)
 fi
 if [[ "$OUT_DIR" != "$STEP8_OUT" ]]; then
   cp -a "$STEP8_OUT"/*_top100.aln.fa "$STEP8_OUT"/*_rand100.aln.fa \

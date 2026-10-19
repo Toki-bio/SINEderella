@@ -100,7 +100,7 @@ for sp_dir in "$MULTI_DIR"/*/; do
     [[ $nseqs -gt 400 ]] || continue
 
     out_file="$sp_out/${sf_name}.subfam.fa"
-    if [[ -f "$out_file" ]]; then
+    if [[ -s "$out_file" ]]; then     # -f until 2026-10-19: an empty file of a failed mafft was skipped for good (GLM audit 2026-10-19)
       log "  [$sf_name] SKIP (already exists: $out_file)"
       n_skip_exists=$((n_skip_exists + 1))
       continue
@@ -140,7 +140,7 @@ for sp_dir in "$MULTI_DIR"/*/; do
     if [[ -s "$clw_file" ]]; then
       cat "$tmpdir/consensus.fa" "$clw_file" > "$tmpdir/tierC_input.fa"
       run_mafft "$tmpdir/tierC_input.fa" "$out_file" || {
-        log "    WARNING: mafft failed for Tier C $sf_name"
+        log "    WARNING: mafft failed for Tier C $sf_name"; rm -f "$out_file"
       }
       [[ -s "$out_file" ]] && n_tierC=$((n_tierC + 1))
       log "    -> $out_file"

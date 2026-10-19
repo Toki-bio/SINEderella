@@ -338,7 +338,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("bank")
     ap.add_argument("code")
-    ap.add_argument("alignments", nargs="+")
+    ap.add_argument("alignments", nargs="*")     # none: a run without plates (now that a failure stops the publish)
     ap.add_argument("--threads", type=int, default=4)
     a = ap.parse_args()
     bn, bs = read_fa(a.bank)

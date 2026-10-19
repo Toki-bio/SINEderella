@@ -95,6 +95,9 @@ def main():
             c[pos] = new
             used_pos.append(pos)
             d.append("%d%s>%s" % (pos + 1, old, new))
+        if len(d) < n_sub:     # fewer markers than asked were placed without a word until 2026-10-19 (GLM audit 2026-10-19)
+            sys.exit("sim_family: subfamily %d got %d of %d diagnostic positions (--length %d, --spacing %d): lower --diag or --spacing"
+                     % (i, len(d), n_sub, a.length, a.spacing))
         if use_indel:
             for _ in range(10000):
                 pos = rng.randrange(10, a.length - 12)

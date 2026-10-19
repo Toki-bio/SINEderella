@@ -388,8 +388,13 @@ def collect(genome, hits_tsv, families, cons_fa, long_name, workdir, threads, fl
         chunks.append(p)
 
     def run(p):
-        return subprocess.run(["ssearch36", "-m", "8CB", "-E", "1e-3", "-d", "5", "-z", "11", "-T", "1", workdir + "/cons.fa", p],
-                              capture_output=True, text=True).stdout
+        r = subprocess.run(["ssearch36", "-m", "8CB", "-E", "1e-3", "-d", "5", "-z", "11", "-T", "1", workdir + "/cons.fa", p],
+                           capture_output=True, text=True)
+        # ssearch36 exits 0 also when it cannot read a file; "***" on stderr is the only sign. Until 2026-10-19 a failed search
+        # was read as "no 5'-complete copies" and gave an UNRESOLVED verdict as if measured (GLM audit 2026-10-19)
+        if r.returncode != 0 or "***" in r.stderr:
+            raise RuntimeError("ssearch36 failed on %s: %s" % (p, r.stderr.strip()[-300:]))
+        return r.stdout
 
     best = {}
     with cf.ThreadPoolExecutor(threads) as ex:

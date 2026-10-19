@@ -42,6 +42,8 @@ def main():
     if missing:
         sys.exit("mask_from_run: no hits labelled %s in %s (labels there: %s)"
                  % (", ".join(sorted(missing)), src, ", ".join(sorted(seen))))
+    if not rows:      # an empty mask was written and the run searched unmasked until 2026-10-19 (GLM audit 2026-10-19)
+        sys.exit("mask_from_run: no hit intervals in %s" % src)
     rows.sort()
     with open(a.out, "w") as fh:
         for c, s, e in rows:

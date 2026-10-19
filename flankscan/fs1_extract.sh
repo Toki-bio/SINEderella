@@ -28,7 +28,9 @@ set -euo pipefail
 RUN=${1:?RUN_DIR}; OUT=${2:?OUT_DIR}; F=${3:-1000}
 mkdir -p "$OUT"
 G="$RUN/genome.clean.fa"
-[[ -s "$G.fai" ]] || samtools faidx "$G"
+# an index older than the genome is rebuilt (until 2026-10-19 any non-empty one was used: wrong contig lengths and windows
+# after the genome was replaced; GLM audit 2026-10-19)
+[[ -s "$G.fai" && "$G.fai" -nt "$G" ]] || samtools faidx "$G"
 
 # 1) assigned loci, sorted by contig and start: contig start end strand family locus
 gawk -F'\t' 'NR > 1 && $5 == "assigned" {

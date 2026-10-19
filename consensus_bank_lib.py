@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import glob
+import os
 import re
 import statistics
 from dataclasses import dataclass, field
@@ -63,12 +64,16 @@ def read_fa(path: Path) -> dict[str, str]:
 
 
 def write_fa(path: Path, seqs: dict[str, str]) -> None:
-    with open(path, "w") as fh:
+    # written next to the target and renamed over it: until 2026-10-19 the bank was rewritten in place (orient_consensus_bank.py
+    # with no -o), so a failure part-way left a truncated bank (GLM audit 2026-10-19)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as fh:
         for name in sorted(seqs):
             seq = seqs[name]
             fh.write(f">{name}\n")
             for i in range(0, len(seq), 60):
                 fh.write(seq[i : i + 60] + "\n")
+    os.replace(tmp, path)
 
 
 def rc(s: str) -> str:

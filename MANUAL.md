@@ -334,7 +334,7 @@ scripts:
 
 ```bash
 # Standard bootstrapped consensus
-sine_consensus.sh group_1.fasta group_1_out
+sine_consensus.sh group_1.fasta [subsample_size=100] [max_iters=50] [stability_thresh=0.01]   # writes final_consensus.fasta in the current directory
 
 # Same, with variance-based early-stopping + LOW_CONFIDENCE quality flagging
 # (useful for detecting a group that doesn't actually converge cleanly — a sign it

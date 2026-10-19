@@ -32,10 +32,18 @@ one() {
     d=$1; n=$2; g=$3; m=$4; b=$5; j=$6
     w="$d/sweep/n${n}_g${g}_m${m}_b${b}_j${j}"; mkdir -p "$w"
     chunks="$d/sf_n$n/copies.chunks.tsv"
-    [ -f "$d/sf_n$n/chunk_truth.json" ] || $PY "$HERE/peel_labels.py" truth "$chunks" "$d/copies.labels" "$d/sf_n$n/chunk_truth.json"
+    # a failed truth step or peel is a FAILED row; until 2026-10-19 it was a row of zeros like a setting that places nothing
+    # (GLM audit 2026-10-19)
+    fail=""
+    [ -f "$d/sf_n$n/chunk_truth.json" ] || $PY "$HERE/peel_labels.py" truth "$chunks" "$d/copies.labels" "$d/sf_n$n/chunk_truth.json" || fail=truth
     nch=$(cut -f2 "$chunks" | sort -u | wc -l)
-    PEEL_GLOBAL_CONS=$g PEEL_MIN_SET=$m PEEL_MIN_BLOCK=$b PEEL_FEAT_JACCARD=$j $PY "$PEELPY" "$d/sf_n$n/copies.clw" "$w" "$d/sf_n$n/chunk_truth.json" > "$w/peel.log" 2>&1
+    [ -n "$fail" ] || PEEL_GLOBAL_CONS=$g PEEL_MIN_SET=$m PEEL_MIN_BLOCK=$b PEEL_FEAT_JACCARD=$j $PY "$PEELPY" "$d/sf_n$n/copies.clw" "$w" "$d/sf_n$n/chunk_truth.json" > "$w/peel.log" 2>&1 || fail=peel
+    [ -n "$fail" ] || [ -f "$w/peel_features.json" ] || fail=peel
     ncopies=$(wc -l < "$d/copies.labels")
+    if [ -n "$fail" ]; then
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\tFAILED_%s\t-\t%s\t-\t-\t-\n' "$d" "$n" "$g" "$m" "$b" "$j" "$nch" "$fail" "$ncopies"
+        return 0
+    fi
     if [ -f "$w/peel_features.json" ]; then
         $PY "$HERE/peel_labels.py" groups "$chunks" "$w/peel_features.json" "$w/copy_groups.tsv" 2> /dev/null
     else : > "$w/copy_groups.tsv"; fi

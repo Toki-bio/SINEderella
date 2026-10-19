@@ -13,7 +13,7 @@ for d in "$@"; do for o in k4 k5 k6 k8 k10 mafft; do echo "$d $o" >> "$OUT.jobs"
 one() {
     d=$1; o=$2; w="$d/order_$o"; rm -rf "$w"; mkdir -p "$w"
     case $o in mafft) opt="-m" ;; k*) opt="-k ${o#k}" ;; esac
-    bash "$SUBFAM" -n "$N" -t 4 $opt -x copies -o "$w" "$d/copies.fa" > "$w/log.txt" 2>&1 || { echo "FAILED $d $o" >&2; return; }
+    bash "$SUBFAM" -n "$N" -t 4 $opt -x copies -o "$w" "$d/copies.fa" > "$w/log.txt" 2>&1 || { echo "FAILED $d $o" >&2; printf '%s\t%s\tFAILED\t-\t-\t-\t-\t-\n' "$d" "$o"; return 1; }   # bare return gave status 0 until 2026-10-19 (GLM audit 2026-10-19)
     row=$($PY "$HERE/../coseg_compare/score.py" "$d/copies.labels" "$w/copies.chunks.tsv:x" 2> /dev/null | tail -1)
     nch=$(cut -f2 "$w/copies.chunks.tsv" | sort -u | wc -l)
     pur=$(echo "$row" | awk -F'|' '{split($2,b," "); print b[1]}'); h=$(echo "$row" | awk -F'|' '{split($2,b," "); print b[2]}')
