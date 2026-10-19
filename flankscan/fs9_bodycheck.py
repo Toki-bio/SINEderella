@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fs9_bodycheck.py GENOME.fa COPIES.bed FS9_OUT_DIR [--random 2000] [--seed 1] [--alpha 0.05] [--min-copies 20]
+"""fs9_bodycheck.py GENOME.fa COPIES.bed FS9_OUT_DIR [--random 20000] [--seed 1] [--alpha 0.05] [--min-copies 20]
 
 Element (body) test of the twin pairs fs9_twins.sh found from the flanks; run by fs9_twins.sh at the end (BODYCHECK=1).
 
@@ -26,7 +26,10 @@ from collections import defaultdict
 
 ap = argparse.ArgumentParser(description="element test of fs9 twin pairs")
 ap.add_argument("genome"); ap.add_argument("bed"); ap.add_argument("out")
-ap.add_argument("--random", type=int, default=2000); ap.add_argument("--seed", type=int, default=1)
+# 20000 random pairs (was 2000 until 2026-10-19): the threshold is a far-tail quantile (1 - alpha/k), and with 2000 pairs the
+# seed alone changed 11-26 of ~18,000 rsi r1_r3_P1 verdicts; with 20000, 2-7 and the same threshold for every seed. Runtime
+# about 3.3x (r1_r3_P1: 108 -> 353 s on therioserver).
+ap.add_argument("--random", type=int, default=20000); ap.add_argument("--seed", type=int, default=1)
 ap.add_argument("--alpha", type=float, default=0.05); ap.add_argument("--min-copies", type=int, default=20)
 ap.add_argument("--min-background", type=int, default=10)
 a = ap.parse_args()
