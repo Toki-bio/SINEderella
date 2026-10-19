@@ -139,3 +139,27 @@ def test_step4_diagnostic_picks_highest_run(tmp_path):
     key = eval("dict(%s)" % m.group(1).rstrip(", "), {"re": re})["key"]
     dirs = ["step2_output", "step2_output_run9", "step2_output_run10", "step2_output_run2"]
     assert sorted(dirs, key=key, reverse=True)[0] == "step2_output_run10"
+
+
+def _plate(tmp_path):
+    p = tmp_path / "SF_top100.aln.fa"
+    body = "aaaaACGTACGTACGTcccc"
+    p.write_text(">SF_extended\n%s\n>SF\n%s\n>c1\n%s\n>c2\n%s\n" % (body, body, body, body))
+    return p
+
+
+def test_cpg_div_skips_seed_row_and_refuses_no_element(tmp_path):
+    # findings 33 / 94: row 2 (the consensus as searched) counted as a copy; a row 1 without element columns gave all-NA
+    sys.path.insert(0, str(ROOT / "tools" / "cpg_div"))
+    import cpg_div
+    recs = list(cpg_div.parse_fasta(str(_plate(tmp_path))))
+    assert len(cpg_div.compute_plate(recs)[1]) == 2
+    with pytest.raises(ValueError):
+        cpg_div.compute_plate([("SF", "acgtacgt"), ("c1", "acgtacgt")])
+
+
+def test_tsd_curve_skips_seed_row(tmp_path):
+    # finding 108: the seed-row skip was multiplied by 0
+    import subprocess
+    r = subprocess.run([sys.executable, str(ROOT / "tools/tsd_curve.py"), str(_plate(tmp_path)), "5", "16"], capture_output=True, text=True)
+    assert "copies 2 " in r.stdout, r.stdout + r.stderr

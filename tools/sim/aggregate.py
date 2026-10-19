@@ -12,6 +12,10 @@ import re
 import sys
 
 rows = collections.defaultdict(list)
+# runs without scores (FAILED marker or no scores.txt) were left out without a trace until 2026-10-19 (GLM audit 2026-10-19)
+for d in sorted(glob.glob(os.path.join(sys.argv[1], "*_s*"))):
+    if os.path.isdir(d) and not os.path.isfile(os.path.join(d, "scores.txt")) or os.path.isfile(os.path.join(d, "FAILED")):
+        sys.stderr.write("aggregate: %s has no result (FAILED or unfinished), not in the summary\n" % d)
 for f in sorted(glob.glob(os.path.join(sys.argv[1], "*_s*", "scores.txt"))):
     scen = re.sub(r"_s\d+$", "", os.path.basename(os.path.dirname(f)))
     for line in open(f):
