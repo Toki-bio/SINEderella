@@ -126,7 +126,8 @@ def screen(hits, min_mono=MIN_MONO, mono_gap=MONO_GAP, min_span=MIN_SPAN, nperm=
         idx = sorted(idx, key=lambda i: hits[i][1])
         lens = [hits[i][2] - hits[i][1] for i in idx]
         gaps = [hits[idx[t + 1]][1] - hits[idx[t]][1] for t in range(len(idx) - 1)]
-        return (kind, hits[idx[0]][0], hits[idx[0]][1], hits[idx[-1]][2], len(idx), hits[idx[0]][3],
+        # run end = the rightmost end, not the end of the last-starting hit (a long copy can outlast a short later partial)
+        return (kind, hits[idx[0]][0], hits[idx[0]][1], max(hits[i][2] for i in idx), len(idx), hits[idx[0]][3],
                 int(statistics.median(lens)), int(statistics.median(gaps)) if gaps else 0)
 
     for idx in a_runs:

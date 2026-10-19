@@ -175,7 +175,8 @@ def _align_query(qseq, partners, tmpdir, ssearch="ssearch36"):
         score = pid * min(aln / float(L), 1.0)                # identity over the shorter unit (as in the serial path)
         if out[pr] is None or score > out[pr]:
             out[pr] = score
-    return out, r.returncode, r.stderr.strip()[-300:]
+    # ssearch36 exits 0 when it cannot open a file; the "***" message on stderr is the only sign
+    return out, (r.returncode or (1 if "***" in r.stderr else 0)), r.stderr.strip()[-300:]
 
 
 def verify_runs_flank(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_ID, threads=8):
@@ -279,8 +280,9 @@ def verify_runs(runs, starts, genome, workdir, max_units=MAX_UNITS, min_id=MIN_I
             print("kindB_verify: %d of %d ssearch36 calls failed in parallel and were run again alone; %d failed again"
                   % (len(retry), len(need), failed), file=sys.stderr)
     if failed:
-        print("kindB_verify: WARNING: %d ssearch36 calls exited with an error (their pairs count as unaligned); first errors: %s"
-              % (failed, "; ".join("%dx %s" % (n, e) for e, n in errors.most_common(3))), file=sys.stderr)
+        # an unaligned pair would count as identity 0 and turn an array into COPIES: stop instead (GLM audit 2026-10-19)
+        raise RuntimeError("kindB_verify: %d ssearch36 calls exited with an error twice; first errors: %s"
+                           % (failed, "; ".join("%dx %s" % (n, e) for e, n in errors.most_common(3))))
     results = {}
     for i, units in enumerate(kept):
         if len(units) < 2:
