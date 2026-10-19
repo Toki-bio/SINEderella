@@ -24,7 +24,9 @@
 set -euo pipefail
 OUT=${1:?OUT_DIR}
 cd "$OUT"
-EF=ends.tsv; [[ -s "$EF" ]] || EF=/dev/null      # stage 6b output; without it no end is checked
+# stage 6b output (a header even with no candidate). Until 2026-10-19 a missing ends.tsv was read as "no open end", so
+# every candidate passed as accept with its ends never checked (GLM audit 2026-10-19).
+EF=ends.tsv; [[ -s "$EF" ]] || { echo "fs7: no $OUT/ends.tsv (stage 6b): the ends are unchecked, run fs6b first" >&2; exit 1; }
 CF=chains.tsv; [[ -s "$CF" ]] || CF=/dev/null    # stage 6c output
 gawk -F'\t' -v OFS='\t' '
     function short(f) { sub(/_[0-9]+seqs$/, "", f); return f }

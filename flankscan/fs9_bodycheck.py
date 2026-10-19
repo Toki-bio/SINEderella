@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""fs9_bodycheck.py GENOME.fa COPIES.bed FS9_OUT_DIR [--random 300] [--seed 1] [--quantile 0.95] [--min-copies 20]
+"""fs9_bodycheck.py GENOME.fa COPIES.bed FS9_OUT_DIR [--random 2000] [--seed 1] [--alpha 0.05] [--min-copies 20]
 
 Element (body) test of the twin pairs fs9_twins.sh found from the flanks; run by fs9_twins.sh at the end (BODYCHECK=1).
 
 Copies multiplied together with their neighbourhood (segmental duplication, array unit) carry SINE bodies as similar as
 their flanks. Two independent insertions next to similar sequence (a hot spot: two copies of a young repeat, or of another
 SINE) carry bodies only as similar as two random copies of the family. A flank pair stays a twin (or array) pair only if
-its two bodies are more similar than the 1 - alpha/k quantile of --random random copy pairs of the family (seeded), k = the
+its two bodies are more similar than the 1 - alpha/k quantile of --random random pairs of the family's copies that are in
+no flank pair (seeded; fewer than --min-background such copies: no check, the flank result stands), k = the
 larger number of flank partners of its two copies: a copy at a hot spot has many partners and so many chances to pass by
 luck (toy: 9 of 40 hot-spot copies passed a plain 95 % cut; with the partner correction 0). The other pairs get class
 "flank_only" and do not make a copy a twin. Families with fewer than --min-copies copies are not checked.
@@ -27,6 +28,7 @@ ap = argparse.ArgumentParser(description="element test of fs9 twin pairs")
 ap.add_argument("genome"); ap.add_argument("bed"); ap.add_argument("out")
 ap.add_argument("--random", type=int, default=2000); ap.add_argument("--seed", type=int, default=1)
 ap.add_argument("--alpha", type=float, default=0.05); ap.add_argument("--min-copies", type=int, default=20)
+ap.add_argument("--min-background", type=int, default=10)
 a = ap.parse_args()
 O = lambda f: os.path.join(a.out, f)
 
@@ -43,8 +45,17 @@ if len(names) < a.min_copies or not rows:
         fh.write(f"skipped\t{'fewer than %d copies' % a.min_copies if len(names) < a.min_copies else 'no pairs'}\n")
     sys.exit(0)
 
+# The background is drawn only from copies in no flank pair. Until 2026-10-19 it was drawn from all copies, so in a family
+# made mostly of duplicated copies the background was the duplication identity itself, the duplicated pairs could not exceed
+# it, and they were turned back into unique copies (GLM audit 2026-10-19).
+paired = {r[0] for r in rows} | {r[1] for r in rows}
+bgnames = [c for c in names if c not in paired]
+if len(bgnames) < a.min_background:
+    with open(O("bodycheck.txt"), "w") as fh:
+        fh.write("skipped\tfewer than %d copies outside flank pairs (%d): flank result kept\n" % (a.min_background, len(bgnames)))
+    sys.exit(0)
 rnd = random.Random(a.seed)
-rpairs = [tuple(rnd.sample(names, 2)) for _ in range(a.random)]
+rpairs = [tuple(rnd.sample(bgnames, 2)) for _ in range(a.random)]
 need = sorted({r[0] for r in rows} | {r[1] for r in rows} | {x for p in rpairs for x in p})
 tmp = tempfile.mkdtemp(prefix="bodycheck_", dir=a.out)
 with open(os.path.join(tmp, "r.bed"), "w") as fh:

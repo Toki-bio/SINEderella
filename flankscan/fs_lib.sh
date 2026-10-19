@@ -178,14 +178,19 @@ fs_endcheck() {
     bedtools flank -i "cand/ends/$N.b6" -g "$G.fai" -l 0 -r $EFL -s | bedtools getfasta -fi "$G" -bed - -s -nameOnly 2> /dev/null \
         | seqkit seq -w 0 | sed '/^>/s/([+-])$//' > "cand/ends/$N.f3.fa"
     NC=$(wc -l < "$B")
+    # A 5' flank cut short by a contig end starts closer to the element than EFL; its hit coordinates are shifted by
+    # EFL - its length so that EFL stays next to the element. Until 2026-10-19 they were not, so the near test, the link
+    # gap and the chain extension of stage 6c were off by the missing length (GLM audit 2026-10-19).
+    seqkit fx2tab -n -l "cand/ends/$N.f5.fa" > "cand/ends/$N.l5"
     for S in 5 3; do
         ssearch36 -m 8 -E 1e-3 -Z 1000 -z 11 -T "$T" cons.masked.fa "cand/ends/$N.f$S.fa" 2> /dev/null \
         | gawk -F'\t' -v S=$S -v FL=$EFL -v NEAR=$NEAR -v ML=$MINLEN -v OFS='\t' '
-            { lo = ($9 < $10 ? $9 : $10); hi = ($9 < $10 ? $10 : $9); if (hi - lo + 1 < ML) next
+            FILENAME == ARGV[1] { if (S == 5) off[$1] = FL - $2; next }
+            { lo = ($9 < $10 ? $9 : $10) + off[$2]; hi = ($9 < $10 ? $10 : $9) + off[$2]; if (hi - lo + 1 < ML) next
               near = (S == 5) ? (FL - hi <= NEAR) : (lo <= NEAR + 1)
               if (!near) next
               if (!($2 in be) || $12 > be[$2]) { be[$2] = $12; bu[$2] = $1; qs[$2] = ($7 < $8 ? $7 : $8); qe[$2] = ($7 < $8 ? $8 : $7); fl[$2] = lo; fh[$2] = hi } }
-            END { for (k in bu) print k, bu[k], qs[k], qe[k], fl[k], fh[k], be[k] }' > "cand/ends/$N.h$S"
+            END { for (k in bu) print k, bu[k], qs[k], qe[k], fl[k], fh[k], be[k] }' "cand/ends/$N.l5" - > "cand/ends/$N.h$S"
     done
     for S in 5 3; do
         gawk -F'\t' -v NC=$NC 'BEGIN { OFS = "\t" } { c[$2]++; n++ }
