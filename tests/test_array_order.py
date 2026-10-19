@@ -72,6 +72,24 @@ class Order(unittest.TestCase):
         self.assertEqual(sum(1 for c in top if c == "c1"), 60)      # the rest filled from the array
         self.assertTrue(all(l.split("\t")[7] == "array" for l in out if l.split("\t")[2] == "c1"))
 
+    def test_array_longer_than_limit(self):
+        # 450 array copies (gaps 4 kb / 40 kb alternating: no regular run) rank before 150 independent copies. Until
+        # 2026-10-19 only the first LIMIT rows were examined, and array rows beyond them refilled the plate unmarked.
+        rows, pos = [], 1000
+        for i in range(450):
+            rows.append(["fam", str(5000 - i), "c1", str(pos), str(pos + 300), "+"]); pos += 4000 if i % 2 == 0 else 40000
+        for i in range(150):
+            rows.append(["fam", str(400 - i), "c%d" % (2 + i), "100000", "100300", "+"])
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "loci.tsv")
+        with open(p, "w") as fh:
+            fh.write("\n".join("\t".join(r) for r in rows) + "\n")
+        out = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "..", "tools", "array_order.py"), p],
+                             capture_output=True, text=True, check=True).stdout.splitlines()
+        top = [l.split("\t") for l in out[:100]]
+        self.assertEqual(sum(1 for f in top if f[2] == "c1"), 1)
+        self.assertTrue(all(f[7] == "array" for f in top if f[2] == "c1"))
+
 
 if __name__ == "__main__":
     unittest.main()

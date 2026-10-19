@@ -102,3 +102,17 @@ def test_plate_filter_keeps_sine_only(tmp_path):
     tool = os.path.join(os.path.dirname(__file__), "..", "tools", "plate_filter.py")
     out = subprocess.run([sys.executable, tool, str(loci), str(v)], capture_output=True, text=True, check=True).stdout
     assert [l.split("\t")[1] for l in out.splitlines()] == ["10", "8"]
+
+
+def test_plate_filter_no_borrowed_verdict(tmp_path):
+    # a grey copy of B whose interval contains a shorter SINE copy of A: the B row stays grey (until 2026-10-19 it passed as SINE)
+    v = tmp_path / "v.tsv"
+    v.write_text("copy\tsubfamily\tassignment_status\tverdict\treason\n"
+                 "c1:150-290(+)\tA\tassigned\tSINE\tx\nc1:100-300(+)\tB\tassigned\tgrey\tx\n")
+    loci = tmp_path / "l.tsv"
+    loci.write_text("A\t10\tc1\t150\t290\t+\nB\t9\tc1\t100\t300\t+\n")
+    grey = tmp_path / "g.tsv"
+    tool = os.path.join(os.path.dirname(__file__), "..", "tools", "plate_filter.py")
+    out = subprocess.run([sys.executable, tool, str(loci), str(v), "SINE", str(grey)], capture_output=True, text=True, check=True).stdout
+    assert [l.split("\t")[0] for l in out.splitlines()] == ["A"]
+    assert [l.split("\t")[0] for l in grey.read_text().splitlines()] == ["B"]

@@ -242,8 +242,10 @@ if [[ "${PLATE_VERDICT:-SINE}" != "off" && -s "$VERDICT_TSV" ]]; then
     mv "$TMPDIR/loci.sine.tsv" "$TMPDIR/loci.tsv"
     mv "$TMPDIR/grey.tsv" "$TMPDIR/soft.tsv"
 elif [[ "${PLATE_VERDICT:-SINE}" != "off" ]]; then
-    echo "WARNING: no $VERDICT_TSV (flank verdicts are written by the publish run): plates are drawn from all assigned" \
-         "copies, including copies whose flanks were never shown unique" >&2
+    # an untested filter is not a pass: until 2026-10-19 this only warned and the plates took every assigned copy (GLM audit)
+    echo "ERROR: no $VERDICT_TSV (written by tools/flank_verdict.py in publish/align_for_publish.sh): plates would include" \
+         "copies whose flanks were never shown unique. Run tools/flank_verdict.py RUN_ROOT first, or set PLATE_VERDICT=off" >&2
+    exit 1
 fi
 
 ###############################################################################
