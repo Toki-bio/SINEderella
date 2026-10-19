@@ -57,7 +57,10 @@ gawk '/^>/ { if (nm != "") print nm "\t" L; nm = substr($0, 2); L = 0; next } { 
 gawk -v RS='>' 'NR > 1 { split($0, a, "\n"); split(a[1], p, "_"); f = "m/" p[1] ".fa"; printf ">%s", $0 >> f; close(f) }' flanks.fa
 
 # 3. all-against-all inside each run (26 pieces of 150 bp), the lag-1/lag-2 pairs of one flank kind are read from it
-( cd m && ls *.fa | xargs -P "$THREADS" -I{} sh -c "$SSEARCH -m 8 -E 10 -z -1 -T 1 {} {} > \$(basename {} .fa).m8 2>/dev/null || true" )
+# ssearch36 exits 0 when it finds nothing, but also when it cannot open a file (only "***" on stderr): both are checked. Until
+# 2026-10-19 a failed search was "|| true": its run scored 0 and was verdicted COPIES, so a real array stayed in (GLM audit)
+ss_check='rc=$?; if [ "$rc" -ne 0 ] || grep -q "\*\*\*" "$b.err"; then echo "kindB_flank_check: ssearch36 failed on $1 (exit $rc): $(head -c 300 "$b.err")" >&2; exit 255; fi'
+( cd m && ls *.fa | xargs -P "$THREADS" -I{} sh -c 'b=$(basename "$1" .fa); "$2" -m 8 -E 10 -z -1 -T 1 "$1" "$1" > "$b.m8" 2> "$b.err"; '"$ss_check" _ {} "$SSEARCH" )
 
 # 4. per-hit best score, per-run median
 cat m/*.m8 2>/dev/null | gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" '
@@ -113,7 +116,7 @@ if [[ -s border.ids ]]; then
         samtools faidx "$GENOME" -r pregions.txt \
         | gawk 'FNR == NR { n[FNR] = $0; next } /^>/ { i++; print ">" n[i]; next } { print }' pnames.txt - > pieces.fa
         gawk -v RS='>' 'NR > 1 { split($0, a, "\n"); split(a[1], p, "_"); f = "p/" p[1] "." (p[3] == "P" ? "q" : "t") ".fa"; printf ">%s", $0 >> f; close(f) }' pieces.fa
-        ( cd p && ls *.q.fa | xargs -P "$THREADS" -I{} sh -c "b=\$(basename {} .q.fa); [ -s \$b.t.fa ] && $SSEARCH -m 8 -E 10 -z -1 -T 1 {} \$b.t.fa > \$b.m8 2>/dev/null || true" )
+        ( cd p && ls *.q.fa | xargs -P "$THREADS" -I{} sh -c 'b=$(basename "$1" .q.fa); [ -s "$b.t.fa" ] || exit 0; "$2" -m 8 -E 10 -z -1 -T 1 "$1" "$b.t.fa" > "$b.m8" 2> "$b.err"; '"$ss_check" _ {} "$SSEARCH" )
         cat p/*.m8 2>/dev/null | gawk -F'\t' -v OFS='\t' -v PIECE="$PIECE" '
             { split($1, a, "_"); split($2, b, "_"); d = b[2] - a[2]; if (a[1] != b[1] || (d != 1 && d != 2)) next
               c = $4 / PIECE; if (c > 1) c = 1; sc = $3 * c; key = a[1] SUBSEP a[2]

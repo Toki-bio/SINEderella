@@ -27,6 +27,12 @@ class Screen(unittest.TestCase):
         self.assertEqual(rows[0][0], "A")
         self.assertEqual(rows[0][4], 30)
 
+    def test_run_end_is_rightmost_end(self):
+        # a long copy followed by a short partial that starts later but ends earlier: the run ends at the long copy's end
+        h = [("c", 380, 700, "+"), ("c", 800, 1000, "+"), ("c", 1000, 4100, "+"), ("c", 3050, 3120, "+")]
+        rows, s = ss.screen(h)
+        self.assertEqual(rows[0][3], 4100)
+
     def test_three_monomers_stay(self):
         h = [("c1", 1000 + i * 140, 1000 + i * 140 + 120, "+") for i in range(3)]       # a trimer is not a satellite (>= 4)
         rows, s = ss.screen(h)

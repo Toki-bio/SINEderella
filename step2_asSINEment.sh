@@ -190,6 +190,8 @@ run_assignment(){
         >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
         || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
     done
+    # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
+    ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
 
     # Extract best hit per sequence for this cycle, plus the best-scoring distinct
     # runner-up consensus (second place), for downstream LEAK/ambiguity detection.
@@ -621,6 +623,8 @@ run_incremental_assignment(){
           >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
           || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
       done
+      # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
+      ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
       awk '{
         seq=$2; cons=$1; bs=$12+0
         key=seq SUBSEP cons

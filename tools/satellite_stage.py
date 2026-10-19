@@ -127,8 +127,15 @@ def main():
         cfa = os.path.join(a.out, safe_file(q) + ".cons.fa")
         open(cfa, "w").write(">%s\n%s\n" % (q, cons[q]))
         pref = os.path.join(a.out, safe_file(q) + ".kindA")
-        subprocess.run([sys.executable, verify, hits_src, "--genome", a.genome, "--cons", cfa, "--out", pref, "--threads", str(a.threads)],
-                       check=False, stdout=open(pref + ".log", "w"), stderr=subprocess.STDOUT)
+        # outputs of an earlier run are removed first and a crash stops the stage: until 2026-10-19 the exit code was ignored and a stale or
+        # missing .loci.tsv was read as this run's kind-A result (GLM audit)
+        for ext in (".loci.tsv", ".units.fa"):
+            if os.path.exists(pref + ext):
+                os.remove(pref + ext)
+        r = subprocess.run([sys.executable, verify, hits_src, "--genome", a.genome, "--cons", cfa, "--out", pref, "--threads", str(a.threads)],
+                           check=False, stdout=open(pref + ".log", "w"), stderr=subprocess.STDOUT)
+        if r.returncode != 0:
+            sys.exit("satellite_stage: satellite_trf_verify failed for %s (exit %d), see %s.log" % (q, r.returncode, pref))
         A = []
         if os.path.exists(pref + ".loci.tsv"):
             for l in list(open(pref + ".loci.tsv"))[1:]:
