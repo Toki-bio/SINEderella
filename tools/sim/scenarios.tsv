@@ -1,6 +1,6 @@
 base	--nsub 8 --sizes 200 --diag 2 --div-old 0.12 --div-young 0.03
 diag1	--nsub 8 --sizes 200 --diag 1 --div-old 0.12 --div-young 0.03
-diag5	--nsub 8 --sizes 200 --diag 5 --div-old 0.12 --div-young 0.03
+diag5	--nsub 8 --sizes 200 --diag 5 --spacing 5 --div-old 0.12 --div-young 0.03
 indel	--nsub 8 --sizes 200 --diag 2 --indel-frac 0.6 --div-old 0.12 --div-young 0.03
 trunc	--nsub 8 --sizes 200 --diag 2 --trunc 0.3 --trunc-max 0.4 --div-old 0.12 --div-young 0.03
 rare	--nsub 8 --sizes 300,300,300,300,300,40,20,10 --diag 2 --div-old 0.12 --div-young 0.03
