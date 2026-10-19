@@ -26,7 +26,7 @@
 #   clusters/summary.tsv       — cluster_id, size
 #   clusters/cluster_N.fasta, cluster_N_consensus.fasta, unassigned.fasta
 
-set -e
+set -eo pipefail   # -e only until 2026-10-19: a seqkit failure in the pipe went unnoticed (GLM audit 2026-10-19)
 
 INPUT_CLW=${1:?Usage: bash step1b_cluster_subfamilies_assist.sh input.clw output_dir [--recurse]}
 OUT_DIR=${2:?Usage: bash step1b_cluster_subfamilies_assist.sh input.clw output_dir [--recurse]}

@@ -50,7 +50,9 @@ LOG="${BASENAME}_consensus.log"
 
 cleanup() {
     rm -rf "$WORKDIR"
-    [ "$KEEP" -eq 0 ] && rm -f "$LOG"
+    # the log is kept when it holds a LOW_CONFIDENCE / not-converged verdict: until 2026-10-19 it was deleted with the verdict
+    # in it (GLM audit 2026-10-19)
+    if [ "$KEEP" -eq 0 ] && [ -z "${QUALITY_FLAG:-}" ] && [ "${CONVERGED:-1}" -eq 1 ]; then rm -f "$LOG"; fi
 }
 trap cleanup EXIT
 

@@ -31,6 +31,7 @@ Outputs (written to step2/step2_output*/diagnostic/):
 
 import argparse
 import os
+import re
 import sys
 import shlex
 import subprocess
@@ -1066,6 +1067,8 @@ def generate_sineplot_input(consensus_seqs, subfamily_fastas, outdir, threads):
         log(f"  You can generate SINEplot input manually with:")
         log(f"    cat consensuses.fa subfamilies/*.fasta > all.fa")
         log(f"    ssearch36 -m 8 -T 4 all.fa all.fa > {scores_out}")
+        if os.path.exists(scores_out):     # the truncated output was returned as a result until 2026-10-19 (GLM audit 2026-10-19)
+            os.unlink(scores_out)
     else:
         log(f"  SINEplot input: {scores_out}")
 
@@ -1092,10 +1095,11 @@ def main():
         "nproc 2>/dev/null || echo 4", shell=True, text=True).strip())
 
     # â”€â”€ Locate step2 output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # newest = highest run number; a string sort put step2_output_run9 before _run10 until 2026-10-19 (GLM audit 2026-10-19)
     step2_dirs = sorted([
         d for d in os.listdir(os.path.join(run_root, "step2"))
         if d.startswith("step2_output")
-    ], reverse=True)
+    ], key=lambda d: int(re.search(r"_run(\d+)$", d).group(1)) if re.search(r"_run(\d+)$", d) else 0, reverse=True)
     if not step2_dirs:
         log(f"ERROR: No step2_output found in {run_root}/step2/")
         sys.exit(1)
