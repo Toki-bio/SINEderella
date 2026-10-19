@@ -913,10 +913,13 @@ mode_full(){
 
   ###########################################################################
   # ASSEMBLY QC is diagnostic only. Skip with SKIP_ASSEMBLY_QC=1.
-  # It still runs before step1 unless skipped; the verdict is only a log line.
+  # It still runs before step1 unless skipped. The verdict goes into manifest.txt (ASSEMBLY_QC_VERDICT: SOLID / CAUTION /
+  # WARN / SKIPPED / NOT_RUN) and a line on the report page; it never changes a copy verdict (GLM audit 39, 2026-10-19).
   ###########################################################################
+  local qc_verdict="NOT_RUN"
   if [[ "${SKIP_ASSEMBLY_QC:-0}" == "1" ]]; then
     log "SKIP_ASSEMBLY_QC=1 — assembly QC skipped"
+    qc_verdict="SKIPPED"
   elif [[ -f assembly_qc.sh ]]; then
     log "Running assembly QC diagnostic"
     bash ./assembly_qc.sh genome.clean.fa genome.clean 2>&1 | tee assembly_qc.log || true
@@ -930,8 +933,10 @@ mode_full(){
       else
         log "Assembly QC: $verdict"
       fi
+      [[ -n "$verdict" ]] && qc_verdict="$verdict"
     fi
   fi
+  printf 'ASSEMBLY_QC_VERDICT\t%s\n' "$qc_verdict" >> manifest.txt
 
   ###########################################################################
   # STEP1

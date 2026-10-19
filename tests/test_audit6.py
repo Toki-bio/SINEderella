@@ -195,3 +195,16 @@ def test_prep_labeled_skips_empty_rows(tmp_path):
                    capture_output=True, text=True)
     labels = [l for l in open(next(tmp_path.glob("o*labels"))) if l.strip()]
     assert len(labels) == 2
+
+
+def test_assembly_qc_paragraph(tmp_path):
+    # finding 39 (owner decision 2026-10-19): a run-level line, never a verdict change; a skipped check does not read as SOLID
+    sys.path.insert(0, str(ROOT))
+    import step6_report as R
+    q = tmp_path / "genome.clean_assembly_qc.tsv"
+    q.write_text("metric\tvalue\tflag\nN50\t8000\tlow\ngap_pct\t0.1\tok\nverdict\tWARN\tWARN\n")
+    p = R.assembly_qc_paragraph(tmp_path, {})
+    assert "WARN" in p and "N50 8000 (low)" in p and "gap_pct" not in p
+    q.unlink()
+    assert "skipped" in R.assembly_qc_paragraph(tmp_path, {"ASSEMBLY_QC_VERDICT": "SKIPPED"})
+    assert "not SOLID" in R.assembly_qc_paragraph(tmp_path, {})

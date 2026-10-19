@@ -2170,6 +2170,33 @@ def build_alignment_section(
 # Build
 # ===========================================================================
 
+def assembly_qc_paragraph(run_root: Path, manifest: Dict[str, str]) -> str:
+    """One run-level line from assembly_qc.sh (genome.clean_assembly_qc.tsv). It never changes a copy or family verdict
+    (owner decision 2026-10-19, GLM audit 39): a CAUTION / WARN assembly gets a visible note, and a check that was skipped or
+    did not run says so instead of reading as SOLID."""
+    tsv = next((p for p in (run_root / "genome.clean_assembly_qc.tsv", run_root / "results" / "assembly_qc.tsv")
+                if p.is_file()), None)
+    rows = {}
+    if tsv:
+        for line in tsv.read_text(encoding="utf-8", errors="replace").splitlines()[1:]:
+            f = line.split("\t")
+            if len(f) >= 3:
+                rows[f[0]] = (f[1], f[2])
+    verdict = rows.get("verdict", (manifest.get("ASSEMBLY_QC_VERDICT", ""), ""))[0]
+    if verdict == "SOLID":
+        return "<p>Assembly check: SOLID (<code>genome.clean_assembly_qc.tsv</code>).</p>"
+    if verdict in ("CAUTION", "WARN"):
+        flags = ", ".join("%s %s (%s)" % (k, v, fl) for k, (v, fl) in rows.items()
+                          if k != "verdict" and fl not in ("-", "ok", ""))
+        return (f"<p style='background:#fff3cd;border-left:4px solid #e0a800;padding:6px 10px'><b>Assembly check: {verdict}.</b> "
+                + (f"Flagged: {html.escape(flags)}. " if flags else "")
+                + "Copies near N-rich regions, contig ends or on short contigs can be partial or false, and their flank "
+                  "tests have less sequence to work with; the copy verdicts are not changed by this check. "
+                  "Details: <code>genome.clean_assembly_qc.tsv</code>.</p>")
+    why = "skipped (SKIP_ASSEMBLY_QC=1)" if verdict == "SKIPPED" else "not measured in this run"
+    return f"<p>Assembly check: {why}; assembly quality is unknown, not SOLID.</p>"
+
+
 def flank_verdict_paragraph(fv: Dict[str, Dict[str, str]]) -> str:
     """Overview sentence from flank_verdict.tsv (tools/flank_verdict.py): assigned copies that are SINE loci (flanks tested
     unique), in the grey zone (flanks masked / untestable), and not SINE (flanks shared, or the same flank at the same place
@@ -2385,6 +2412,7 @@ def build_html(run_root: Path,
            if unassigned_v else "")
         + "</p>"
         + flank_verdict_paragraph(flank_verdict)
+        + assembly_qc_paragraph(run_root, manifest)
     )
 
     mani_html = "<div class='kv'>" + "".join(
