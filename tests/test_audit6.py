@@ -130,6 +130,18 @@ def test_run_sine_failed_rerun_not_stale(tmp_path):
     assert seq is None
 
 
+def test_run_sine_not_converged_is_a_failed_rebuild(tmp_path):
+    # finding 65 (owner decision 2026-10-19): run_sine asks sine_consensus.sh for strict mode; a script that writes a consensus
+    # but exits 2 only when SINE_CONSENSUS_FAIL_NOTCONVERGED=1 (= did not converge) must give no consensus
+    sys.path.insert(0, str(ROOT / "publish"))
+    import flank_border_iterate as F
+    (tmp_path / "c.fa").write_text(">a\nACGT\n")
+    (tmp_path / "nc.sh").write_text('printf ">x\\nACGTACGT\\n" > final_consensus.fasta\n'
+                                    '[ "${SINE_CONSENSUS_FAIL_NOTCONVERGED:-0}" = 1 ] && exit 2\nexit 0\n')
+    seq, err = F.run_sine(str(tmp_path / "c.fa"), str(tmp_path / "w"), str(tmp_path / "nc.sh"))
+    assert seq is None
+
+
 def test_step4_diagnostic_picks_highest_run(tmp_path):
     # finding 75: a string sort picked step2_output_run9 over step2_output_run10
     import re
@@ -183,3 +195,16 @@ def test_prep_labeled_skips_empty_rows(tmp_path):
                    capture_output=True, text=True)
     labels = [l for l in open(next(tmp_path.glob("o*labels"))) if l.strip()]
     assert len(labels) == 2
+
+
+def test_assembly_qc_paragraph(tmp_path):
+    # finding 39 (owner decision 2026-10-19): a run-level line, never a verdict change; a skipped check does not read as SOLID
+    sys.path.insert(0, str(ROOT))
+    import step6_report as R
+    q = tmp_path / "genome.clean_assembly_qc.tsv"
+    q.write_text("metric\tvalue\tflag\nN50\t8000\tlow\ngap_pct\t0.1\tok\nverdict\tWARN\tWARN\n")
+    p = R.assembly_qc_paragraph(tmp_path, {})
+    assert "WARN" in p and "N50 8000 (low)" in p and "gap_pct" not in p
+    q.unlink()
+    assert "skipped" in R.assembly_qc_paragraph(tmp_path, {"ASSEMBLY_QC_VERDICT": "SKIPPED"})
+    assert "not SOLID" in R.assembly_qc_paragraph(tmp_path, {})

@@ -188,3 +188,8 @@ rm -f subsample_*.fasta aligned_*.fasta mini_cons_*.fasta \
       "$PREV_CONS" "$CURR_CONS" master_tmp.fasta 2>/dev/null
 
 echo "Done. See $LOG for details."
+# machine-readable status; with SINE_CONSENSUS_FAIL_NOTCONVERGED=1 (the border loop) a consensus that did not converge is a
+# failed rebuild, exit 2 (GLM audit 65, owner decision 2026-10-19). Manual use keeps exit 0 with the warning in the log.
+printf '%s	%s
+' "$FINAL_TAG" "${ITER:-1}" > status.txt
+[[ "$CONVERGED" -eq 1 || "${SINE_CONSENSUS_FAIL_NOTCONVERGED:-0}" != "1" ]] || exit 2

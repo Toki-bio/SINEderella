@@ -1,6 +1,6 @@
 # Flank uniqueness over ALL copies of a family (design, 2026-09-30)
 
-Status: **implemented 2026-10-01 as flankscan stage 9 (fs9_twins.sh, fs9_dupregion.sh), see the Results section at the end; not yet wired into fs_all.sh or the plates.** Earlier status: design only. Agreed with Toki 2026-09-30: document first, then build a benchmark,
+Status: **implemented 2026-10-01 as flankscan stage 9. Class T (twins, `fs9_twins.sh`) is wired into the run since 2026-10-05 ("Wired into the run" below); class R (`fs9_dupregion.sh`) stays a manual tool by decision of 2026-10-19 ("Class R: manual" at the end).** Earlier status: design only. Agreed with Toki 2026-09-30: document first, then build a benchmark,
 then implement and compare several approaches on real data before choosing one.
 
 ## Why the plates are not enough (his caveats, 2026-09-30)
@@ -231,3 +231,14 @@ dependency (conda `kmer-jellyfish`). step8a reads the family's copy_status.tsv t
 copies are marked `[twin]` on the plates and the top100 takes one copy per twin group first, as for arrays. Toy: the planted
 segmental duplication of tests/make_toy_satellite.py (3 copies present twice) gives exactly 6 twin1 copies, 0 false twins among
 217 others.
+
+## Class R: manual, not wired (decision 2026-10-19, GLM audit 46)
+
+`fs9_dupregion.sh` stays a manual follow-up tool; nothing in the run calls it and its marks stay off the plates. Reasons:
+class T answers the question the aim asks (are the copies independent insertions); class R is a warning about a copy whose
+flank also lies elsewhere in the genome while the other place has no copy, i.e. an independent insertion into a duplicated
+region. Measured on rsi r9: 1 of 6 988 copies. Its repeat filter needs a soft-masked genome, and the run's genome.clean.fa
+is upper case, so wiring it as it is would mark every flank that holds a fragment of another repeat; doing it properly
+means porting the 20-mer mask of fs9_twins.sh into it, plus minimap2 of ~1.2 M flanks for the largest families. Kept and
+tested (tests/test_fs9.sh: planted class-R pair flagged 2 of 2). Revisit when a real family shows one-sided twins that class
+T does not explain, or a run on a soft-masked genome measures a class-R share worth reporting.
