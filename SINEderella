@@ -1056,6 +1056,20 @@ mode_add(){
   ln -sf "$SRC_RUN/genome.clean.fa" "$RUN/genome.clean.fa"
   [[ -f "$SRC_RUN/genome.clean.fa.fai" ]] && ln -sf "$SRC_RUN/genome.clean.fa.fai" "$RUN/genome.clean.fa.fai"
 
+  # A source run searched on a mask: the added consensuses are searched on the same mask, extraction stays on
+  # genome.clean.fa (as --resume does). The old families have no hit inside the mask, so the overlap the re-vote and
+  # CONFLICT need is all outside it; an unmasked search handed the masked loci to the new family with no competitor
+  # (GLM audit 112, owner decision 2026-10-19). No silent fallback to an unmasked search.
+  local SRC_MASKED=""
+  if grep -q '^MASK_SOURCE' "$SRC_RUN/manifest.txt" 2>/dev/null || [[ -e "$SRC_RUN/genome.masked.fa" ]]; then
+    [[ -s "$SRC_RUN/genome.masked.fa" ]] || die "the source run was searched masked (MASK_SOURCE in $SRC_RUN/manifest.txt) but its genome.masked.fa is gone; rebuild it with: python3 $SCRIPT_DIR/tools/mask_genome.py $SRC_RUN/genome.clean.fa $SRC_RUN/mask.bed -o $SRC_RUN/genome.masked.fa, then start --add again"
+    ln -sf "$SRC_RUN/genome.masked.fa" "$RUN/genome.masked.fa"
+    [[ -f "$SRC_RUN/genome.masked.fa.fai" ]] && ln -sf "$SRC_RUN/genome.masked.fa.fai" "$RUN/genome.masked.fa.fai"
+    [[ -s "$SRC_RUN/mask.bed" ]] && ln -sf "$SRC_RUN/mask.bed" "$RUN/mask.bed"
+    SRC_MASKED="$RUN/genome.masked.fa"
+    log "Source run was searched masked: the added consensuses are searched on its genome.masked.fa (extraction stays on genome.clean.fa)"
+  fi
+
   # Merge consensuses: old + new (unique only)
   log "Merging consensuses (old + new unique)"
   cat "$SRC_RUN/consensuses.clean.fa" > "$RUN/consensuses.clean.fa"
@@ -1111,8 +1125,9 @@ mode_add(){
     ' "../../consensuses.clean.fa" > "$qfile"
 
     if [[ -s "$qfile" ]]; then
-      ln -sfn "$(readlink -f "$GENOME_PATH")" genome.search.fa      # sear's work files stay here (see step 1)
-      [[ -f "$GENOME_PATH.fai" ]] && ln -sfn "$(readlink -f "$GENOME_PATH").fai" genome.search.fa.fai
+      local SEARCH_PATH="${SRC_MASKED:-$GENOME_PATH}"                 # masked source: the same mask (see above)
+      ln -sfn "$(readlink -f "$SEARCH_PATH")" genome.search.fa      # sear's work files stay here (see step 1)
+      [[ -f "$SEARCH_PATH.fai" ]] && ln -sfn "$(readlink -f "$SEARCH_PATH").fai" genome.search.fa.fai
       # a failed search of an added consensus stops the run: the family was silently missing from a "successful" run (GLM audit)
       sear -k "$qfile" genome.search.fa 0.8 65 50 || die "sear failed for the added consensus $cname"
     else
@@ -1142,6 +1157,8 @@ mode_add(){
     printf "NEW_FAMILIES\t%s\n" "$(echo "$truly_new" | tr '\n' ',' | sed 's/,$//')"
     printf "THREADS\t%s\n" "$THREADS"
     printf "MODE\tadd\n"
+    # the source run's mask, which the added consensuses were searched on too
+    [[ -z "$SRC_MASKED" ]] || grep '^MASK_' "$SRC_RUN/manifest.txt" 2>/dev/null | sed 's/^/SOURCE_/'
     manifest_common
     tool_versions
     printf "DATE\t%s\n" "$(date)"

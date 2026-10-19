@@ -104,4 +104,35 @@ echo "famB planted copies recovered at >= 90% reciprocal overlap: $hit / 60"
 (( hit == b0 )) || fail "famB coordinates do not match the planted copies"
 # extraction is from the unmasked genome: no N in any extracted copy
 ! grep -v '^>' "$M"/genome.clean_step1/extracted.fasta | grep -q N || fail "N in extracted sequence"
+echo "ok"
+
+echo "== 4. --add on the masked run searches the new consensuses on the same mask (GLM audit 112)"
+# famA2 (a variant of the masked family) must find nothing inside the mask; famB2 (a variant of B) still finds B's
+# copies outside it, where the re-vote against famB needs them
+python3 - <<'EOF'
+import random
+random.seed(11)
+seqs, name = {}, None
+for l in open("bank.fa"):
+    l = l.strip()
+    if l.startswith(">"): name = l[1:]; seqs[name] = ""
+    else: seqs[name] += l
+mut = lambda s, r: "".join(random.choice("ACGT".replace(c, "")) if random.random() < r else c for c in s)
+with open("add.fa", "w") as fh:
+    fh.write(">famA2\n%s\n>famB2\n%s\n" % (mut(seqs["famA"], 0.03), mut(seqs["famB"], 0.03)))
+EOF
+mkdir -p added && ( cd added && SINEderella --add ../add.fa --run "../$M" > log.txt 2>&1 ) || true
+D=$(ls -d added/run_add_* | tail -1)
+[[ -s "$D"/genome.clean_step1/searches/all_hits.labeled.bed ]] || fail "--add produced no hits (added/log.txt)"
+a2=$(count "$D" famA2); b2=$(count "$D" famB2)
+echo "famA2 $a2 (inside the mask, must be 0), famB2 $b2 / 60"
+(( a2 == 0 )) || fail "--add searched inside the source run's mask: famA2 $a2 hits"
+(( b2 >= 57 )) || fail "--add lost the new family's copies outside the mask: famB2 $b2"
+grep -q '^SOURCE_MASK_BP' "$D/manifest.txt" || fail "--add manifest has no SOURCE_MASK_BP"
+! grep -v '^>' "$D"/genome.clean_step1/extracted.fasta | grep -q N || fail "N in --add extracted sequence"
+# a masked source whose genome.masked.fa is gone: stop, no silent unmasked search
+mv "$M/genome.masked.fa" "$M/genome.masked.fa.away"
+mkdir -p added2 && ( cd added2 && SINEderella --add ../add.fa --run "../$M" > log.txt 2>&1 ) && fail "--add ran without the source mask"
+grep -q "genome.masked.fa is gone" added2/log.txt || fail "--add without the source mask stopped for another reason (added2/log.txt)"
+mv "$M/genome.masked.fa.away" "$M/genome.masked.fa"
 echo "PASS: masked search"
