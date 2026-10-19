@@ -32,9 +32,11 @@ def main():
     for p in glob.glob(os.path.join(run_root, "rebuilt_consensus", "*.fa")):
         sf = os.path.basename(p).replace(".fa", "")
         one = read_fa(p)
-        if sf in one:
-            cons[sf] = one[sf]
-            n += 1
+        if sf not in one or not one[sf]:
+            # skipped without a word until 2026-10-19: the widened copies were published with the old consensus (GLM audit 2026-10-19)
+            sys.exit("merge_rebuilt_consensus: %s has no non-empty record %s" % (p, sf))
+        cons[sf] = one[sf]
+        n += 1
     with open(out, "w") as fh:
         for sf in sorted(cons):
             fh.write(">%s\n%s\n" % (sf, cons[sf]))

@@ -251,9 +251,19 @@ def main():
     else:
         final_seq = None
     adj_bed = os.path.join(out_dir, "loci.adjusted.bed")
-    F.sh("cp %s %s" % (bed, adj_bed))
+    if (ext5 or ext3) and final_seq is None:
+        # extended, but no consensus could be rebuilt for the wider copies: until 2026-10-19 the wider copies were published
+        # with the searched consensus and the sides kept "independent" (GLM audit 2026-10-19). Now the copies keep their
+        # borders and an independent side is untested.
+        log["rebuild_failed"] = err2 or "no consensus from the extended copies"
+        for s in ("5prime", "3prime"):
+            if log.get("verdict_%s" % s) == "independent":
+                log["verdict_%s" % s] = "untested"
+                log["stop_reason_%s" % s] = "%s; consensus rebuild after the extension failed: untested" % log.get("stop_reason_%s" % s)
+    else:
+        F.sh("cp %s %s" % (bed, adj_bed))
     log["rebuilt_consensus"] = reb_path if final_seq else None
-    log["adjusted_bed"] = adj_bed
+    log["adjusted_bed"] = adj_bed if os.path.exists(adj_bed) else None
     log["extend_5prime_bp"] = ext5
     log["extend_3prime_bp"] = ext3
     with open(os.path.join(out_dir, "border_loop.json"), "w") as fh:
