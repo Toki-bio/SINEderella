@@ -42,6 +42,7 @@ GAP = 4
 CODE = {"a": 0, "c": 1, "g": 2, "t": 3, "A": 0, "C": 1, "G": 2, "T": 3}
 WIN = 15          # smoothing window for the per-copy match-rate curve
 BG_MARGIN = 0.12  # match rate must fall within this of background to call "edge"
+BG_MAX = 0.5      # background ceiling: unrelated flanks match the column majority at ~0.3-0.4
 
 # cluster_edges thresholds
 MIN_GAP_RATIO = 2.5
@@ -112,6 +113,11 @@ def per_copy_edges(path, side, max_off=1000):
         bg_matches += int((b == maj[off]).sum())
         bg_n += len(b)
     bg_rate = bg_matches / float(bg_n) if bg_n else 0.25
+    # the window's own mean is background only when most of the window is unrelated DNA. Flanks shared over the whole window
+    # (segmental duplication, array unit) lifted it to ~1.0 and every copy "reached background" at offset 0 -> SHARP / FINAL
+    # (GLM audit 2026-10-19). Unrelated flanks match the column majority at ~0.3-0.4, so the bar is capped at BG_MAX:
+    # shared-throughout copies never reach it and are reported unresolved.
+    bg_rate = min(bg_rate, BG_MAX)
 
     results = []
     for i, s in enumerate(seqs):
@@ -140,7 +146,10 @@ def per_copy_edges(path, side, max_off=1000):
             else:
                 run = 0
         results.append((i, edge, curve))
-    return results, bg_rate, names
+    # names of the copies in the order of `results` (the consensus row removed wherever it was; until 2026-10-19 names[i + 1]
+    # was used, wrong whenever the CONSENSUS record was not the first)
+    copy_names = [h for k, h in enumerate(names) if k != ci]
+    return results, bg_rate, copy_names
 
 
 def cluster_edges(edges, min_gap_ratio=MIN_GAP_RATIO, min_gap_abs=MIN_GAP_ABS, min_group=MIN_GROUP):
@@ -195,7 +204,7 @@ def classify(path, side, max_off=1000):
     group_summaries = []
     for gi, g in enumerate(groups):
         gset = set(g)
-        members = [names[i + 1] for i, e, _ in results if e is not None and e in gset]
+        members = [names[i] for i, e, _ in results if e is not None and e in gset]
         group_summaries.append({
             "group": gi, "n": len(g), "edge_min": min(g), "edge_max": max(g),
             "edge_median": sorted(g)[len(g) // 2], "members": members,
@@ -205,7 +214,7 @@ def classify(path, side, max_off=1000):
         "side": side, "bg_rate": round(bg_rate, 3), "n_total": n_total,
         "n_resolved": len(edges), "n_unresolved": len(unresolved_idx),
         "unresolved_frac": round(unresolved_frac, 3),
-        "unresolved_members": [names[i + 1] for i in unresolved_idx],
+        "unresolved_members": [names[i] for i in unresolved_idx],
         "pattern": pattern, "groups": group_summaries,
     }
 
