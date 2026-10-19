@@ -8,7 +8,8 @@ only when a subfamily has fewer than 100 - and marks their rows " [grey]". Copie
 
 LOCI.tsv: step8a's loci table (subfamily, bitscore, contig, start, end, strand[, ...]). Its coordinates can be wider than
 the copy's own (the publish border loop extends element coordinates), so a row matches a verdict copy on the same contig
-and strand whose interval lies inside the row's interval (5 bp slack); a row matching no copy is dropped.
+and strand whose interval lies inside the row's interval (5 bp slack) - of the row's own subfamily first, then the longest;
+a row matching no copy is dropped.
 Prints "PLATE_FILTER kept=.. grey=.. dropped=.." on stderr.
 """
 import bisect
@@ -29,25 +30,30 @@ with open(verdict) as fh:
             continue
         m = NAME.match(p[0])
         if m:
-            cop.setdefault((m.group(1), m.group(4)), []).append((int(m.group(2)), int(m.group(3)), p[3]))
+            cop.setdefault((m.group(1), m.group(4)), []).append((int(m.group(2)), int(m.group(3)), p[3], p[1]))
 for v in cop.values():
     v.sort()
-starts = {k: [a for a, _, _ in v] for k, v in cop.items()}
+starts = {k: [c[0] for c in v] for k, v in cop.items()}
+STRICT = {"not_SINE": 0, "grey": 1}                 # equal length: the stricter verdict wins
 
 
-def verdict_of(ctg, strand, a, b):
+def verdict_of(ctg, strand, a, b, sf):
+    """The verdict of the copy this row stands for: among the copies inside [a-5, b+5], those of the row's own subfamily
+    first, then the longest. Until 2026-10-19 ANY contained SINE copy passed the row, so a grey copy borrowed the verdict
+    of a shorter SINE copy nested in it or beside it inside the extended interval (GLM audit)."""
     v = cop.get((ctg, strand))
     if not v:
         return None
     i = bisect.bisect_left(starts[(ctg, strand)], a - 5)
     best = None
     while i < len(v) and v[i][0] <= b + 5:
-        if v[i][1] <= b + 5:
-            if v[i][2] == keep:
-                return keep
-            best = best or v[i][2]
+        s0, e0, vd, csf = v[i]
+        if e0 <= b + 5:
+            k = (csf == sf, e0 - s0, -STRICT.get(vd, 2))
+            if best is None or k > best[0]:
+                best = (k, vd)
         i += 1
-    return best
+    return best[1] if best else None
 
 
 n_keep = n_grey = n_drop = 0
@@ -55,7 +61,7 @@ go = open(grey_out, "w") if grey_out else None
 with open(loci) as fh:
     for line in fh:
         p = line.rstrip("\n").split("\t")
-        vd = verdict_of(p[2], p[5], int(p[3]), int(p[4])) if len(p) >= 6 else None
+        vd = verdict_of(p[2], p[5], int(p[3]), int(p[4]), p[0]) if len(p) >= 6 else None
         if vd == keep:
             sys.stdout.write(line)
             n_keep += 1

@@ -128,37 +128,44 @@ def main(argv):
     for r in rows:
         while len(r) < 8:
             r.append("-")
-    cand = range(min(limit, len(rows)))
-    order = sorted(cand, key=lambda i: (rows[i][2], int(rows[i][3])))
-    cluster = {}
-    k = 0
-    while k < len(order):
-        j = k
-        while (j + 1 < len(order) and rows[order[j + 1]][2] == rows[order[j]][2]
-               and int(rows[order[j + 1]][3]) - int(rows[order[j]][3]) <= GAP):
-            j += 1
-        if j - k + 1 >= MIN_COPIES:
-            for m in order[k:j + 1]:
-                cluster[m] = k
-                rows[m][7] = "array"
-        k = j + 1
     reg = regular_runs_wide([(r[2], int(r[3])) for r in rows])      # all loci, regular spacing (6 kb tier + 30 kb tier)
-    for i, rid in reg.items():
-        rows[i][7] = "array"
-        cluster[i] = ("r", rid)
-    # copies whose flanks are shared with other copies (flankscan stage 9, --twins): not independent insertions either.
-    # Marked "twin" (an array mark wins) and clustered by their twin group, so the plate takes one copy per group first.
-    for i, r in enumerate(rows):
-        g = twins.get((r[2], r[3], r[4]))
-        if g is None:
-            continue
-        if r[7] != "array":
-            r[7] = "twin"
-        if i not in cluster:
-            cluster[i] = ("t", g)
-    if mark_only:
-        out = range(len(rows))
-    else:
+    # the GAP rule looks at the rows that can reach the plate: the first `limit` of the CURRENT order. Moving a cluster's
+    # other members to the end lets unexamined rows move up, so it is repeated over the rows examined so far plus the new
+    # head until the head holds no unexamined row (until 2026-10-19 only the first `limit` of the input order were looked at,
+    # and an array longer than the limit refilled the plate with unmarked copies; GLM audit)
+    examined = set(range(min(limit, len(rows))))
+    while True:
+        cluster = {}
+        for r in rows:
+            r[7] = "-" if r[7] in ("array", "twin") else r[7]
+        order = sorted(examined, key=lambda i: (rows[i][2], int(rows[i][3])))
+        k = 0
+        while k < len(order):
+            j = k
+            while (j + 1 < len(order) and rows[order[j + 1]][2] == rows[order[j]][2]
+                   and int(rows[order[j + 1]][3]) - int(rows[order[j]][3]) <= GAP):
+                j += 1
+            if j - k + 1 >= MIN_COPIES:
+                for m in order[k:j + 1]:
+                    cluster[m] = ("g", order[k])
+                    rows[m][7] = "array"
+            k = j + 1
+        for i, rid in reg.items():
+            rows[i][7] = "array"
+            cluster[i] = ("r", rid)
+        # copies whose flanks are shared with other copies (flankscan stage 9, --twins): not independent insertions either.
+        # Marked "twin" (an array mark wins) and clustered by their twin group, so the plate takes one copy per group first.
+        for i, r in enumerate(rows):
+            g = twins.get((r[2], r[3], r[4]))
+            if g is None:
+                continue
+            if r[7] != "array":
+                r[7] = "twin"
+            if i not in cluster:
+                cluster[i] = ("t", g)
+        if mark_only:
+            out = list(range(len(rows)))
+            break
         seen, head, tail = set(), [], []
         for i in range(len(rows)):
             c = cluster.get(i)
@@ -169,6 +176,10 @@ def main(argv):
             else:
                 tail.append(i)
         out = head + tail
+        new = set(out[:limit]) - examined
+        if not new:
+            break
+        examined |= new
     for i in out:
         sys.stdout.write("\t".join(rows[i]) + "\n")
 
