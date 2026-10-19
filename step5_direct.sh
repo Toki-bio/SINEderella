@@ -78,7 +78,7 @@ for sf_fasta in "${sf_files[@]}"; do
     cat "$CONS_BANK" "$tmpdir/sampled.fa" > "$tmpdir/to_align.fa"
     mafft --thread "$(nproc 2>/dev/null || echo 1)" --threadit 0 --nuc --auto --reorder --quiet \
           "$tmpdir/to_align.fa" > "$OUT_DIR/${sf_name}.aln.fa" 2>/dev/null || \
-      log "    WARNING: mafft failed"
+      { log "    WARNING: mafft failed"; rm -f "$OUT_DIR/${sf_name}.aln.fa"; }
   else
     # Large: subsample 10000, use SubFam + mafft --add
     sample_n=$((nseqs < 10000 ? nseqs : 10000))
@@ -94,7 +94,7 @@ for sf_fasta in "${sf_files[@]}"; do
         log "    WARNING: SubFam failed, falling back to direct mafft"
         cat "$CONS_BANK" "$tmpdir/${sf_name}.fa" > "$tmpdir/to_align.fa"
         mafft --thread "$(nproc 2>/dev/null || echo 1)" --threadit 0 --nuc --auto --reorder --quiet \
-              "$tmpdir/to_align.fa" > "$OUT_DIR/${sf_name}.aln.fa" 2>/dev/null || true
+              "$tmpdir/to_align.fa" > "$OUT_DIR/${sf_name}.aln.fa" 2>/dev/null || rm -f "$OUT_DIR/${sf_name}.aln.fa"
         rm -rf "$tmpdir"
         continue
       }
@@ -131,18 +131,19 @@ for sf_fasta in "${sf_files[@]}"; do
       mafft --add "$CONS_BANK" --thread "$(nproc 2>/dev/null || echo 1)" \
             --keeplength --reorder --quiet "$tmpdir/subfam_aln.fa" \
             > "$OUT_DIR/${sf_name}.aln.fa" 2>/dev/null || \
-        log "    WARNING: mafft --add failed"
+        { log "    WARNING: mafft --add failed"; rm -f "$OUT_DIR/${sf_name}.aln.fa"; }
     else
       # Fallback if SubFam not available
       cat "$CONS_BANK" "$tmpdir/${sf_name}.fa" > "$tmpdir/to_align.fa"
       mafft --thread "$(nproc 2>/dev/null || echo 1)" --threadit 0 --nuc --auto --reorder --quiet \
             "$tmpdir/to_align.fa" > "$OUT_DIR/${sf_name}.aln.fa" 2>/dev/null || \
-        log "    WARNING: mafft failed"
+        { log "    WARNING: mafft failed"; rm -f "$OUT_DIR/${sf_name}.aln.fa"; }
     fi
   fi
 
   rm -rf "$tmpdir"
-  [[ -f "$OUT_DIR/${sf_name}.aln.fa" ]] && n_aligned=$((n_aligned + 1))
+  # a failed mafft left an empty file that was counted until 2026-10-19; it is removed above and only non-empty ones count (GLM audit 2026-10-19)
+  [[ -s "$OUT_DIR/${sf_name}.aln.fa" ]] && n_aligned=$((n_aligned + 1))
 done
 
 log "============================================================"

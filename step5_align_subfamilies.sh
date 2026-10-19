@@ -147,6 +147,7 @@ for sp_dir in "$MULTI_DIR"/*/; do
             "$tmpdir/to_align.fa" \
             > "$sp_align_dir/${sf_name}.aln.fa" 2>/dev/null || {
         log "    WARNING: mafft failed for $sf_name"
+        rm -f "$sp_align_dir/${sf_name}.aln.fa"   # the partial output stayed as a deliverable until 2026-10-19 (GLM audit 2026-10-19)
         rm -rf "$tmpdir"
         continue
       }
@@ -213,6 +214,7 @@ for sp_dir in "$MULTI_DIR"/*/; do
             "$tmpdir/subfam_aln.fa" \
             > "$sp_align_dir/${sf_name}.aln.fa" 2>/dev/null || {
         log "    WARNING: mafft --add failed for $sf_name"
+        rm -f "$sp_align_dir/${sf_name}.aln.fa"   # the partial output stayed as a deliverable until 2026-10-19 (GLM audit 2026-10-19)
         rm -rf "$tmpdir"
         continue
       }

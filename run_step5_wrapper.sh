@@ -59,7 +59,9 @@ TMPDIR_MULTI="$(mktemp -d "${TMPDIR:-/tmp}/step5_wrapper.XXXXXX")"
 trap 'rm -rf "$TMPDIR_MULTI"' EXIT
 
 mkdir -p "$TMPDIR_MULTI/$SPECIES"
-ln -s "$RUN_DIR" "$TMPDIR_MULTI/$SPECIES/$(basename "$RUN_DIR")"
+# step5 only finds run_* directories: until 2026-10-19 any other name gave no alignment and exit 0 (GLM audit 2026-10-19)
+RUN_LINK=$(basename "$RUN_DIR"); [[ "$RUN_LINK" == run_* ]] || RUN_LINK="run_$RUN_LINK"
+ln -s "$RUN_DIR" "$TMPDIR_MULTI/$SPECIES/$RUN_LINK"
 
 # ── Run step5 ────────────────────────────────────────────────────────────────
 log "Running step5..."
@@ -69,7 +71,7 @@ log "Running step5..."
 SRC_DIR="$TMPDIR_MULTI/alignments/$SPECIES"
 DEST_DIR="$RUN_DIR/alignments/$SPECIES"
 
-if [[ -d "$SRC_DIR" ]] && [[ -n "$(find "$SRC_DIR" -type f -name '*.aln.fa' 2>/dev/null)" ]]; then
+if [[ -d "$SRC_DIR" ]] && [[ -n "$(find "$SRC_DIR" -type f -name '*.aln.fa' -size +0 2>/dev/null)" ]]; then   # -size +0: empty files counted as success until 2026-10-19 (GLM audit 2026-10-19)
   mkdir -p "$DEST_DIR"
   mv "$SRC_DIR"/*.aln.fa "$DEST_DIR"/
   log "✓ Success! Alignments in: $DEST_DIR"

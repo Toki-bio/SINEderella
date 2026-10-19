@@ -250,7 +250,9 @@ flen=$(awk -v a=$Slf -v b=$len 'BEGIN{print int(a*b)}')
 echo "Query length = $len bp, overlap = $flen bp"
 
 query="$query_in"
-qname="${query%.*}"
+# the query's file name without its directory: a query given with a path (/tmp/x/consensus.fa) made every output name a
+# path through a directory that does not exist here, so no hit file was written (until 2026-10-19; GLM audit 2026-10-19)
+qname=$(basename "${query%.*}")
 # output prefix: the first three characters of the bank's FILE NAME (the ssearch36 branch derives the same prefix from the
 # part files). It was cut from the whole path before, so a bank given as /home/... produced outputs named "/ho-<query>.bed"
 # in minimap2 mode (fixed 2026-10-05; only queries >= 1000 bp reach that branch).
