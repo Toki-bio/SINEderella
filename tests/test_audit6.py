@@ -163,3 +163,23 @@ def test_tsd_curve_skips_seed_row(tmp_path):
     import subprocess
     r = subprocess.run([sys.executable, str(ROOT / "tools/tsd_curve.py"), str(_plate(tmp_path)), "5", "16"], capture_output=True, text=True)
     assert "copies 2 " in r.stdout, r.stdout + r.stderr
+
+
+def test_sim_family_diag_underdelivered_stops(tmp_path):
+    # finding 38: the shipped diag5 scenario placed 3 of 5 diagnostic positions in subfamily 4 without a word
+    import subprocess
+    r = subprocess.run([sys.executable, str(ROOT / "tools/sim/sim_family.py"), str(tmp_path / "s"), "--seed", "1", "--nsub", "8",
+                        "--sizes", "200", "--diag", "5", "--div-old", "0.12", "--div-young", "0.03"], capture_output=True, text=True)
+    assert r.returncode != 0 and "diagnostic positions" in r.stderr
+
+
+def test_prep_labeled_skips_empty_rows(tmp_path):
+    # finding 129: an all-gap row was written and counted as a copy
+    import subprocess
+    d = tmp_path / "aln"
+    d.mkdir()
+    (d / "POS__SP__G1_3seqs.aln.fa").write_text(">CONSENSUS_G1\nACGT\n>c1\nAC-T\n>c2\n----\n>c3\nACGT\n")
+    subprocess.run([sys.executable, str(ROOT / "tools/coseg_compare/prep_labeled.py"), str(d), "SP", str(tmp_path / "o")],
+                   capture_output=True, text=True)
+    labels = [l for l in open(next(tmp_path.glob("o*labels"))) if l.strip()]
+    assert len(labels) == 2

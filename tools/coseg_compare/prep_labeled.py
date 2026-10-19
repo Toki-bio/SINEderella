@@ -33,6 +33,10 @@ with open(out + ".fa", "w") as fa, open(out + ".labels", "w") as lb:
                 continue
             k += 1
             seq = "".join(parts).replace("-", "").replace(".", "").upper()
+            if not seq:       # an empty row was written and counted as a copy until 2026-10-19 (GLM audit 2026-10-19)
+                print("prep_labeled: %s: record %s has no sequence, left out" % (group, name), file=sys.stderr)
+                k -= 1
+                continue
             cid = "%s|%d" % (group, k)
             fa.write(">%s\n%s\n" % (cid, seq)); lb.write("%s\t%s\n" % (cid, group)); n += 1
         print(group, k, file=sys.stderr)

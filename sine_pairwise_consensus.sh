@@ -190,6 +190,9 @@ approx_distance() {
 SEQ_COUNT=$(grep -c '^>' "$INPUT_FASTA")
 
 if [ -n "$REF_FILE" ]; then
+    # exactly one reference: with several, each copy was projected on the first and the others taken as copies, until
+    # 2026-10-19 (GLM audit 2026-10-19)
+    [ "$(grep -c '^>' "$REF_FILE")" -eq 1 ] || { echo "Error: -r $REF_FILE must hold exactly one sequence" >&2; exit 1; }
     # User-provided reference â€” strip gaps
     seqkit seq -w 0 "$REF_FILE" \
       | awk '/^>/ { if (seq != "") { gsub(/[-.]/, "", seq); print hdr "\n" toupper(seq) }
