@@ -4,8 +4,12 @@ The aim of SINEderella (docs/AIM.md) is the list of SINE loci of a genome, with 
 interspersed repeat is a set of copies with unique flanks, so the verdict is a flank verdict: a copy is a SINE locus only
 when its flanks were tested and found unique. A test that could not be done is not a pass.
 
-The verdicts are written by `tools/flank_verdict.py`, run by `publish/align_for_publish.sh` after step 7 and the border
-loop, before the plates are drawn. Plates, page and counts read them; nothing downstream decides on its own.
+The verdicts are written by `publish/verdict_chain.sh` (step 7, the border loop, then `tools/flank_verdict.py`), which the
+orchestrator runs in every run right after flankscan stage 9, with or without `--publish` (log: `RUN/verdicts.log`; a failure
+stops the run). Until 2026-10-21 the chain ran only inside the publish step, so a run without `--publish` had no verdicts.
+The publish step reuses them when `step2_output/verdict_chain.done` is newer than the assignment and stage 9, and runs the
+chain itself for older runs (`VERDICT_RERUN=1` forces it). Plates, page and counts read the verdicts; nothing downstream
+decides on its own.
 
 ## Outputs (step2 output folder)
 

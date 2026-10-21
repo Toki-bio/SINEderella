@@ -27,7 +27,7 @@ Set **`DISC`** to the SINE-discriminator tree (directory containing `verdict.py`
         │     step7 boundary refine
         │     border loop (publish/*.py)
         │     step8a extract MSAs
-        │     tools/flank_verdict.py (per-copy verdicts, docs/VERDICTS.md)
+        │     verdicts: reused from the run (publish/verdict_chain.sh runs in every run), else run here
         │     DISC: boundary_justify, rebuild_consensus_row, trim_display_flanks,
         │           correct_published_aln; tools/add_seed_row.py (row 2)
         ├─ step6_report.py (--embed-images, pctid spline if TSVs exist)
