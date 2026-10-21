@@ -18,8 +18,9 @@ states the proposal and leaves the decision to him:
                                 UPPERCASE = what the copies support within the original: the
                                 element the verdict judges.
   row 2  <subfamily>            the consensus exactly as searched, under its own name.
-  copies                        uppercase over row 1's uppercase span, lowercase outside. Only
-                                the case changes; no row is realigned or repacked.
+  copies                        uppercase over row 1's uppercase span, lowercase outside, and the
+                                lowercase flanks packed against that span (no flank column with a
+                                gap between flank letters). Nothing is realigned.
 
 The original is added with `mafft --add` into the finished alignment: existing rows are not
 realigned, only gap columns are inserted where it needs them. The file is rewritten only if every
@@ -301,8 +302,14 @@ def mark(seqs):
     e_lo, e_hi = (up[0], up[-1]) if up else (s_lo, s_hi)
     out = ["".join(ext), orig.upper()]
     for i in copies:
-        out.append("".join(c if c in GAPS else (c.upper() if e_lo <= j <= e_hi else c.lower())
-                           for j, c in enumerate(seqs[i])))
+        r = seqs[i]
+        # outside row 1's uppercase span the copy is flank: packed against its element (5' right-justified, 3'
+        # left-justified), as boundary_justify left it. Until 2026-10-21 only the case changed, so where the copies'
+        # element reached past the original, aligned element columns with their gaps were relabelled flank and sat
+        # in front of the packed flank (rsi rsi_main_20261021: r10_19seqs, r6, r7 top100 100 of 100 copies)
+        left, right = ungap(r[:e_lo]).lower(), ungap(r[e_hi + 1:]).lower()
+        mid = "".join(c if c in GAPS else c.upper() for c in r[e_lo:e_hi + 1])
+        out.append("-" * (e_lo - len(left)) + left + mid + right + "-" * (len(r) - e_hi - 1 - len(right)))
     return out, stats
 
 
