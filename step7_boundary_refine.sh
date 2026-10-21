@@ -100,10 +100,16 @@ if len(seqs) < 2:
     sys.exit(0)
 n_pairs = int(sys.argv[2]) if len(sys.argv) > 2 else 150
 cutoff = float(sys.argv[3]) if len(sys.argv) > 3 else 45.0
-n_pairs = min(n_pairs, len(seqs) * (len(seqs)-1) // 2)
+total = len(seqs) * (len(seqs)-1) // 2
+# a small family has no more pairs than the sample: every pair once (drawn at random, 3 copies gave 3 draws from 3 pairs,
+# so a pair could be missed and another counted twice)
+if total <= n_pairs:
+    import itertools
+    pairs = list(itertools.combinations(seqs, 2))
+else:
+    pairs = [random.sample(seqs, 2) for _ in range(n_pairs)]
 identities = []
-for _ in range(n_pairs):
-    a, b = random.sample(seqs, 2)
+for a, b in pairs:
     min_len = min(len(a), len(b))
     if min_len == 0:
         continue
@@ -286,7 +292,11 @@ while IFS= read -r subfam; do
   total_subfams=$((total_subfams + 1))
   awk -v sf="$subfam" '$1 == sf' "$TMP_DIR/assigned_parsed.tsv" > "$TMP_DIR/all_members.tsv"
   count=$(wc -l < "$TMP_DIR/all_members.tsv")
-  if (( count < 20 )); then
+  # A side is shared when more than background + 5 % of copy pairs have elevated flank identity. From 7 copies (21 pairs) one
+  # duplicated pair stays under that, so a pair of twins (a copy-level matter, flankscan stage 9) cannot condemn the whole
+  # subfamily; below 7 it could, so those subfamilies stay untested (grey). Until 2026-10-21 the gate was 20 copies, and
+  # families of 7-19 copies were grey only for their size (rsi MEG-TR: 16 copies grey in one run, 20 tested in the next).
+  if (( count < ${STEP7_MIN_COPIES:-7} )); then
     for population in general top100; do
       printf "%s\t%s\tupstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$population" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"
       printf "%s\t%s\tdownstream\t0\tinsufficient_data\tNA\tNA\t%s\t%s\n" "$subfam" "$population" "$BG_IDENTITY" "$BG_FRAC" >> "$OUT_TSV"

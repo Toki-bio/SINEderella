@@ -222,7 +222,7 @@ segmental-duplication case this stage is for; the stage is still not wired into 
 
 ## Wired into the run (2026-10-05, after the MEG-RS case)
 
-`flankscan/fs9_run.sh RUN_DIR [THREADS] [MIN_COPIES=20]` runs stage 9 over every family with >= 20 firmly assigned copies of a
+`flankscan/fs9_run.sh RUN_DIR [THREADS] [MIN_COPIES=2]` runs stage 9 over every family with >= 2 firmly assigned copies of a
 run; the orchestrator calls it after assignment (`flank_twins_step`, `FS9_SKIP=1` skips). Output `results/flank_twins.tsv`
 (family copies twin1 twin2 array masked untestable unique pct_twin) and `results/flank_twins/<family>/copy_status.tsv`.
 The run's `genome.clean.fa` has no soft-masking (upper case), so the 20-mer repeat mask is the only filter: for genomes over
