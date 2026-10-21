@@ -494,18 +494,6 @@ consensus_audit_step(){
 }
 
 ###############################################################################
-# HELPER: rebuild consensus from assigned copies (before step4 plots)
-###############################################################################
-rebuild_consensus_bank(){
-  local rundir="$1"
-  [[ "${SKIP_REBUILD_CONS:-0}" == "1" ]] && { log "SKIP_REBUILD_CONS=1"; return 0; }
-  local py="$SCRIPT_DIR/rebuild_consensus_bank.py"
-  [[ -f "$py" ]] || { log "WARNING: $py missing — step4 will use seed consensuses"; return 0; }
-  log "Rebuilding consensus bank from step2 copy assignments"
-  python3 "$py" "$rundir" || log "WARNING: rebuild_consensus_bank.py failed"
-}
-
-###############################################################################
 # HELPER: the results/ directory of a run: symlinks to the step1/step2/step3 outputs (one list, used by every mode
 # including --resume; it must run BEFORE step 6 / publish, which write results/report.html)
 ###############################################################################
@@ -600,8 +588,6 @@ run_step2_step3(){
       log "WARNING: missing/empty $f"
     fi
   done
-
-  rebuild_consensus_bank "$(pwd -P)"
 
   families_step "$(pwd -P)"
 
@@ -1454,7 +1440,6 @@ mode_resume(){
       log "Step4 — already complete, skipping"
     elif [[ -n "${PLOT_SRC:-}" && -f ./step4_plots.sh && -f ./plot_subfamily.py ]]; then
       log "Step4 — running..."
-      rebuild_consensus_bank "$(pwd -P)"
       set +e
       ./step4_plots.sh "$(pwd -P)" "$THREADS" \
         > >(tee step4.stdout.log) \

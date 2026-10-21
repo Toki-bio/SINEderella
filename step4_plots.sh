@@ -29,11 +29,11 @@ MAX_SEQS="${3:-10000}"
 OUT="$(ls -dt "$RUN_ROOT"/step2/step2_output* 2>/dev/null | head -n1 || true)"
 [[ -n "$OUT" && -d "$OUT" ]] || die "cannot find $RUN_ROOT/step2/step2_output*"
 
+# Divergence is measured against the consensus the copies were searched and assigned with. Until 2026-10-21 a bank
+# rebuilt from the copies (consensuses.rebuilt.fa) was used when present; it could differ from the searched one (rsi
+# r1_r2_r3_r3_C11: 889 bp rebuilt against 608 searched, 78 % identical), and the copies showed 23 % divergence instead
+# of 6 %. The copies' own consensus is checked separately by the consensus audit (tools/consensus_audit.py).
 CONS="$RUN_ROOT/consensuses.clean.fa"
-if [[ -s "$RUN_ROOT/consensuses.rebuilt.fa" ]]; then
-  CONS="$RUN_ROOT/consensuses.rebuilt.fa"
-  log "Using copy-rebuilt consensus bank: $CONS"
-fi
 SUBFAM_DIR="$OUT/subfamilies"
 PLOTS_DIR="$OUT/plots"
 
