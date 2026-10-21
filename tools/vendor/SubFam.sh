@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-VERSION=1.5.0
+VERSION=1.5.1
 N=50            # sequences per chunk
 PLURALITY=0.36  # fraction of chunk sequences that must agree for a consensus base
 K=6            # k-mer size for the ordering tree
@@ -54,7 +54,9 @@ Options:
   -m        order with the MAFFT guide tree (mafft --retree 0 --reorder) instead of k-mers
   -I        keep the input order (no ordering step): for input you ordered yourself, or to see
             what the ordering contributes (chunks of a shuffled input are the chance level)
-  -P        order with MAFFT PartTree (implies -m; for very large inputs, >20,000 sequences)
+  -P        order with MAFFT PartTree (implies -m): only when the k-mer ordering does not fit in
+            memory (it needs ~4 x n^2 bytes; SubFam checks and stops if it does not fit); its
+            chunks are less pure on real data
   -c        coverage-relative plurality, for truncated copies (fragments, 5'-truncated LINEs):
             a base needs -p of the sequences that span that column (internal gaps count,
             end gaps do not) instead of -p of the whole chunk, with at least 3 spanning
@@ -204,6 +206,9 @@ awk -v out="$WORK/in/checked.fa" '
     function flush() { if (id == "") return; if (len > 0) { printf "%s", rec > out; kept++ } else { empty++; if (empty <= 3) ex = ex " " id }; id = "" }
     /^>/ { flush(); split(substr($0, 2), w, /[ \t]/); id = w[1]
            if (id == "") { print "SubFam: a header line has no id (line " NR ")" > "/dev/stderr"; bad = 1; exit 1 }
+           # "_R_" marks a reverse-complemented copy (MAFFT and the k-mer orienter add it); an input id that already starts with
+           # it was recorded as id-without-prefix on the minus strand (GLM audit 284)
+           if (id ~ /^_R_/) { print "SubFam: sequence id \"" id "\" (line " NR ") starts with _R_, the prefix SubFam uses for reverse-complemented copies; rename it" > "/dev/stderr"; bad = 1; exit 1 }
            if (id in seen) { print "SubFam: duplicate sequence id \"" id "\" (lines " seen[id] " and " NR "); ids must be unique" > "/dev/stderr"; bad = 1; exit 1 }
            seen[id] = NR; rec = $0 "\n"; len = 0; next }
     { sub(/\r$/, ""); rec = rec $0 "\n"; t = $0; gsub(/[ \t]/, "", t); len += length(t); all += length(t)
@@ -558,8 +563,17 @@ T0=$(date +%s)
 TOTAL=$(grep -c '^>' "$IN" || true)
 [ "$TOTAL" -ge 1 ] || die "no FASTA records in '$IN'"
 NCHUNK=$(( (TOTAL + N / 2) / N )); [ "$NCHUNK" -ge 1 ] || NCHUNK=1     # round(TOTAL / N)
-if [ "$ORDER" = kmer ] && [ "$TOTAL" -gt 20000 ]; then
-    echo "warning: the k-mer ordering holds a ${TOTAL}x${TOTAL} float32 matrix (~$(( 4 * TOTAL * TOTAL / 1000000000 + 1 )) GB); use -P beyond the memory of this machine" >&2
+# The k-mer ordering holds a TOTAL x TOTAL float32 matrix. It is checked against the memory this machine has free, not
+# against a fixed size: until 1.5.1 the help sent every input over 20,000 sequences to -P, but on real Alu (30,000 copies)
+# PartTree chunks are less pure than k-mer chunks (0.399 vs 0.466), and the k-mer ordering ran there in 3.5 GB.
+if [ "$ORDER" = kmer ]; then
+    NEED_MB=$(( 4 * TOTAL * TOTAL / 1000000 + 1 ))
+    AVAIL_MB=${SUBFAM_AVAIL_MB:-$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || true)}   # SUBFAM_AVAIL_MB: tests
+    if [ -n "$AVAIL_MB" ]; then
+        [ "$NEED_MB" -le $(( AVAIL_MB * 9 / 10 )) ] || die "the k-mer ordering of $TOTAL sequences needs ~$NEED_MB MB, this machine has $AVAIL_MB MB free: run it on a machine with more memory, or use -P (MAFFT PartTree: less memory, less pure chunks)"
+    elif [ "$TOTAL" -gt 20000 ]; then
+        echo "warning: the k-mer ordering holds a ${TOTAL}x${TOTAL} float32 matrix (~$NEED_MB MB); free memory could not be read here" >&2
+    fi
 fi
 echo "SubFam $VERSION: $TOTAL sequences -> $NCHUNK chunks of ~$(( TOTAL / NCHUNK ))"
 {
@@ -628,8 +642,10 @@ awk 'function out(   t) { t = s; gsub(/[Nn]/, "", t); tot += length(s); nn += le
      END { if (h != "") out(); printf "%d %d\n", nn, tot > "/dev/stderr" }' "$OUTDIR/$PREFIX.cons.fasta" > "$WORK/cons.called.fasta" 2> "$WORK/nfrac.txt"
 read -r NN NTOT < "$WORK/nfrac.txt"
 if [ -n "$KEEP_N" ] && [ "${NTOT:-0}" -gt 0 ] && [ $((NN * 100 / NTOT)) -ge 30 ]; then
-    echo "SubFam: warning: $((NN * 100 / NTOT))% of the consensus positions have no consensus (N): the chunks are heterogeneous or" >&2
-    echo "        the copies truncated; try -c (coverage-relative plurality). They are left out of the final alignment." >&2
+    # also into the log: a warning on stderr alone is lost in a batch run (GLM audit 362)
+    { echo "SubFam: warning: $((NN * 100 / NTOT))% of the consensus positions have no consensus (N): the chunks are heterogeneous or"
+      echo "        the copies truncated; try -c (coverage-relative plurality). They are left out of the final alignment."
+    } | tee -a "$OUTDIR/$PREFIX.log" >&2
 fi
 [ "$(grep -c '^>' "$OUTDIR/$PREFIX.cons.fasta")" -eq "$NCHUNK" ] || die "expected $NCHUNK consensus sequences, rerun with -K to keep the work files"
 cp "$WORK/chunks.tsv" "$OUTDIR/$PREFIX.chunks.tsv"
