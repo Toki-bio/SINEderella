@@ -33,7 +33,9 @@ die(){ log "ERROR: $*"; exit 1; }
 
 # Resolve DISC (SINE-discriminator)
 if [[ -z "${DISC:-}" ]]; then
-  for d in "${SINE_DISC:-}" "/staging/tmp/sinedisc" \
+  # disc/ = the SINE-discriminator modules SINEderella uses, kept in this repository (2026-10-21; before that only
+  # unversioned copies on each machine existed). An explicit DISC or SINE_DISC still wins.
+  for d in "${SINE_DISC:-}" "$SINEDERELLA_BIN/disc" "/staging/tmp/sinedisc" \
            "$HOME/SINE_discriminator/site" "$HOME/SINE_discriminator" \
            "C:/work/SINE_discriminator/site" "C:/work/SINE_discriminator"; do
     [[ -n "$d" && -f "$d/verdict.py" ]] && DISC="$d" && break

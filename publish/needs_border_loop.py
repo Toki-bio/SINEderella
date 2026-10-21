@@ -69,7 +69,7 @@ def from_peel_flags(path):
 
 def element_extend_scan(run_root, subfams, genome, assigned, flank=1000):
     """Quick MAFFT-free column walk on 1000 bp extracts for top100 copies."""
-    disc = os.environ.get("DISC", "/staging/tmp/sinedisc")
+    disc = os.environ.get("DISC") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "disc")
     sys.path.insert(0, disc)
     import boundary as B  # noqa
 
