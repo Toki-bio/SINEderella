@@ -6,7 +6,7 @@
 [ -f ~/miniforge3/etc/profile.d/conda.sh ] && { source ~/miniforge3/etc/profile.d/conda.sh; conda activate sinederella 2>/dev/null || true; }
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/SINEderella:$HOME/SINEderella/bin:$HOME/SubFam:$PATH" TMPDIR=$HOME/tmp
-SD=${SD:-$HOME/SINEderella}; DISCD=${DISCD:-$HOME/SINE_discriminator/site}
+SD=${SD:-$HOME/SINEderella}; DISCD=${DISCD:-$SD/disc}
 T=~/tmp/toy8a; rm -rf $T; mkdir -p $T
 python3 "$HERE/make_toy.py" $T
 SECONDS=0
