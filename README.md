@@ -39,7 +39,7 @@ design philosophy behind this.
 | Script | Purpose |
 |--------|---------|
 | `asSINEment` | Standalone subfamily assignment engine (earlier version of step2 logic) |
-| `SubFam` | Compression of many copies to chunk consensuses (k-mer guide-tree order, chunks, plurality consensus, final alignment); wrapper around SubFam 1.5.0 in `tools/vendor/SubFam.sh` with the old interface; the subfamily call itself is made on its output by a person (MANUAL §6.1) or the peel; the previous script is `tools/vendor/SubFam.old.sh` |
+| `SubFam` | Compression of many copies to chunk consensuses (k-mer guide-tree order, chunks, plurality consensus, final alignment); wrapper around SubFam 1.5.1 in `tools/vendor/SubFam.sh` with the old interface; the subfamily call itself is made on its output by a person (MANUAL §6.1) or the peel; the previous script is `tools/vendor/SubFam.old.sh` |
 | `sine_consensus.sh` | Bootstrap consensus builder (gaps excluded from denominator) |
 | `sine_consensus_smart.sh` | Enhanced consensus with variance detection and early stopping |
 | `analyze_convergence.sh` | Post-run convergence quality analysis |
@@ -88,6 +88,8 @@ did not re-test these.
 ## Documentation
 
 - [MANUAL.md](MANUAL.md) — Full user manual
+- [docs/AIM.md](docs/AIM.md) — what the workflow is for; [docs/VERDICTS.md](docs/VERDICTS.md) — the verdict of every copy (SINE / grey zone / not SINE), `loci_verdict.tsv`, and how plates and page use it
+- [disc/README.md](disc/README.md) — the SINE-discriminator modules the publish chain runs (kept in this repository since 2026-10-21)
 - [docs/LENGTH_VARIANTS.md](docs/LENGTH_VARIANTS.md) — separate SINE or decayed 3′ end; [docs/CONSENSUS_AUDIT.md](docs/CONSENSUS_AUDIT.md) — consensus vs its own copies; [PUBLISH_WORKFLOW.md](PUBLISH_WORKFLOW.md) — publish flow, env vars, reproducible alignments (`mafft --threadit 0`)
 - [QUALITY_FLAGGING_README.md](QUALITY_FLAGGING_README.md) — Consensus convergence QC system
 - [PLAN_alignment_viewer.md](PLAN_alignment_viewer.md) — Alignment tier design rationale

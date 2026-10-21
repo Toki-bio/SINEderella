@@ -27,7 +27,9 @@ Set **`DISC`** to the SINE-discriminator tree (directory containing `verdict.py`
         │     step7 boundary refine
         │     border loop (publish/*.py)
         │     step8a extract MSAs
-        │     DISC: rebuild_consensus_row, boundary_justify, trim_display_flanks
+        │     tools/flank_verdict.py (per-copy verdicts, docs/VERDICTS.md)
+        │     DISC: boundary_justify, rebuild_consensus_row, trim_display_flanks,
+        │           correct_published_aln; tools/add_seed_row.py (row 2)
         ├─ step6_report.py (--embed-images, pctid spline if TSVs exist)
         └─ DISC: inject_disc_report.py (verdict columns on alignment table)
         │
@@ -41,7 +43,8 @@ Set **`DISC`** to the SINE-discriminator tree (directory containing `verdict.py`
 ## Quick start (full publish)
 
 ```bash
-export DISC=/path/to/SINE_discriminator/site   # or /staging/tmp/sinedisc
+# DISC defaults to disc/ in this repository (the SINE-discriminator modules, disc/README.md);
+# export DISC=/other/tree only to run another copy
 export SPECIES_CODE=mysp
 export RAW_ALN_BASE=https://raw.githubusercontent.com/org/repo/main/mysp/alignments/
 # Optional multi-species site nav:
@@ -67,7 +70,6 @@ SINEderella --publish genome.fa consensi.fa
 | `SKIP_STEP4` | optional | Skip step4 regen |
 | `PEEL_FLAGS`, `PEEL_ALN_DIR` | optional | Border-loop hints from peel step4 |
 
-| `SKIP_REBUILD_CONS` | optional | Skip copy-majority rebuild before step4 |
 | `SKIP_CANONICALIZE` | optional | Skip RC merge on consensus bank |
 | `CANON_MIN_ID` | optional (80) | RC merge threshold (%); same-orientation pairs need 98 % (`--direct-min-id`) and length ratio 0.9 (`--min-len-ratio`) |
 | `SKIP_LENGTH_VARIANTS` | optional (0) | `1` skips the length-version test (shorter consensus = 5′ part of a longer one; see docs/LENGTH_VARIANTS.md) |
@@ -84,9 +86,10 @@ AnnoSINE can emit ± duplicates as separate seed names. Before step1,
 `canonicalize_consensus_bank.py` merges clusters: reverse-complement pairs at ≥80% (oma ± pairs are ~83–84% RC) and
 same-orientation pairs only at ≥98%, and only when the two lengths are within 90% of each other. A shorter variant is never an alias of a longer one
 (2026-10-02: rsi r9 105 bp, r7 154 bp, MEG-RS 135 bp and MEG-RL 207 bp were merged at 89.5/97 % by a position-by-position identity, and the kept name carried the other's sequence)
-and orients to AT-rich 3′. Before step4, `rebuild_consensus_bank.py` writes
-`consensuses.rebuilt.fa` from assigned copies (no N ties). step4 pctid uses
-`-3` (both strands), matching step2.
+and orients to AT-rich 3′. step4 pctid is measured against that bank, the consensus the copies were searched with, with
+`-3` (both strands), matching step2. (Until 2026-10-21 a bank rebuilt from the copies, `consensuses.rebuilt.fa`, was used
+when present; it could differ from the searched one: rsi r1_r2_r3_r3_C11 rebuilt 889 bp against 608, so its copies showed
+23 % divergence instead of 6 %. `rebuild_consensus_bank.py` is no longer run; the consensus audit checks the consensus.)
 
 Oma repair procedure: [docs/OMA_CONSENSUS_REPAIR.md](docs/OMA_CONSENSUS_REPAIR.md).
 
