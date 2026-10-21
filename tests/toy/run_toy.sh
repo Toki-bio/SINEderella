@@ -7,13 +7,12 @@
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/SINEderella:$HOME/SINEderella/bin:$HOME/SubFam:$PATH" TMPDIR=$HOME/tmp
 SD=${SD:-$HOME/SINEderella}; DISCD=${DISCD:-$HOME/SINE_discriminator/site}
-# the toy has no flank verdicts: it tests plate building, not the verdict filter. step8a refuses to run without
-# loci_verdict.tsv since 2026-10-19 unless told, and the toy failed 7 checks on that until 2026-10-21
-export PLATE_VERDICT=off
 T=~/tmp/toy8a; rm -rf $T; mkdir -p $T
 python3 "$HERE/make_toy.py" $T
 SECONDS=0
-DISC=$DISCD bash $SD/step8a_extract_alignments.sh $T toy > $T/step8a.log 2>&1; echo "step8a exit=$? in ${SECONDS}s"
+# the first part has no flank verdicts: it tests plate building (step8a refuses to run without loci_verdict.tsv since
+# 2026-10-19 unless told; these checks failed on that until 2026-10-21). align_for_publish below tests the verdict filter.
+PLATE_VERDICT=off DISC=$DISCD bash $SD/step8a_extract_alignments.sh $T toy > $T/step8a.log 2>&1; echo "step8a exit=$? in ${SECONDS}s"
 grep -E "extending by|WARN|ERROR|rror" $T/step8a.log
 A=$T/results/alignments
 echo "--- plates"; for f in $A/*.aln.fa; do printf "%-24s rows %3d soft %2d array %2d | row1 %s row2 %s row3 %s\n" $(basename $f) $(grep -c "^>" $f) $(grep -c "\[soft\]" $f) $(grep -c "\[array\]" $f) $(grep "^>" $f | head -3 | cut -c2-40 | tr -d ' '); done
@@ -32,7 +31,7 @@ chk "TOYL top100 extended exactly once (appended block resolved it)" '[ $(grep -
 chk "manifest: one row per subfamily, all 5 (subfamilies now run in parallel)" '[ $(tail -n +2 $A/manifest.tsv | cut -f1 | sort -u | wc -l) -eq 5 ] && [ $(tail -n +2 $A/manifest.tsv | wc -l) -eq 5 ]'
 chk "no leftover subfamily-job ERROR"                   '! grep -q "did not finish" $T/step8a.log'
 md5sum $A/*_rand100.aln.fa | awk '{print $1}' > $T/rand_md5.1
-DISC=$DISCD bash $SD/step8a_extract_alignments.sh $T toy > $T/step8a_2.log 2>&1
+PLATE_VERDICT=off DISC=$DISCD bash $SD/step8a_extract_alignments.sh $T toy > $T/step8a_2.log 2>&1
 chk "rand100 reproducible: second step8a run gives identical plates (fixed seed)" 'md5sum $A/*_rand100.aln.fa | awk "{print \$1}" | diff -q - $T/rand_md5.1 > /dev/null'
 for f in $A/toy_TOYL_top100.aln.fa $A/toy_TOYB_top100.aln.fa; do echo "   $(basename $f): $(python3 $DISCD/continuation.py $f | tr '\n' ' ')"; done
 
