@@ -1423,7 +1423,7 @@ header { background: linear-gradient(135deg, #2c3e50, #4C72B0);
          color: #fff; padding: 24px 32px; }
 header h1 { margin: 0 0 6px 0; font-size: 1.6rem; }
 header .sub { opacity: 0.85; font-size: 0.95rem; }
-main { max-width: 1280px; margin: 0 auto; padding: 24px; }
+main { max-width: min(2000px, 98vw); margin: 0 auto; padding: 24px; }   /* owner 2026-10-21: wider page */
 section.card { background: var(--card); border: 1px solid var(--border);
                border-radius: 8px; padding: 18px 22px; margin: 18px 0;
                box-shadow: 0 1px 3px rgba(0,0,0,0.04); }

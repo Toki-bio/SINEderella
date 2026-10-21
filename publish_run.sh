@@ -124,6 +124,11 @@ if [[ "${USE_DISC:-1}" == "1" && -n "$DISC" ]]; then
     if [[ -s "$S2/flank_verdict.tsv" ]] && grep -q -- "--verdict-tsv" "$INJECT"; then
       INJ_ARGS+=( "--verdict-tsv" "$S2/flank_verdict.tsv" )
     fi
+    # consensus length column, and rows grouped by family when the run has a family table (--families; owner 2026-10-21)
+    if grep -q -- "--bank" "$INJECT"; then
+      INJ_ARGS+=( "--bank" "$RUN_ROOT/consensuses.clean.fa" )
+      [[ -s "$RUN_ROOT/families/families.clean.tsv" ]] && INJ_ARGS+=( "--families" "$RUN_ROOT/families/families.clean.tsv" )
+    fi
     python3 "$INJECT" "${INJ_ARGS[@]}"
   else
     log "WARNING: inject_disc_report.py not found under DISC"
