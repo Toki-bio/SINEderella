@@ -1,7 +1,9 @@
-# Families + subfamilies mode (branch `families-subfamilies`)
+# Families + subfamilies mode
 
-Optional. Without `--families` nothing changes. Status 2026-10-13: robust mode (all subfamily consensuses searched, flat vote, then a
-family roll-up) is implemented and toy-tested. Fast mode (search family consensuses only) and the two-round vote are NOT yet implemented.
+Optional. Without `--families` nothing changes. On main since 2026-10-13: robust mode (all subfamily consensuses searched, flat vote,
+then a family roll-up) and fast mode (`--families-mode fast`, below); the two-round subfamily call is not made (Not done). With a
+family table the page's "Subfamily alignments" table groups the subfamilies under one row per family with the family's totals
+(assigned copies, SINE loci, grey, not SINE; 2026-10-21).
 
 ## Use
 

@@ -42,8 +42,11 @@ them"). Row 1 therefore reads, against row 2 directly below it:
 - **lowercase at an end inside the original's span** — a proposed **trim**: an original base the
   copies do not carry, put back so nothing of the original is lost.
 
-Copies are uppercase over row 1's uppercase span and lowercase elsewhere; only the case changes —
-no copy is realigned, and no base is added or removed (checked on 312 plates, below).
+Copies are uppercase over row 1's uppercase span and lowercase elsewhere, and the lowercase flank letters are packed
+against that span (5′ right-justified, 3′ left-justified) — no copy is realigned, and no base is added or removed (checked
+on 312 plates, below). Until 2026-10-21 only the case changed: where the copies' element reached past the original, aligned
+element columns with their gaps became "flank" in front of the packed flank (rsi: r10_19seqs, r6, r7, MEG-RS, every copy;
+`tests/test_add_seed_row_pack.py`).
 
 ### `proposals.tsv` (next to the plates)
 
