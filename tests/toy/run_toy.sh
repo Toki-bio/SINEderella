@@ -7,6 +7,9 @@
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/SINEderella:$HOME/SINEderella/bin:$HOME/SubFam:$PATH" TMPDIR=$HOME/tmp
 SD=${SD:-$HOME/SINEderella}; DISCD=${DISCD:-$HOME/SINE_discriminator/site}
+# the toy has no flank verdicts: it tests plate building, not the verdict filter. step8a refuses to run without
+# loci_verdict.tsv since 2026-10-19 unless told, and the toy failed 7 checks on that until 2026-10-21
+export PLATE_VERDICT=off
 T=~/tmp/toy8a; rm -rf $T; mkdir -p $T
 python3 "$HERE/make_toy.py" $T
 SECONDS=0
