@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fs9_run.sh RUN_DIR [THREADS=8] [MIN_COPIES=20]
+# fs9_run.sh RUN_DIR [THREADS=8] [MIN_COPIES=2]
 #
 # Flank uniqueness over all firmly assigned copies of every family of a SINEderella run (flankscan stage 9, fs9_twins.sh),
 # run by the orchestrator after assignment. Independent insertions have unrelated flanks; copies that were multiplied together
@@ -17,7 +17,8 @@
 # Env: FS9_SKIP=1 skips; MIN_COPIES; anything fs9_twins.sh reads (W, MINLEN, ID1, ...).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUN=$(readlink -f "${1:?RUN_DIR}"); T=${2:-8}; MINC=${3:-${MIN_COPIES:-20}}
+# MIN_COPIES 2: any two copies can be compared; until 2026-10-21 it was 20, and smaller families never got a copy verdict
+RUN=$(readlink -f "${1:?RUN_DIR}"); T=${2:-8}; MINC=${3:-${MIN_COPIES:-2}}
 G="$RUN/genome.clean.fa"; AF="$RUN/results/assignment_full.tsv"; OUT="$RUN/results/flank_twins"
 [[ -s "$G" && -s "$AF" ]] || { echo "fs9_run: need $G and $AF" >&2; exit 1; }
 [[ -s "$G.fai" ]] || samtools faidx "$G"
