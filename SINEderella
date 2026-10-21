@@ -450,6 +450,19 @@ flank_twins_step(){
   return 0
 }
 
+# HELPER: the verdict of every copy (publish/verdict_chain.sh: step 7 -> border loop -> tools/flank_verdict.py; docs/VERDICTS.md),
+# after stage 9. The loci list with a verdict per copy is the workflow's output (docs/AIM.md), so it runs in every run, not
+# only with --publish (until 2026-10-21 it ran only inside the publish step). A failure stops the run.
+###############################################################################
+verdict_step(){
+  local rundir="$1"
+  log "Verdicts: step 7 flank test, border loop, per-copy verdict (publish/verdict_chain.sh)"
+  SINEDERELLA_BIN="$SCRIPT_DIR" bash "$SCRIPT_DIR/publish/verdict_chain.sh" "$rundir" "${SPECIES_CODE:-}" \
+    > "$rundir/verdicts.log" 2>&1 || { tail -n 30 "$rundir/verdicts.log" >&2; die "verdict_chain.sh failed (see verdicts.log)"; }
+  log "$(grep -m1 '^FLANK_VERDICT' "$rundir/verdicts.log" || echo 'FLANK_VERDICT line missing') -> step2 output loci_verdict.tsv"
+}
+
+###############################################################################
 # HELPER: families view (tools/families.py + tools/rollup_families.py): subfamily results rolled up to families in <run>/family_view
 families_step(){
   local rundir="$1"
@@ -611,6 +624,7 @@ run_step2_step3(){
 
   array_flag_step "$(pwd -P)"
   flank_twins_step "$(pwd -P)"
+  verdict_step "$(pwd -P)"
   length_variants_step "$(pwd -P)"
   consensus_audit_step "$(pwd -P)"
 
@@ -1460,6 +1474,7 @@ mode_resume(){
 
     array_flag_step "$(pwd -P)"
     flank_twins_step "$(pwd -P)"
+    verdict_step "$(pwd -P)"
     length_variants_step "$(pwd -P)"
     consensus_audit_step "$(pwd -P)"
 

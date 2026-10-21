@@ -42,76 +42,19 @@ export DISC
   export PATH="/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin:/usr/bin:$PATH"
 log(){ printf '[%s] %s\n' "$(date '+%F %T')" "$*" >&2; }
 
-if [[ "${SKIP_STEP7:-0}" != "1" ]]; then
-  log "step7: boundary refinement"
-  "$SINEDERELLA_BIN/step7_boundary_refine.sh" "$RUN_ROOT" 50 50 1000
+# The verdict chain (step 7 -> border loop -> flank verdicts; docs/VERDICTS.md) runs in every run since 2026-10-21
+# (publish/verdict_chain.sh, called by the orchestrator). Reused here when it finished after the assignment and after stage 9;
+# otherwise (a run made before, or VERDICT_RERUN=1) it runs now.
+S2V="$(ls -dt "$RUN_ROOT"/step2/step2_output* 2>/dev/null | head -n1 || true)"
+DONE_V="$S2V/verdict_chain.done"
+if [[ "${VERDICT_RERUN:-0}" != "1" && -f "$DONE_V" && "$DONE_V" -nt "$S2V/assignment_full.tsv" \
+      && ( ! -e "$RUN_ROOT/results/flank_twins.tsv" || "$DONE_V" -nt "$RUN_ROOT/results/flank_twins.tsv" ) ]]; then
+  log "verdicts: from the run ($(tr '\n' ' ' < "$DONE_V"))"
 else
-  log "step7: skipped (SKIP_STEP7=1)"
+  log "verdicts: running publish/verdict_chain.sh"
+  SINEDERELLA_BIN="$SINEDERELLA_BIN" bash "$PUBLISH_DIR/verdict_chain.sh" "$RUN_ROOT" "$SPECIES" || {
+    echo "ERROR: verdict_chain.sh failed" >&2; exit 1; }
 fi
-
-if [[ "${SKIP_BORDER_LOOP:-0}" == "1" ]]; then
-  # SKIP_BORDER_LOOP means "don't RE-RUN the expensive scan", not "discard
-  # whatever border-loop widening already exists". This used to unconditionally
-  # cp the raw, un-widened assigned.fasta/consensuses.clean.fa over the
-  # *.publish.* files, silently reverting every subfamily's already-computed
-  # border-loop extension back to zero on every skip-flagged rerun -- caught
-  # 2026-09-10 on oma_SINE16: a real, correctly-computed +4/+75bp extension
-  # from an earlier run vanished after two SKIP_BORDER_LOOP=1 reruns done for
-  # an unrelated SINE10 fix. Only fall back to the raw copy when no prior
-  # publish file exists at all.
-  log "border loop: skipped (SKIP_BORDER_LOOP=1) -- preserving existing *.publish.* if present"
-  if [[ ! -f "$RUN_ROOT/step2/step2_output/assigned.publish.fasta" ]]; then
-    cp -f "$RUN_ROOT/step2/step2_output/assigned.fasta" \
-      "$RUN_ROOT/step2/step2_output/assigned.publish.fasta"
-  fi
-  if [[ ! -f "$RUN_ROOT/consensuses.publish.fa" ]]; then
-    cp -f "$RUN_ROOT/consensuses.clean.fa" "$RUN_ROOT/consensuses.publish.fa"
-  fi
-else
-  log "detecting subfamilies needing border loop"
-  NEED_ARGS=(python3 "$PUBLISH_DIR/needs_border_loop.py" "$RUN_ROOT")
-  [[ -n "$PEEL_FLAGS" && -f "$PEEL_FLAGS" ]] && NEED_ARGS+=(--peel-flags "$PEEL_FLAGS")
-  # the column-walk border scan is opt-in (BORDER_SCAN=1): on unaligned extracts it reads flank noise below ~20 copies (random
-  # DNA, 8 copies: 50 of 50 flagged) and the loop then replaced the searched consensus (audit 2026-10-14)
-  [[ "${BORDER_SCAN:-0}" == "1" && "${SKIP_BORDER_SCAN:-0}" != "1" ]] && NEED_ARGS+=(--scan)
-  # a crash of the detection must stop the publish, not publish as "none flagged" (GLM audit 2026-10-19)
-  "${NEED_ARGS[@]}" > "$RUN_ROOT/.needs_border_loop.out" || {
-    echo "ERROR: needs_border_loop.py failed - the border loop cannot be decided" >&2; exit 1; }
-  mapfile -t BORDER_SFS < "$RUN_ROOT/.needs_border_loop.out"
-  rm -f "$RUN_ROOT/.needs_border_loop.out"
-
-  # results of an earlier publish are not re-applied: apply_border_to_assigned / merge_rebuilt_consensus read every file there
-  rm -rf "$RUN_ROOT/border_loop" "$RUN_ROOT/rebuilt_consensus"
-  if ((${#BORDER_SFS[@]})); then
-    log "border loop: ${#BORDER_SFS[@]} subfamilies"
-    for sf in "${BORDER_SFS[@]}"; do
-      PEEL_ALN=""
-      if [[ -n "$PEEL_ALN_DIR" ]]; then
-        [[ -f "$PEEL_ALN_DIR/${sf}.aln" ]] && PEEL_ALN="$PEEL_ALN_DIR/${sf}.aln"
-        [[ -z "$PEEL_ALN" && -f "$PEEL_ALN_DIR/${sf#${SPECIES}_}.aln" ]] && \
-          PEEL_ALN="$PEEL_ALN_DIR/${sf#${SPECIES}_}.aln"
-      fi
-      python3 "$PUBLISH_DIR/border_loop_subfam.py" "$RUN_ROOT" "$sf" \
-        ${PEEL_ALN:+--peel-aln "$PEEL_ALN"} \
-        --sine-script "$SINEDERELLA_BIN/sine_consensus.sh" || {
-          log "WARN border loop failed for $sf — continuing"; }
-    done
-    python3 "$PUBLISH_DIR/apply_border_to_assigned.py" "$RUN_ROOT"
-    python3 "$PUBLISH_DIR/merge_rebuilt_consensus.py" "$RUN_ROOT"
-  else
-    log "border loop: none flagged"
-    cp -f "$RUN_ROOT/step2/step2_output/assigned.fasta" \
-      "$RUN_ROOT/step2/step2_output/assigned.publish.fasta"
-    cp -f "$RUN_ROOT/consensuses.clean.fa" "$RUN_ROOT/consensuses.publish.fa"
-  fi
-fi
-
-# flank verdicts: the expansion's end state decides (docs/AIM.md). A subfamily whose flanks are still shared at the limit,
-# or could not be tested, is not interspersed: its copies are not SINE loci in loci_verdict.tsv and step6 leaves them out
-# of the SINE totals. Until 2026-10-17 nothing read the end state of step7 or of the border loop.
-log "flank verdicts"
-python3 "$SINEDERELLA_BIN/tools/flank_verdict.py" "$RUN_ROOT" >&2 || {
-  echo "ERROR: tools/flank_verdict.py failed" >&2; exit 1; }
 
 for need in step7_boundary_refine.sh step8a_extract_alignments.sh; do
   [[ -x "$SINEDERELLA_BIN/$need" ]] || {
