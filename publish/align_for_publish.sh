@@ -21,7 +21,8 @@ PEEL_FLAGS="${PEEL_FLAGS:-}"
 PEEL_ALN_DIR="${PEEL_ALN_DIR:-}"
 
 if [[ -z "$DISC" ]]; then
-  for d in "${SINE_DISC:-}" "/staging/tmp/sinedisc" "$HOME/SINE_discriminator/site" \
+  # disc/ in this repository first (2026-10-21); an explicit DISC or SINE_DISC still wins
+  for d in "${SINE_DISC:-}" "$SINEDERELLA_BIN/disc" "/staging/tmp/sinedisc" "$HOME/SINE_discriminator/site" \
            "$HOME/SINE_discriminator"; do
     [[ -n "$d" && -f "$d/boundary_justify.py" ]] && DISC="$d" && break
   done
