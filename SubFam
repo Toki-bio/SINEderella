@@ -5,7 +5,7 @@
 #     SubFam input.fasta [BIN]      (run inside the working directory)
 # and writes the same files: input_NNN.bnk (the chunk's sequences), input_NNN.cons (its consensus,
 # '-' where there is none), input.clw (all consensuses, concatenated, unaligned) and input.msf.
-# The work is done by SubFam 1.5.0 (tools/vendor/SubFam.sh and kmer_order.c, github.com/Toki-bio/SubFam):
+# The work is done by SubFam 1.5.1 (tools/vendor/SubFam.sh and kmer_order.c, github.com/Toki-bio/SubFam):
 # k-mer guide-tree ordering, plurality as a fraction of the chunk, EMBOSS no longer needed.
 # The chunk files (input_NNN.bnk, .cons, input.clw) are byte-identical to SubFam 1.2.x when the copy
 # count is a multiple of BIN; otherwise 1.4+ cuts round(total/BIN) equal chunks instead of putting the rest

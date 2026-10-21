@@ -12,7 +12,9 @@ consensus from its own assigned copies and compares the result with the bank seq
   commit 29719f5, 2026-03-13). Each round draws 100 random copies (`-n`), aligns them (MAFFT `--auto`), calls a mini-consensus, adds it to a
   master set, realigns the master and calls the next consensus; it stops when the change between rounds is below 1 % (at least 5 rounds),
   with an anchor phase (copies of the best consensus so far mixed into later draws) if it oscillates. A base is called where at least
-  30 % of **all** copies carry it (gaps are in the denominator, minimum coverage 10 %): this trims ragged flanks and keeps a real conserved tail.
+  50 % of **all** copies carry it and no other base ties it (gaps are in the denominator; a column with a base in fewer than 30 % of the
+  copies is skipped): this trims ragged flanks and keeps a real conserved tail. (Until 2026-10-21 this page and the tool's docstring said
+  30 % and 10 %; the script's defaults have been 50 % and 30 % since it was added, and the audit passes no other values.)
 * Changes to the upstream script: `-r SEED` (the subsample of round N uses seed SEED×1000+N, so a run is reproducible); MAFFT with
   `--threadit 0` (see PUBLISH_WORKFLOW.md); an error unless awk is gawk (the column counting uses arrays of arrays).
 * Each family is rebuilt with two seeds (`--seeds 1,2`), each rebuild is aligned globally to the bank sequence (match +1, mismatch −1,
@@ -23,8 +25,8 @@ consensus from its own assigned copies and compares the result with the bank seq
 | Verdict | Meaning |
 |---|---|
 | `MATCH` | both rebuilds within 4 mismatches of the bank and within max(8 bp, 5 %) of its length |
-| `SHORTER` | a rebuild is shorter: the copies are fragmentary, or the bank has a stretch that fewer than 30 % of the assigned copies carry |
-| `LONGER` | a rebuild is longer: a stretch is carried by at least 30 % of the copies but is not in the bank (a longer version in the pool, or a tail the bank lacks) |
+| `SHORTER` | a rebuild is shorter: the copies are fragmentary, or the bank has a stretch that fewer than half of the assigned copies carry |
+| `LONGER` | a rebuild is longer: a stretch is carried by at least half of the copies but is not in the bank (a longer version in the pool, or a tail the bank lacks) |
 | `DIVERGED` | more than 4 mismatches against the bank |
 | `UNSTABLE` | the two rebuilds differ from each other by more than 4 mismatches |
 | `SKIPPED` / `FAILED` | too few copies / the builder did not finish |

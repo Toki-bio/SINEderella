@@ -3,15 +3,16 @@
 
 The rebuild is an independent check on a consensus, not a replacement for it: tools/vendor/sine_consensus.sh (the bootstrap
 consensus builder of github.com/Toki-bio/SINE_consensus: seeded random subsamples, mini-consensuses accumulated and re-aligned
-until stable, a base is called when >= 30 % of the copies carry it) is run on the copies assigned to each consensus, twice with
+until stable; a base is called when at least 50 % of the copies carry it and no other base ties it - columns with a base
+in fewer than 30 % of the copies are skipped first) is run on the copies assigned to each consensus, twice with
 different seeds, and the result is aligned globally to the bank sequence.
 
 Per family (results/consensus_audit/summary.tsv):
   copies, bank_bp, rebuilt_bp (run 1, run 2), mismatches and gap columns against the bank, run1_vs_run2 mismatches, verdict
   MATCH     both rebuilds within MAX_MM mismatches of the bank and within the length tolerance
   SHORTER   a rebuild is shorter than the bank by more than the tolerance: the copies are fragmentary or the bank has a stretch
-            (seed, longer copies) that fewer than 30 % of the assigned copies carry
-  LONGER    a rebuild is longer: a stretch is carried by >= 30 % of the copies but is not in the bank (a longer version in the pool,
+            (seed, longer copies) that fewer than half of the assigned copies carry
+  LONGER    a rebuild is longer: a stretch is carried by at least half of the copies but is not in the bank (a longer version in the pool,
             or a tail the bank consensus lacks)
   DIVERGED  more than MAX_MM mismatches against the bank
   UNSTABLE  the two rebuilds differ from each other by more than MAX_MM mismatches
