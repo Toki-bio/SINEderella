@@ -21,7 +21,7 @@ need = [t for t in ("ssearch36", "bedtools") if shutil.which(t) is None]
 pytestmark = pytest.mark.skipif(bool(need), reason="needs %s" % need)
 
 
-def make_run(d):
+def make_run(d, ab_in_bank=False):
     rnd = random.Random(3)
     B4 = "ACGT"
     rs = lambda n: "".join(rnd.choice(B4) for _ in range(n))
@@ -54,7 +54,7 @@ def make_run(d):
     (d / "results").mkdir(parents=True)
     (d / "genome.clean.fa").write_text(">ctg1\n" + seq + "\n")
     (d / "genome.clean.fa.fai").write_text("ctg1\t%d\t6\t%d\t%d\n" % (len(seq), len(seq), len(seq) + 1))
-    (d / "consensuses.clean.fa").write_text(">A\n%s\n>P\n%s\n" % (A, P))
+    (d / "consensuses.clean.fa").write_text(">A\n%s\n>P\n%s\n" % (A, P) + (">AB\n%s\n" % (A + B) if ab_in_bank else ""))
     with open(d / "results" / "assignment_full.tsv", "w") as fh:
         fh.write("Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold\tRunnerInfo\n")
         for loc, sf, st in rows:
@@ -100,3 +100,13 @@ def test_builds_the_candidate_and_finds_it_missing(tmp_path):
     sys.path.insert(0, str(ROOT / "tools"))
     from consensus_audit import align
     assert align(A + B, cand)[0] <= 4      # the candidate is A+B (5 % copy mutations average out)
+
+
+@pytest.mark.skipif(shutil.which("mafft") is None or shutil.which("gawk") is None, reason="needs mafft and gawk")
+def test_candidate_already_in_bank_points_at_the_assignment(tmp_path):
+    # the bank has A+B, yet its copies are assigned to A (here by construction): the report must say the bank has it
+    make_run(tmp_path, ab_in_bank=True)
+    run(tmp_path)
+    rows = read_tsv(tmp_path / "results" / "continuation" / "continuation.tsv")
+    r = [x for x in rows if x["flag"] == "yes" and x["consensus"] == "A"][0]
+    assert r["bank_match"].startswith("already in the bank as AB"), r["bank_match"]
