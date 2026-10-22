@@ -50,6 +50,10 @@ Out: `results/continuation/continuation.tsv`, `candidates.fa`, `<candidate>.copi
   234 of 400 sampled assigned copies (59 %) and in 36 % of the unassigned ones, as found by hand. On rsi_main_20261022, with
   r10_r8_P18del in the bank, that flag is gone; a second case appears: 129 of r10's 315 copies (41 %) continue into P18's
   middle piece (positions 174-293) entirely outside their loci, so those loci stop at r10's end.
+- After the GLM-audit fixes (therioserver `/home/toki/tmp/cont_oracle2`): on 21b the r10 flag stands (233 of 400, P18
+  270-415), and the new deletion rule finds the same missing composite from the other side: 72 of 269 tested unassigned
+  P18 copies are "deletion inside r10_r8_P18" (P18 1-77, then resuming at 253), i.e. P18 without its middle piece. On run
+  22 (P18del in the bank) that row is gone; r10 into P18 173-291 outside the locus stays (128 of 315).
 - The first version read past the locus end, not past the own match; on the real data it missed the r10 case because the
   long r10 loci already covered the r8 module. The test for the long-locus case was added for that.
 
