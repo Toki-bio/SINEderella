@@ -557,6 +557,50 @@ build_results_links(){
 }
 
 ###############################################################################
+# HELPER: step 6 / publish, the HTML report (fresh runs and --resume of a finished run: a resume that refreshed the
+# QC tables used to leave results/report.html as it was, GLM audit 2026-10-22)
+###############################################################################
+report_step(){
+  local pub_rc step6_rc
+  # --- Step 6 / publish HTML report (optional) ---
+  # Must run AFTER the results/ symlink farm above, not before: step6_report.py
+  # writes results/report.html directly, and this block's own `rm -rf results`
+  # would otherwise silently destroy that freshly-written file every time
+  # (confirmed reproducible 2026-08-21 through 2026-08-23 across three
+  # independent runs before this fix -- see Tal repo tim/LOG.md and
+  # eri/sco LOG.md for the standalone-rerun workaround this replaces).
+  if [[ "${PUBLISH}" == "1" ]]; then
+    [[ -n "${SPECIES_CODE:-}" ]] || die "--publish requires SPECIES_CODE (e.g. export SPECIES_CODE=mysp)"
+    cp -f "$SCRIPT_DIR/publish_run.sh" ./ 2>/dev/null || true
+    cp -rf "$SCRIPT_DIR/publish" ./ 2>/dev/null || true
+    chmod +x ./publish_run.sh ./publish/align_for_publish.sh 2>/dev/null || true
+    log "Running publish_run.sh (alignments + step6 + discriminator overlay)"
+    set +e
+    SINEDERELLA_BIN="$SCRIPT_DIR" bash "$SCRIPT_DIR/publish_run.sh" "$(pwd -P)" "$SPECIES_CODE" \
+      > >(tee publish.stdout.log) \
+      2> >(tee publish.stderr.log >&2)
+    pub_rc=$?
+    set -e
+    if (( pub_rc != 0 )); then
+      log "WARNING: publish_run failed (exit $pub_rc)"
+    fi
+  elif [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
+    log "Running Step6 HTML report (step6_report.sh)"
+    set +e
+    ./step6_report.sh "$(pwd -P)" \
+      > >(tee step6.stdout.log) \
+      2> >(tee step6.stderr.log >&2)
+    step6_rc=$?
+    set -e
+    if (( step6_rc != 0 )); then
+      log "WARNING: Step6 report failed (exit $step6_rc) — continuing without HTML report"
+    fi
+  else
+    log "Step6 HTML report skipped (step6_report.sh or step6_report.py not found in run dir)"
+  fi
+}
+
+###############################################################################
 # HELPER: run step2 + step3 (shared by all modes)
 ###############################################################################
 run_step2_step3(){
@@ -643,42 +687,7 @@ run_step2_step3(){
   consensus_audit_step "$(pwd -P)"
   continuation_step "$(pwd -P)"
 
-  # --- Step 6 / publish HTML report (optional) ---
-  # Must run AFTER the results/ symlink farm above, not before: step6_report.py
-  # writes results/report.html directly, and this block's own `rm -rf results`
-  # would otherwise silently destroy that freshly-written file every time
-  # (confirmed reproducible 2026-08-21 through 2026-08-23 across three
-  # independent runs before this fix -- see Tal repo tim/LOG.md and
-  # eri/sco LOG.md for the standalone-rerun workaround this replaces).
-  if [[ "${PUBLISH}" == "1" ]]; then
-    [[ -n "${SPECIES_CODE:-}" ]] || die "--publish requires SPECIES_CODE (e.g. export SPECIES_CODE=mysp)"
-    cp -f "$SCRIPT_DIR/publish_run.sh" ./ 2>/dev/null || true
-    cp -rf "$SCRIPT_DIR/publish" ./ 2>/dev/null || true
-    chmod +x ./publish_run.sh ./publish/align_for_publish.sh 2>/dev/null || true
-    log "Running publish_run.sh (alignments + step6 + discriminator overlay)"
-    set +e
-    SINEDERELLA_BIN="$SCRIPT_DIR" bash "$SCRIPT_DIR/publish_run.sh" "$(pwd -P)" "$SPECIES_CODE" \
-      > >(tee publish.stdout.log) \
-      2> >(tee publish.stderr.log >&2)
-    pub_rc=$?
-    set -e
-    if (( pub_rc != 0 )); then
-      log "WARNING: publish_run failed (exit $pub_rc)"
-    fi
-  elif [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
-    log "Running Step6 HTML report (step6_report.sh)"
-    set +e
-    ./step6_report.sh "$(pwd -P)" \
-      > >(tee step6.stdout.log) \
-      2> >(tee step6.stderr.log >&2)
-    step6_rc=$?
-    set -e
-    if (( step6_rc != 0 )); then
-      log "WARNING: Step6 report failed (exit $step6_rc) — continuing without HTML report"
-    fi
-  else
-    log "Step6 HTML report skipped (step6_report.sh or step6_report.py not found in run dir)"
-  fi
+  report_step
 
   log "DONE: $(pwd -P)"
 }
@@ -1493,6 +1502,7 @@ mode_resume(){
     length_variants_step "$(pwd -P)"
     consensus_audit_step "$(pwd -P)"
     continuation_step "$(pwd -P)"
+    report_step
 
   else
     log "Step2+3 — running..."

@@ -166,7 +166,7 @@ def _continuation(run_root):
              "150 bp on both sides; past the end of its own consensus's match the sequence is searched against the bank "
              "(<code>tools/continuation_check.py</code>, up to 400 copies per consensus, assigned copies and unassigned copies "
              "separately). A row is flagged when at least a fifth of the copies continue, from the junction on, into the same "
-             "consensus: then the copies are a longer element than their consensus, for example a composite the bank lacks. "
+             "consensus (of the copies in which the own consensus was found, <i>tested</i>): then the copies are a longer element than their consensus, for example a composite the bank lacks. "
              "<i>Inside locus</i> tells how much of that continuation lies inside the copy's own coordinates: mostly inside = the "
              "copy carries the label of a shorter consensus; mostly outside = its coordinates stop early. For a flag a candidate "
              "consensus is built from those copies and compared with the bank. Nothing in the run is changed by this check.</p>")
@@ -174,13 +174,14 @@ def _continuation(run_root):
         return intro + "<p>No consensus is flagged (%d continuations below a fifth of the copies).</p>" % len(recs)
     rows = []
     for r in flagged:
-        rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s %s&ndash;%s</td><td class='n'>%s of %s (%.0f %%)</td><td>%s</td>"
+        rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s %s&ndash;%s</td><td class='n'>%s of %s tested%s (%.0f %%)</td><td>%s</td>"
                     "<td class='n'>%s</td><td>%s</td></tr>" % (
                         html.escape(lab(r["consensus"])), html.escape(r["group"]), html.escape(r["side"]), html.escape(lab(r["target"])),
-                        html.escape(r["target_start"]), html.escape(r["target_end"]), html.escape(r["copies"]), html.escape(r["sampled"]),
+                        html.escape(r["target_start"]), html.escape(r["target_end"]), html.escape(r["copies"]), html.escape(r.get("tested") or r["sampled"]),
+                        "" if r.get("tested", r["sampled"]) == r["sampled"] else html.escape(" (%s sampled)" % r["sampled"]),
                         100 * float(r["share"] or 0), html.escape(r.get("inside_locus", "")), html.escape(str(r.get("candidate_bp", ""))),
                         html.escape(r.get("bank_match", ""))))
-    return (intro + "<table class='tbl'><thead><tr><th>Consensus</th><th>Copies</th><th>Side</th><th>Continues into (positions)</th>"
+    return (intro + "<table class='tbl'><thead><tr><th>Consensus</th><th>Group</th><th>Side</th><th>Continues into (positions)</th>"
             "<th class='n'>Copies continuing</th><th>Inside locus</th><th class='n'>Candidate bp</th><th>Candidate in the bank?</th>"
             "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
             "<p class='small'>Candidates: <code>results/continuation/candidates.fa</code>; the copies each was built from: "

@@ -21,12 +21,12 @@ need = [t for t in ("ssearch36", "bedtools") if shutil.which(t) is None]
 pytestmark = pytest.mark.skipif(bool(need), reason="needs %s" % need)
 
 
-def make_run(d, ab_in_bank=False, ab_locus_full=False):
+def make_run(d, ab_in_bank=False, ab_locus_full=False, m_len=140):
     rnd = random.Random(3)
     B4 = "ACGT"
     rs = lambda n: "".join(rnd.choice(B4) for _ in range(n))
     mut = lambda s, r=0.05: "".join(rnd.choice(B4.replace(c, "")) if rnd.random() < r else c for c in s)
-    A, M, B = rs(150), rs(140), rs(130)
+    A, M, B = rs(150), rs(m_len), rs(130)
     P = A + M + B
     g = list(rs(400000))
     rows, pos = [], 2000
@@ -87,6 +87,24 @@ def test_flags_the_missing_composite_report_only(tmp_path):
     assert int(r["junction_bp"]) <= 2
     assert r["inside_locus"].startswith("0 of")            # the locus stopped at A's end: the continuation lies outside
     assert not [x for x in rows if x["consensus"] == "P" and x["group"] == "assigned" and x["flag"] == "yes"]
+    assert r["tested"] == r["sampled"] == "120"            # the own consensus is found in every sampled copy
+
+
+@pytest.mark.skipif(shutil.which("mafft") is None or shutil.which("gawk") is None, reason="needs mafft and gawk")
+def test_unassigned_deletion_variant_is_not_called_a_dimer(tmp_path):
+    # the 20 unassigned A+B copies (best match P) are P without its middle piece M; with M long (400 bp) ssearch36 cannot
+    # bridge it, so P's match stops at A's end and the copy continues into P's own B part: an internal deletion of P, which
+    # the first version reported as "continues into itself (dimer or tandem copies)" and never built (GLM audit 2026-10-22)
+    A, B = make_run(tmp_path, m_len=400)
+    run(tmp_path)
+    rows = read_tsv(tmp_path / "results" / "continuation" / "continuation.tsv")
+    u = [x for x in rows if x["consensus"] == "P" and x["group"] == "unassigned" and x["flag"] == "yes"]
+    assert len(u) == 1, rows
+    r = u[0]
+    assert (r["side"], r["target"]) == ("3'", "P") and abs(int(r["target_start"]) - 551) <= 5, r
+    assert r["bank_match"].startswith("deletion inside P (own match ends at 150, resumes at"), r["bank_match"]
+    assert "not in the bank" in r["bank_match"] and "dimer" not in r["bank_match"]
+    assert 260 <= int(r["candidate_bp"]) <= 300, r
 
 
 def test_flags_a_long_locus_labelled_with_the_short_consensus(tmp_path):
@@ -134,12 +152,13 @@ def test_report_table_shows_the_flag(tmp_path):
     import report_blocks
     d = tmp_path / "results" / "continuation"
     d.mkdir(parents=True)
-    cols = ["consensus", "group", "side", "sampled", "target", "copies", "share", "junction_bp", "target_start", "target_end",
+    cols = ["consensus", "group", "side", "sampled", "tested", "target", "copies", "share", "junction_bp", "target_start", "target_end",
             "identity", "inside_locus", "flag", "candidate", "candidate_bp", "seeds_differ_mm", "bank_match"]
-    row = ["r10_19seqs", "assigned", "3'", "400", "r10_r8_P18", "234", "0.585", "1", "270", "415", "84.9", "36 of 118 bp", "yes",
+    row = ["r10_19seqs", "assigned", "3'", "400", "398", "r10_r8_P18", "234", "0.585", "1", "270", "415", "84.9", "36 of 118 bp", "yes",
            "c1", "226", "2", "not in the bank (closest r10_r8_P18)"]
     (d / "continuation.tsv").write_text("\t".join(cols) + "\n" + "\t".join(row) + "\n")
     html_out = report_blocks._continuation(tmp_path)
-    assert "r10_r8_P18" in html_out and "234 of 400" in html_out and "not in the bank" in html_out
+    assert "r10_r8_P18" in html_out and "234 of 398 tested (400 sampled)" in html_out and "not in the bank" in html_out
+    assert "<th>Group</th>" in html_out
     (d / "continuation.tsv").write_text("\t".join(cols) + "\n")
     assert "No consensus is flagged" in report_blocks._continuation(tmp_path)

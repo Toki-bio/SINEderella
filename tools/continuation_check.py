@@ -210,7 +210,7 @@ def main():
         for h in ssearch(q, lib, a.threads, nbest=len(sample[key]) + 10).get(key[0], []):
             bits, subj, ident, alen, qs, qe, ss, se = h
             if se > ss and (subj not in own or bits > own[subj][2]):
-                own[subj] = (ss, se, bits)
+                own[subj] = (ss, se, bits, qs, qe)   # qs-qe: the matched part of the own consensus
 
     # 3) the sequence past each end of that match (the rest of the locus plus the margin), searched against the bank
     tails = {}
@@ -223,7 +223,9 @@ def main():
         for n, sq in tails.items():
             if len(sq) >= MINLEN:
                 fh.write(">%s\n%s\n" % (n, sq))
-    hits = ssearch(qfa, bank_path, a.threads) if os.path.getsize(qfa) else {}
+    # every bank consensus may be reported (-b): with only the top five, a junction hit to a sixth was never seen when
+    # related consensuses scored higher further from the junction (GLM audit 2026-10-22)
+    hits = ssearch(qfa, bank_path, a.threads, nbest=len(bank)) if os.path.getsize(qfa) else {}
 
     # 4) per group, side and target: how many copies continue, and how much of the continuation lies inside the locus
     rows = []
@@ -238,28 +240,32 @@ def main():
             continue
         cp = sample[keys[int(g[1:])]][int(c[1:])]
         locus_len = cp[2] - cp[1]
-        ss, se, _ = own[n]
+        ss, se = own[n][:2]
         if side == "3":   # continuation spans padded positions se+qs .. se+qe; the locus ends at left + locus_len
-            inside = max(0, min(se + h[5], left[n] + locus_len) - (se + h[4] - 1))
+            inside = max(0, min(se + h[5], left[n] + locus_len) - max(se + h[4] - 1, left[n]))
         else:             # continuation spans padded positions qs .. qe; the locus starts after left[n]
-            inside = max(0, h[5] - max(h[4] - 1, left[n]))
+            inside = max(0, min(h[5], left[n] + locus_len) - max(h[4] - 1, left[n]))
         cont[(keys[int(g[1:])], side, h[1])].append((int(c[1:]), h, inside))
     for (key, side, target), lst in sorted(cont.items()):
         n = len(lst)
         if n < MIN_N:
             continue
-        share = n / len(sample[key])
-        hs = [h for _, h, _ in lst]
         gi = keys.index(key)
+        tested = sum(1 for x in own if x.startswith("g%d_" % gi))   # copies in which the own consensus was found
+        share = n / tested
+        hs = [h for _, h, _ in lst]
         jb = statistics.median((h[4] - 1) if side == "3" else (len(tails["g%d_c%d_5" % (gi, i)]) - h[5]) for i, h, _ in lst)
         span = statistics.median(h[5] - h[4] + 1 for h in hs)
         ins = statistics.median(x for _, _, x in lst)
-        rows.append({"consensus": key[0], "group": key[1], "side": side + "'", "sampled": len(sample[key]), "target": target,
+        # where the own match stops on the own consensus (3') or starts (5'): a continuation into the own consensus that
+        # resumes well past that point is an internal deletion of it (P without its middle piece), not a dimer
+        oe = statistics.median(own["g%d_c%d" % (gi, i)][4 if side == "3" else 3] for i, _, _ in lst)
+        rows.append({"consensus": key[0], "group": key[1], "side": side + "'", "sampled": len(sample[key]), "tested": tested, "target": target,
                      "copies": n, "share": round(share, 3), "junction_bp": int(jb),
                      "target_start": int(statistics.median(h[6] for h in hs)), "target_end": int(statistics.median(h[7] for h in hs)),
                      "identity": round(statistics.median(h[2] for h in hs), 1),
                      "inside_locus": "%d of %d bp" % (ins, span),
-                     "flag": "yes" if share >= MIN_SHARE else "no", "lst": lst, "key": key, "side0": side})
+                     "flag": "yes" if share >= MIN_SHARE else "no", "lst": lst, "key": key, "side0": side, "own_edge": int(oe)})
     nf = sum(len(v) for v in sample.values()) - len(own)
     if nf:
         print("continuation_check: own consensus not found in %d sampled copies (skipped)" % nf)
@@ -271,9 +277,15 @@ def main():
             r.update(candidate="", candidate_bp="", seeds_differ_mm="", bank_match="")
             if r["flag"] != "yes":
                 continue
+            deletion = ""
             if r["target"] == r["consensus"]:
-                r["bank_match"] = "continues into itself (dimer or tandem copies): not built"
-                continue
+                if r["side0"] == "3" and r["target_start"] > r["own_edge"] + JUNC:
+                    deletion = "deletion inside %s (own match ends at %d, resumes at %d); " % (r["consensus"], r["own_edge"], r["target_start"])
+                elif r["side0"] == "5" and r["target_end"] < r["own_edge"] - JUNC:
+                    deletion = "deletion inside %s (continuation ends at %d, own match resumes at %d); " % (r["consensus"], r["target_end"], r["own_edge"])
+                else:
+                    r["bank_match"] = "continues into itself (dimer or tandem copies): not built"
+                    continue
             if a.no_build:
                 continue
             name = ("%s__3p__%s_%d-%d" if r["side0"] == "3" else "%s__5p__%s_%d-%d") % (
@@ -285,7 +297,7 @@ def main():
             seqs = []
             for i, h, _ in pick:     # own-consensus match + the continuation, cut from the padded copy
                 n = "g%d_c%d" % (gi, i)
-                ss, se, _ = own[n]
+                ss, se = own[n][:2]
                 seqs.append(padded[n][ss - 1:se + h[5]] if r["side0"] == "3" else padded[n][h[4] - 1:se])
             with open(os.path.join(work, name + ".fa"), "w") as fh, open(os.path.join(out, name + ".copies.fa"), "w") as cf:
                 for i, s in enumerate(seqs):
@@ -303,20 +315,24 @@ def main():
             cq = os.path.join(work, "candidate_query.fa")   # ssearch36 misreads file names like ..._291-420.cand.fa
             with open(cq, "w") as fh:
                 fh.write(">%s\n%s\n" % (name, c1))
-            bh = ssearch(cq, bank_path, a.threads).get(name, [])
+            bh = ssearch(cq, bank_path, a.threads, nbest=len(bank)).get(name, [])
             best = max(bh) if bh else None
             # in the bank = the whole candidate matches one consensus end to end: global alignment (as the consensus audit) with
             # few mismatches and gap columns. ssearch36's alignment length counts gaps, so "covers 90 % of both" passed A+B
             # against A+M+B although the whole middle piece M (140 bp) was missing (test_continuation_check).
             mm, gp = align(c1, bank[best[1]]) if best else (0, 0)
+            for h in bh:   # the end-to-end match need not be the best local scorer: every consensus with a hit is aligned
+                m2, g2 = align(c1, bank[h[1]])
+                if m2 + g2 < mm + gp:
+                    best, mm, gp = h, m2, g2
             if best and mm + gp <= max(8, 0.05 * len(c1)):
-                r["bank_match"] = "already in the bank as %s (%d mismatches, %d gap columns): the copies were assigned elsewhere" % (best[1], mm, gp)
+                r["bank_match"] = deletion + "already in the bank as %s (%d mismatches, %d gap columns): the copies were assigned elsewhere" % (best[1], mm, gp)
             elif best:
-                r["bank_match"] = "not in the bank (closest %s: %d mismatches and %d gap columns end to end; local match at its positions %d-%d)" % (
+                r["bank_match"] = deletion + "not in the bank (closest %s: %d mismatches and %d gap columns end to end; local match at its positions %d-%d)" % (
                     best[1], mm, gp, best[6], best[7])
             else:
-                r["bank_match"] = "not in the bank (no hit)"
-    cols = ["consensus", "group", "side", "sampled", "target", "copies", "share", "junction_bp", "target_start", "target_end",
+                r["bank_match"] = deletion + "not in the bank (no hit)"
+    cols = ["consensus", "group", "side", "sampled", "tested", "target", "copies", "share", "junction_bp", "target_start", "target_end",
             "identity", "inside_locus", "flag", "candidate", "candidate_bp", "seeds_differ_mm", "bank_match"]
     with open(os.path.join(out, "continuation.tsv"), "w") as o:
         o.write("\t".join(cols) + "\n")
