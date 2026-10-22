@@ -507,6 +507,20 @@ consensus_audit_step(){
 }
 
 ###############################################################################
+# HELPER: do copies continue past their ends into another consensus? (tools/continuation_check.py, docs/CONTINUATION.md)
+# Report only: it changes no copy, verdict or bank. Found necessary on rsi (2026-10-22): 535 r10 copies were r10 + the r8 module
+# of P18, a composite the bank did not have. SKIP_CONTINUATION=1 skips; a failure is a warning (the run's outputs stand).
+###############################################################################
+continuation_step(){
+  local rundir="$1"
+  [[ "${SKIP_CONTINUATION:-0}" == "1" ]] && { log "SKIP_CONTINUATION=1"; return 0; }
+  log "Continuation check (copies continuing past their ends into another consensus; tools/continuation_check.py)"
+  python3 "$SCRIPT_DIR/tools/continuation_check.py" "$rundir" --threads "${THREADS:-8}" > "$rundir/continuation.log" 2>&1     || { log "WARNING: continuation_check.py failed (see continuation.log)"; return 0; }
+  log "$(grep -m1 '^CONTINUATION' "$rundir/continuation.log")"
+  return 0
+}
+
+###############################################################################
 # HELPER: the results/ directory of a run: symlinks to the step1/step2/step3 outputs (one list, used by every mode
 # including --resume; it must run BEFORE step 6 / publish, which write results/report.html)
 ###############################################################################
@@ -540,6 +554,50 @@ build_results_links(){
   [[ -f consensuses.clean.fa ]] && ln -sf ../consensuses.clean.fa results/consensuses.fa
   [[ -f genome.clean_assembly_qc.tsv ]] && ln -sf ../genome.clean_assembly_qc.tsv results/assembly_qc.tsv
   return 0
+}
+
+###############################################################################
+# HELPER: step 6 / publish, the HTML report (fresh runs and --resume of a finished run: a resume that refreshed the
+# QC tables used to leave results/report.html as it was, GLM audit 2026-10-22)
+###############################################################################
+report_step(){
+  local pub_rc step6_rc
+  # --- Step 6 / publish HTML report (optional) ---
+  # Must run AFTER the results/ symlink farm above, not before: step6_report.py
+  # writes results/report.html directly, and this block's own `rm -rf results`
+  # would otherwise silently destroy that freshly-written file every time
+  # (confirmed reproducible 2026-08-21 through 2026-08-23 across three
+  # independent runs before this fix -- see Tal repo tim/LOG.md and
+  # eri/sco LOG.md for the standalone-rerun workaround this replaces).
+  if [[ "${PUBLISH}" == "1" ]]; then
+    [[ -n "${SPECIES_CODE:-}" ]] || die "--publish requires SPECIES_CODE (e.g. export SPECIES_CODE=mysp)"
+    cp -f "$SCRIPT_DIR/publish_run.sh" ./ 2>/dev/null || true
+    cp -rf "$SCRIPT_DIR/publish" ./ 2>/dev/null || true
+    chmod +x ./publish_run.sh ./publish/align_for_publish.sh 2>/dev/null || true
+    log "Running publish_run.sh (alignments + step6 + discriminator overlay)"
+    set +e
+    SINEDERELLA_BIN="$SCRIPT_DIR" bash "$SCRIPT_DIR/publish_run.sh" "$(pwd -P)" "$SPECIES_CODE" \
+      > >(tee publish.stdout.log) \
+      2> >(tee publish.stderr.log >&2)
+    pub_rc=$?
+    set -e
+    if (( pub_rc != 0 )); then
+      log "WARNING: publish_run failed (exit $pub_rc)"
+    fi
+  elif [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
+    log "Running Step6 HTML report (step6_report.sh)"
+    set +e
+    ./step6_report.sh "$(pwd -P)" \
+      > >(tee step6.stdout.log) \
+      2> >(tee step6.stderr.log >&2)
+    step6_rc=$?
+    set -e
+    if (( step6_rc != 0 )); then
+      log "WARNING: Step6 report failed (exit $step6_rc) — continuing without HTML report"
+    fi
+  else
+    log "Step6 HTML report skipped (step6_report.sh or step6_report.py not found in run dir)"
+  fi
 }
 
 ###############################################################################
@@ -627,43 +685,9 @@ run_step2_step3(){
   verdict_step "$(pwd -P)"
   length_variants_step "$(pwd -P)"
   consensus_audit_step "$(pwd -P)"
+  continuation_step "$(pwd -P)"
 
-  # --- Step 6 / publish HTML report (optional) ---
-  # Must run AFTER the results/ symlink farm above, not before: step6_report.py
-  # writes results/report.html directly, and this block's own `rm -rf results`
-  # would otherwise silently destroy that freshly-written file every time
-  # (confirmed reproducible 2026-08-21 through 2026-08-23 across three
-  # independent runs before this fix -- see Tal repo tim/LOG.md and
-  # eri/sco LOG.md for the standalone-rerun workaround this replaces).
-  if [[ "${PUBLISH}" == "1" ]]; then
-    [[ -n "${SPECIES_CODE:-}" ]] || die "--publish requires SPECIES_CODE (e.g. export SPECIES_CODE=mysp)"
-    cp -f "$SCRIPT_DIR/publish_run.sh" ./ 2>/dev/null || true
-    cp -rf "$SCRIPT_DIR/publish" ./ 2>/dev/null || true
-    chmod +x ./publish_run.sh ./publish/align_for_publish.sh 2>/dev/null || true
-    log "Running publish_run.sh (alignments + step6 + discriminator overlay)"
-    set +e
-    SINEDERELLA_BIN="$SCRIPT_DIR" bash "$SCRIPT_DIR/publish_run.sh" "$(pwd -P)" "$SPECIES_CODE" \
-      > >(tee publish.stdout.log) \
-      2> >(tee publish.stderr.log >&2)
-    pub_rc=$?
-    set -e
-    if (( pub_rc != 0 )); then
-      log "WARNING: publish_run failed (exit $pub_rc)"
-    fi
-  elif [[ -n "${REPORT_SRC:-}" && -f "./step6_report.sh" && -f "./step6_report.py" ]]; then
-    log "Running Step6 HTML report (step6_report.sh)"
-    set +e
-    ./step6_report.sh "$(pwd -P)" \
-      > >(tee step6.stdout.log) \
-      2> >(tee step6.stderr.log >&2)
-    step6_rc=$?
-    set -e
-    if (( step6_rc != 0 )); then
-      log "WARNING: Step6 report failed (exit $step6_rc) — continuing without HTML report"
-    fi
-  else
-    log "Step6 HTML report skipped (step6_report.sh or step6_report.py not found in run dir)"
-  fi
+  report_step
 
   log "DONE: $(pwd -P)"
 }
@@ -1477,6 +1501,8 @@ mode_resume(){
     verdict_step "$(pwd -P)"
     length_variants_step "$(pwd -P)"
     consensus_audit_step "$(pwd -P)"
+    continuation_step "$(pwd -P)"
+    report_step
 
   else
     log "Step2+3 — running..."
