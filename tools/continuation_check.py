@@ -260,7 +260,7 @@ def main():
             r["candidate"], r["candidate_bp"] = name, len(c1)
             r["seeds_differ_mm"] = align(c1, c2)[0] if c2 else "second seed failed"
             cfa.write(">%s\n%s\n" % (name, c1))
-            cq = os.path.join(work, name + ".cand.fa")
+            cq = os.path.join(work, "candidate_query.fa")   # ssearch36 misreads file names like ..._291-420.cand.fa
             with open(cq, "w") as fh:
                 fh.write(">%s\n%s\n" % (name, c1))
             bh = ssearch(cq, bank_path, a.threads).get(name, [])
