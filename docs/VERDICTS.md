@@ -68,6 +68,12 @@ family with **2** or more assigned copies (20 until 2026-10-21). `SAME_PLACE_MIN
 - **Counts**: the page's copy columns count SINE loci; `summary.by_subfam.tsv` and the step 2 tables still count
   assigned copies.
 
+## Copies longer than their consensus
+
+A copy whose element continues past the end of its consensus (a composite the bank lacks, as rsi r10 + the r8 module)
+has SINE sequence where the flank tests expect flank. The continuation check reports such cases after the verdicts
+(docs/CONTINUATION.md); it changes no verdict.
+
 ## Without verdicts
 
 `step8a` stops when `loci_verdict.tsv` is missing (a plate would show copies whose flanks were never tested), unless

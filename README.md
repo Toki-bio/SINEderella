@@ -89,6 +89,7 @@ did not re-test these.
 
 - [MANUAL.md](MANUAL.md) — Full user manual
 - [docs/AIM.md](docs/AIM.md) — what the workflow is for; [docs/VERDICTS.md](docs/VERDICTS.md) — the verdict of every copy (SINE / grey zone / not SINE), `loci_verdict.tsv`, and how plates and page use it
+- [docs/CONTINUATION.md](docs/CONTINUATION.md) — copies that continue past their ends into another consensus (a missing composite, or a copy labelled with a shorter consensus), checked in every run
 - [disc/README.md](disc/README.md) — the SINE-discriminator modules the publish chain runs (kept in this repository since 2026-10-21)
 - [docs/LENGTH_VARIANTS.md](docs/LENGTH_VARIANTS.md) — separate SINE or decayed 3′ end; [docs/CONSENSUS_AUDIT.md](docs/CONSENSUS_AUDIT.md) — consensus vs its own copies; [PUBLISH_WORKFLOW.md](PUBLISH_WORKFLOW.md) — publish flow, env vars, reproducible alignments (`mafft --threadit 0`)
 - [QUALITY_FLAGGING_README.md](QUALITY_FLAGGING_README.md) — Consensus convergence QC system

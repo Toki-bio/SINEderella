@@ -507,6 +507,20 @@ consensus_audit_step(){
 }
 
 ###############################################################################
+# HELPER: do copies continue past their ends into another consensus? (tools/continuation_check.py, docs/CONTINUATION.md)
+# Report only: it changes no copy, verdict or bank. Found necessary on rsi (2026-10-22): 535 r10 copies were r10 + the r8 module
+# of P18, a composite the bank did not have. SKIP_CONTINUATION=1 skips; a failure is a warning (the run's outputs stand).
+###############################################################################
+continuation_step(){
+  local rundir="$1"
+  [[ "${SKIP_CONTINUATION:-0}" == "1" ]] && { log "SKIP_CONTINUATION=1"; return 0; }
+  log "Continuation check (copies continuing past their ends into another consensus; tools/continuation_check.py)"
+  python3 "$SCRIPT_DIR/tools/continuation_check.py" "$rundir" --threads "${THREADS:-8}" > "$rundir/continuation.log" 2>&1     || { log "WARNING: continuation_check.py failed (see continuation.log)"; return 0; }
+  log "$(grep -m1 '^CONTINUATION' "$rundir/continuation.log")"
+  return 0
+}
+
+###############################################################################
 # HELPER: the results/ directory of a run: symlinks to the step1/step2/step3 outputs (one list, used by every mode
 # including --resume; it must run BEFORE step 6 / publish, which write results/report.html)
 ###############################################################################
@@ -627,6 +641,7 @@ run_step2_step3(){
   verdict_step "$(pwd -P)"
   length_variants_step "$(pwd -P)"
   consensus_audit_step "$(pwd -P)"
+  continuation_step "$(pwd -P)"
 
   # --- Step 6 / publish HTML report (optional) ---
   # Must run AFTER the results/ symlink farm above, not before: step6_report.py
@@ -1477,6 +1492,7 @@ mode_resume(){
     verdict_step "$(pwd -P)"
     length_variants_step "$(pwd -P)"
     consensus_audit_step "$(pwd -P)"
+    continuation_step "$(pwd -P)"
 
   else
     log "Step2+3 — running..."

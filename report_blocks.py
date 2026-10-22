@@ -151,6 +151,42 @@ def _twins(run_root):
             "<th class='n'>Masked</th><th class='n'>Untestable</th><th class='n'>Twins %</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
+def _continuation(run_root):
+    """table of results/continuation/continuation.tsv (tools/continuation_check.py), '' if the run has none"""
+    p = Path(run_root) / "results" / "continuation" / "continuation.tsv"
+    if not p.exists():
+        return ""
+    lines = [l.rstrip(chr(10)).split(chr(9)) for l in open(p, encoding="utf-8")]
+    if len(lines) < 1:
+        return ""
+    h = lines[0]
+    recs = [dict(zip(h, l)) for l in lines[1:]]
+    flagged = [r for r in recs if r.get("flag") == "yes"]
+    intro = ("<h3 style='margin-top:16px'>Do copies continue past their ends into another consensus?</h3><p>Each copy is read with "
+             "150 bp on both sides; past the end of its own consensus's match the sequence is searched against the bank "
+             "(<code>tools/continuation_check.py</code>, up to 400 copies per consensus, assigned copies and unassigned copies "
+             "separately). A row is flagged when at least a fifth of the copies continue, from the junction on, into the same "
+             "consensus: then the copies are a longer element than their consensus, for example a composite the bank lacks. "
+             "<i>Inside locus</i> tells how much of that continuation lies inside the copy's own coordinates: mostly inside = the "
+             "copy carries the label of a shorter consensus; mostly outside = its coordinates stop early. For a flag a candidate "
+             "consensus is built from those copies and compared with the bank. Nothing in the run is changed by this check.</p>")
+    if not flagged:
+        return intro + "<p>No consensus is flagged (%d continuations below a fifth of the copies).</p>" % len(recs)
+    rows = []
+    for r in flagged:
+        rows.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s %s&ndash;%s</td><td class='n'>%s of %s (%.0f %%)</td><td>%s</td>"
+                    "<td class='n'>%s</td><td>%s</td></tr>" % (
+                        html.escape(lab(r["consensus"])), html.escape(r["group"]), html.escape(r["side"]), html.escape(lab(r["target"])),
+                        html.escape(r["target_start"]), html.escape(r["target_end"]), html.escape(r["copies"]), html.escape(r["sampled"]),
+                        100 * float(r["share"] or 0), html.escape(r.get("inside_locus", "")), html.escape(str(r.get("candidate_bp", ""))),
+                        html.escape(r.get("bank_match", ""))))
+    return (intro + "<table class='tbl'><thead><tr><th>Consensus</th><th>Copies</th><th>Side</th><th>Continues into (positions)</th>"
+            "<th class='n'>Copies continuing</th><th>Inside locus</th><th class='n'>Candidate bp</th><th>Candidate in the bank?</th>"
+            "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+            "<p class='small'>Candidates: <code>results/continuation/candidates.fa</code>; the copies each was built from: "
+            "<code>results/continuation/&lt;candidate&gt;.copies.fa</code>.</p>")
+
+
 def _satellites(run_root):
     """table of results/satellites/indication.tsv (tools/satellite_stage.py, run inside step 1), '' if the run has none"""
     p = Path(run_root) / "results" / "satellites" / "indication.tsv"
@@ -219,7 +255,8 @@ def _import_blocks():
 def section(run_root):
     # the four decision tables (length versions, arrays, satellites, consensus audit) are shown whenever their files exist, with
     # or without the block matrix: before 2026-10-05 a missing consensus_blocks.py or a one-consensus bank dropped them all
-    tables = _length_versions(run_root) + _arrays(run_root) + _satellites(run_root) + _twins(run_root) + _consensus_audit(run_root)
+    tables = (_length_versions(run_root) + _arrays(run_root) + _satellites(run_root) + _twins(run_root) + _consensus_audit(run_root)
+              + _continuation(run_root))
     bank = _bank(run_root)
     cb, why = _import_blocks()
     names = cb.rd(str(bank))[0] if (bank is not None and cb is not None) else []

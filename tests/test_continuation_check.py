@@ -126,3 +126,20 @@ def test_candidate_already_in_bank_points_at_the_assignment(tmp_path):
     rows = read_tsv(tmp_path / "results" / "continuation" / "continuation.tsv")
     r = [x for x in rows if x["flag"] == "yes" and x["consensus"] == "A"][0]
     assert r["bank_match"].startswith("already in the bank as AB"), r["bank_match"]
+
+
+def test_report_table_shows_the_flag(tmp_path):
+    # the report block reads results/continuation/continuation.tsv; a flagged row must appear with its target and bank answer
+    sys.path.insert(0, str(ROOT))
+    import report_blocks
+    d = tmp_path / "results" / "continuation"
+    d.mkdir(parents=True)
+    cols = ["consensus", "group", "side", "sampled", "target", "copies", "share", "junction_bp", "target_start", "target_end",
+            "identity", "inside_locus", "flag", "candidate", "candidate_bp", "seeds_differ_mm", "bank_match"]
+    row = ["r10_19seqs", "assigned", "3'", "400", "r10_r8_P18", "234", "0.585", "1", "270", "415", "84.9", "36 of 118 bp", "yes",
+           "c1", "226", "2", "not in the bank (closest r10_r8_P18)"]
+    (d / "continuation.tsv").write_text("\t".join(cols) + "\n" + "\t".join(row) + "\n")
+    html_out = report_blocks._continuation(tmp_path)
+    assert "r10_r8_P18" in html_out and "234 of 400" in html_out and "not in the bank" in html_out
+    (d / "continuation.tsv").write_text("\t".join(cols) + "\n")
+    assert "No consensus is flagged" in report_blocks._continuation(tmp_path)
