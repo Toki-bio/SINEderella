@@ -382,6 +382,10 @@ printf "subfamily\thas_top100\thas_rand100\thas_subfam\tn_members\n" > "$MANIFES
 # the page (step6) so the draw can be reproduced.
 RAND_SEED="${RAND_SEED:-42}"
 export RAND_SEED
+# copies per top / random plate (default 100). A larger value (e.g. 1000) draws a whole small subfamily through the same plate
+# chain (cut to the consensus, flanks packed, consensus row rebuilt, grey copies marked) instead of a separate script.
+PLATE_N="${PLATE_N:-100}"
+[[ "$PLATE_N" =~ ^[0-9]+$ ]] && (( PLATE_N >= 1 )) || { echo "ERROR: PLATE_N must be a positive integer" >&2; exit 1; }
 seeded_shuf() { python3 -c 'import os, random, sys
 l = open(sys.argv[1]).readlines(); random.Random(int(os.environ["RAND_SEED"])).shuffle(l); sys.stdout.writelines(l)' "$1"; }
 
@@ -440,7 +444,7 @@ while IFS=$'\t' read -r subfam count; do
     # Sort by bitscore descending -> temp file, then head (avoids SIGPIPE)
     sort -t$'\t' -k2,2nr "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/sorted_${idx}.tsv"
     awk -F'\t' -v sf="$subfam" '$1==sf' "$BASE_TMP/soft.tsv" > "$TMPDIR/soft_${idx}.tsv"
-    if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
+    if (( count < PLATE_N )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
         sort -t$'\t' -k2,2nr "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"
         echo "  $subfam: $count firm copies; top100/rand100 topped up (soft copies marked [soft], grey-zone copies [grey])" >&2
     fi
@@ -450,7 +454,7 @@ while IFS=$'\t' read -r subfam count; do
     [[ -s "$RUN_ROOT/results/flank_twins/$subfam/copy_status.tsv" ]] && TWIN_ARGS=(--twins "$RUN_ROOT/results/flank_twins/$subfam/copy_status.tsv")
     python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/sorted_${idx}.tsv" "${TWIN_ARGS[@]}" \
         > "$TMPDIR/sorted_${idx}.ord" && mv "$TMPDIR/sorted_${idx}.ord" "$TMPDIR/sorted_${idx}.tsv"
-    head -100 "$TMPDIR/sorted_${idx}.tsv" > "$TMPDIR/top100_${idx}.tsv"
+    head -n "$PLATE_N" "$TMPDIR/sorted_${idx}.tsv" > "$TMPDIR/top100_${idx}.tsv"
 
     if [[ -s "$TMPDIR/top100_${idx}.tsv" ]]; then
         set +e
@@ -471,12 +475,12 @@ while IFS=$'\t' read -r subfam count; do
 
     # -- rand100: 100 randomly sampled members --
     seeded_shuf "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/shuffled_${idx}.tsv"
-    if (( count < 100 )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
+    if (( count < PLATE_N )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
         seeded_shuf "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/shuffled_${idx}.tsv"
     fi
-    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/shuffled_${idx}.tsv" --mark-only --limit 100 "${TWIN_ARGS[@]}" \
+    python3 "$(dirname "${BASH_SOURCE[0]}")/tools/array_order.py" "$TMPDIR/shuffled_${idx}.tsv" --mark-only --limit "$PLATE_N" "${TWIN_ARGS[@]}" \
         > "$TMPDIR/shuffled_${idx}.ord" && mv "$TMPDIR/shuffled_${idx}.ord" "$TMPDIR/shuffled_${idx}.tsv"
-    head -100 "$TMPDIR/shuffled_${idx}.tsv" > "$TMPDIR/rand100_${idx}.tsv"
+    head -n "$PLATE_N" "$TMPDIR/shuffled_${idx}.tsv" > "$TMPDIR/rand100_${idx}.tsv"
 
     if [[ -s "$TMPDIR/rand100_${idx}.tsv" ]]; then
         set +e
