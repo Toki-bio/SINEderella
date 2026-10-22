@@ -9,9 +9,13 @@ were left unassigned. Nothing in the workflow reported it; the plate builder onl
 flank end" and widened the plate.
 
 This step asks, per consensus, separately for its assigned copies and for the unassigned copies whose best (too weak) match
-it was: take the WINDOW bp right past each copy's 3' end and right before its 5' end (strand-aware, read in the copy's
-orientation), search them against the bank (ssearch36, forward strand only), and keep, per window, the best hit that starts
-at the junction (within JUNC bp of it) and is at least MINLEN bp long. When at least MIN_SHARE of the sampled copies (and
+it was: read each copy with WINDOW bp on both sides, in its own orientation; find where its own consensus matches inside it;
+search what lies past each end of that match (the rest of the locus plus the margin) against the bank (ssearch36, forward
+strand only), and keep the best hit that starts at the junction (within JUNC bp of the end of the own match) and is at least
+MINLEN bp long. Reading past the own match, not past the locus, matters: in rsi the long r10 loci already covered r10 and the
+r8 module (about 280 bp), so reading past the locus end found only genomic flank (first version of this tool, 2026-10-22).
+inside_locus tells the two cases apart: a continuation mostly inside the locus = the copy was labelled with a shorter
+consensus; mostly outside = the locus coordinates stop early. When at least MIN_SHARE of the sampled copies (and
 at least MIN_N copies) continue into the same consensus, the row is flagged. For a flag into another consensus a candidate
 consensus of "copy + continuation" is built from those copies with tools/vendor/sine_consensus.sh (two seeds, as the
 consensus audit), and compared with the bank: if the bank already holds it, the problem is the assignment; if not, a
@@ -21,9 +25,9 @@ Nothing is changed: the run's copies, verdicts and bank stay as they are. The ta
 
 Out (RUN_DIR/results/continuation/):
   continuation.tsv   one row per (consensus, group, side, target) with at least MIN_N copies continuing:
-                     consensus group side sampled target copies share junction_bp target_start target_end identity flag
-                     candidate candidate_bp seeds_differ_mm bank_match
-                     (junction_bp, target_start/end, identity: medians over the continuing copies)
+                     consensus group side sampled target copies share junction_bp target_start target_end identity
+                     inside_locus flag candidate candidate_bp seeds_differ_mm bank_match
+                     (junction_bp, target_start/end, identity, inside_locus: medians over the continuing copies)
   candidates.fa      the candidate consensuses (seed 1)
   <candidate>.copies.fa  the copy + continuation sequences each candidate was built from
 Prints one line: CONTINUATION groups=.. flagged=.. candidates=.. -> results/continuation/continuation.tsv
@@ -84,15 +88,6 @@ def groups_from(assign_path):
     return g
 
 
-def windows(copy, clen):
-    """BED intervals (start, end) of the 3' and 5' windows in genome coordinates; reading them with the copy's strand gives
-    sequence in the copy's orientation: 3' window starts at the junction, 5' window ends at it."""
-    ctg, s, e, strand, _ = copy
-    right = (e, min(clen, e + WINDOW))
-    left = (max(0, s - WINDOW), s)
-    return {"3": right, "5": left} if strand == "+" else {"3": left, "5": right}
-
-
 def getfasta(genome, bed_rows, tmp):
     """bed_rows: [(ctg, s, e, name, strand)] -> {name: seq}, strand-aware (bedtools getfasta -s)"""
     if not bed_rows:
@@ -112,10 +107,10 @@ def getfasta(genome, bed_rows, tmp):
     return seqs
 
 
-def ssearch(query_fa, lib_fa, threads):
+def ssearch(query_fa, lib_fa, threads, nbest=5):
     """ssearch36 -m 8, forward strand of the queries only; a failed call is an error, not 'no hits' (ssearch36 can exit 0
     with '***' on stderr when it cannot read a file)."""
-    out = subprocess.run(["ssearch36", "-m", "8", "-3", "-E", EVALUE, "-b", "5", "-T", str(threads), query_fa, lib_fa],
+    out = subprocess.run(["ssearch36", "-m", "8", "-3", "-E", EVALUE, "-b", str(nbest), "-d", "0", "-T", str(threads), query_fa, lib_fa],
                          capture_output=True, text=True)
     if out.returncode != 0 or "***" in out.stderr:
         raise RuntimeError("ssearch36 failed: " + out.stderr.strip()[:300])
@@ -179,8 +174,8 @@ def main():
     groups = groups_from(assign)
     rnd = random.Random(a.seed)
 
-    # 1) windows of a seeded sample of every group, one search for all
-    sample = {}
+    # 1) a seeded sample of every group; each copy is read with WINDOW bp on both sides, in its own orientation
+    sample, padded, left = {}, {}, {}
     beds = []
     for key in sorted(groups):
         cps = [c for c in groups[key] if c[0] in lens]
@@ -189,40 +184,85 @@ def main():
         cps = sorted(cps, key=lambda c: c[4])
         if len(cps) > SAMPLE:
             cps = rnd.sample(cps, SAMPLE)
+        gi = len(sample)
         sample[key] = cps
-        for i, c in enumerate(cps):
-            for side, (ws, we) in windows(c, lens[c[0]]).items():
-                if we - ws >= MINLEN:
-                    beds.append((c[0], ws, we, "g%d_c%d_%s" % (len(sample) - 1, i, side), c[3]))
+        for i, (ctg, st, en, strand, _) in enumerate(cps):
+            ps, pe = max(0, st - WINDOW), min(lens[ctg], en + WINDOW)
+            n = "g%d_c%d" % (gi, i)
+            beds.append((ctg, ps, pe, n, strand))
+            left[n] = (st - ps) if strand == "+" else (pe - en)      # bp before the locus in the copy's orientation
     keys = list(sample)
-    wseq = getfasta(genome, beds, work)
-    qfa = os.path.join(work, "windows.fa")
-    with open(qfa, "w") as fh:
-        for n, s in wseq.items():
-            fh.write(">%s\n%s\n" % (n, s))
-    hits = ssearch(qfa, bank_path, a.threads) if wseq else {}
+    padded = getfasta(genome, beds, work)
 
-    # 2) per group, side and target: how many copies continue
+    # 2) where does each copy's own consensus match inside it? (one search per group, forward strand)
+    own = {}                                                         # n -> (sstart, send) in the padded copy, 1-based
+    for gi, key in enumerate(keys):
+        if key[0] not in bank:
+            continue
+        q, lib = os.path.join(work, "own_q.fa"), os.path.join(work, "own_lib.fa")
+        with open(q, "w") as fh:
+            fh.write(">%s\n%s\n" % (key[0], bank[key[0]]))
+        with open(lib, "w") as fh:
+            for i in range(len(sample[key])):
+                n = "g%d_c%d" % (gi, i)
+                if n in padded:
+                    fh.write(">%s\n%s\n" % (n, padded[n]))
+        for h in ssearch(q, lib, a.threads, nbest=len(sample[key]) + 10).get(key[0], []):
+            bits, subj, ident, alen, qs, qe, ss, se = h
+            if se > ss and (subj not in own or bits > own[subj][2]):
+                own[subj] = (ss, se, bits)
+
+    # 3) the sequence past each end of that match (the rest of the locus plus the margin), searched against the bank
+    tails = {}
+    for n, (ss, se, _) in own.items():
+        sq = padded[n]
+        tails[n + "_3"] = sq[se:]
+        tails[n + "_5"] = sq[:ss - 1]
+    qfa = os.path.join(work, "tails.fa")
+    with open(qfa, "w") as fh:
+        for n, sq in tails.items():
+            if len(sq) >= MINLEN:
+                fh.write(">%s\n%s\n" % (n, sq))
+    hits = ssearch(qfa, bank_path, a.threads) if os.path.getsize(qfa) else {}
+
+    # 4) per group, side and target: how many copies continue, and how much of the continuation lies inside the locus
     rows = []
-    cont = defaultdict(list)   # (key, side, target) -> [(copy index, hit)]
-    for n, s in wseq.items():
-        gi, ci, side = n.split("_")
-        h = junction_hit(side, hits.get(n, []), len(s))
-        if h:
-            cont[(keys[int(gi[1:])], side, h[1])].append((int(ci[1:]), h))
+    cont = defaultdict(list)   # (key, side, target) -> [(copy index, hit, bp of the continuation inside the locus)]
+    for tn, sq in tails.items():
+        if len(sq) < MINLEN:
+            continue
+        g, c, side = tn.split("_")
+        n = g + "_" + c
+        h = junction_hit(side, hits.get(tn, []), len(sq))
+        if not h:
+            continue
+        cp = sample[keys[int(g[1:])]][int(c[1:])]
+        locus_len = cp[2] - cp[1]
+        ss, se, _ = own[n]
+        if side == "3":   # continuation spans padded positions se+qs .. se+qe; the locus ends at left + locus_len
+            inside = max(0, min(se + h[5], left[n] + locus_len) - (se + h[4] - 1))
+        else:             # continuation spans padded positions qs .. qe; the locus starts after left[n]
+            inside = max(0, h[5] - max(h[4] - 1, left[n]))
+        cont[(keys[int(g[1:])], side, h[1])].append((int(c[1:]), h, inside))
     for (key, side, target), lst in sorted(cont.items()):
         n = len(lst)
         if n < MIN_N:
             continue
         share = n / len(sample[key])
-        hs = [h for _, h in lst]
-        jb = statistics.median((h[4] - 1) if side == "3" else (len(wseq["g%d_c%d_%s" % (keys.index(key), i, side)]) - h[5])
-                               for i, h in lst)
+        hs = [h for _, h, _ in lst]
+        gi = keys.index(key)
+        jb = statistics.median((h[4] - 1) if side == "3" else (len(tails["g%d_c%d_5" % (gi, i)]) - h[5]) for i, h, _ in lst)
+        span = statistics.median(h[5] - h[4] + 1 for h in hs)
+        ins = statistics.median(x for _, _, x in lst)
         rows.append({"consensus": key[0], "group": key[1], "side": side + "'", "sampled": len(sample[key]), "target": target,
                      "copies": n, "share": round(share, 3), "junction_bp": int(jb),
                      "target_start": int(statistics.median(h[6] for h in hs)), "target_end": int(statistics.median(h[7] for h in hs)),
                      "identity": round(statistics.median(h[2] for h in hs), 1),
+                     "inside_locus": "%d of %d bp" % (ins, span),
                      "flag": "yes" if share >= MIN_SHARE else "no", "lst": lst, "key": key, "side0": side})
+    nf = sum(len(v) for v in sample.values()) - len(own)
+    if nf:
+        print("continuation_check: own consensus not found in %d sampled copies (skipped)" % nf)
 
     # 3) candidates for flags into another consensus
     ncand = 0
@@ -241,12 +281,12 @@ def main():
             name = re.sub(r"[^A-Za-z0-9_.-]", "_", name)
             cps = sample[r["key"]]
             pick = sorted(r["lst"], key=lambda x: cps[x[0]][4])[:BUILD_MAX]
-            el = getfasta(genome, [(cps[i][0], cps[i][1], cps[i][2], "e%d" % i, cps[i][3]) for i, _ in pick], work)
+            gi = keys.index(r["key"])
             seqs = []
-            for i, h in pick:
-                w = wseq["g%d_c%d_%s" % (keys.index(r["key"]), i, r["side0"])]
-                e = el.get("e%d" % i, "")
-                seqs.append(e + w[:h[5]] if r["side0"] == "3" else w[h[4] - 1:] + e)
+            for i, h, _ in pick:     # own-consensus match + the continuation, cut from the padded copy
+                n = "g%d_c%d" % (gi, i)
+                ss, se, _ = own[n]
+                seqs.append(padded[n][ss - 1:se + h[5]] if r["side0"] == "3" else padded[n][h[4] - 1:se])
             with open(os.path.join(work, name + ".fa"), "w") as fh, open(os.path.join(out, name + ".copies.fa"), "w") as cf:
                 for i, s in enumerate(seqs):
                     fh.write(">s%d\n%s\n" % (i, s))
@@ -277,7 +317,7 @@ def main():
             else:
                 r["bank_match"] = "not in the bank (no hit)"
     cols = ["consensus", "group", "side", "sampled", "target", "copies", "share", "junction_bp", "target_start", "target_end",
-            "identity", "flag", "candidate", "candidate_bp", "seeds_differ_mm", "bank_match"]
+            "identity", "inside_locus", "flag", "candidate", "candidate_bp", "seeds_differ_mm", "bank_match"]
     with open(os.path.join(out, "continuation.tsv"), "w") as o:
         o.write("\t".join(cols) + "\n")
         for r in sorted(rows, key=lambda r: (r["flag"] != "yes", -r["share"])):

@@ -21,7 +21,7 @@ need = [t for t in ("ssearch36", "bedtools") if shutil.which(t) is None]
 pytestmark = pytest.mark.skipif(bool(need), reason="needs %s" % need)
 
 
-def make_run(d, ab_in_bank=False):
+def make_run(d, ab_in_bank=False, ab_locus_full=False):
     rnd = random.Random(3)
     B4 = "ACGT"
     rs = lambda n: "".join(rnd.choice(B4) for _ in range(n))
@@ -38,9 +38,9 @@ def make_run(d, ab_in_bank=False):
         pos += len(seq) + 1500
         return s
 
-    for _ in range(60):     # A+B, assigned to A, coordinates stop at A's end
+    for _ in range(60):     # A+B, assigned to A; coordinates stop at A's end, or (ab_locus_full) cover A+B as in rsi r10
         s = plant(mut(A + B))
-        rows.append(("ctg1:%d-%d(+)" % (s, s + 150), "A", "assigned"))
+        rows.append(("ctg1:%d-%d(+)" % (s, s + (280 if ab_locus_full else 150)), "A", "assigned"))
     for _ in range(60):
         s = plant(mut(A))
         rows.append(("ctg1:%d-%d(+)" % (s, s + 150), "A", "assigned"))
@@ -85,7 +85,23 @@ def test_flags_the_missing_composite_report_only(tmp_path):
     assert 0.4 <= float(r["share"]) <= 0.6
     assert abs(int(r["target_start"]) - 291) <= 5 and abs(int(r["target_end"]) - 420) <= 5
     assert int(r["junction_bp"]) <= 2
+    assert r["inside_locus"].startswith("0 of")            # the locus stopped at A's end: the continuation lies outside
     assert not [x for x in rows if x["consensus"] == "P" and x["group"] == "assigned" and x["flag"] == "yes"]
+
+
+def test_flags_a_long_locus_labelled_with_the_short_consensus(tmp_path):
+    # the rsi r10 case as it really was: the A+B loci cover A+B (280 bp) but carry the label A. Reading past the locus end
+    # (first version) found only genomic flank; the continuation is past the end of A's match, inside the locus.
+    make_run(tmp_path, ab_locus_full=True)
+    run(tmp_path, "--no-build")
+    rows = read_tsv(tmp_path / "results" / "continuation" / "continuation.tsv")
+    flag = [r for r in rows if r["flag"] == "yes"]
+    assert len(flag) == 1, rows
+    r = flag[0]
+    assert (r["consensus"], r["side"], r["target"]) == ("A", "3'", "P")
+    assert abs(int(r["target_start"]) - 291) <= 5 and abs(int(r["target_end"]) - 420) <= 5
+    ins, span = r["inside_locus"].split(" of ")
+    assert int(ins) >= 0.9 * int(span.split()[0])         # all of it inside the locus
 
 
 @pytest.mark.skipif(shutil.which("mafft") is None or shutil.which("gawk") is None, reason="needs mafft and gawk")
