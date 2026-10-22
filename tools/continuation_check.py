@@ -214,7 +214,7 @@ def main():
 
     # 3) the sequence past each end of that match (the rest of the locus plus the margin), searched against the bank
     tails = {}
-    for n, (ss, se, _) in own.items():
+    for n, (ss, se, *_) in own.items():
         sq = padded[n]
         tails[n + "_3"] = sq[se:]
         tails[n + "_5"] = sq[:ss - 1]
