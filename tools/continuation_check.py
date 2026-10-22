@@ -265,11 +265,15 @@ def main():
                 fh.write(">%s\n%s\n" % (name, c1))
             bh = ssearch(cq, bank_path, a.threads).get(name, [])
             best = max(bh) if bh else None
-            if best and best[3] >= 0.9 * len(c1) and best[3] >= 0.9 * len(bank[best[1]]) and best[2] >= 90:
-                r["bank_match"] = "already in the bank as %s (%.1f %% over %d bp): the copies were assigned elsewhere" % (best[1], best[2], best[3])
+            # in the bank = the whole candidate matches one consensus end to end: global alignment (as the consensus audit) with
+            # few mismatches and gap columns. ssearch36's alignment length counts gaps, so "covers 90 % of both" passed A+B
+            # against A+M+B although the whole middle piece M (140 bp) was missing (test_continuation_check).
+            mm, gp = align(c1, bank[best[1]]) if best else (0, 0)
+            if best and mm + gp <= max(8, 0.05 * len(c1)):
+                r["bank_match"] = "already in the bank as %s (%d mismatches, %d gap columns): the copies were assigned elsewhere" % (best[1], mm, gp)
             elif best:
-                r["bank_match"] = "not in the bank (closest %s, %.1f %% over %d of %d bp, its positions %d-%d)" % (
-                    best[1], best[2], best[3], len(c1), best[6], best[7])
+                r["bank_match"] = "not in the bank (closest %s: %d mismatches and %d gap columns end to end; local match at its positions %d-%d)" % (
+                    best[1], mm, gp, best[6], best[7])
             else:
                 r["bank_match"] = "not in the bank (no hit)"
     cols = ["consensus", "group", "side", "sampled", "target", "copies", "share", "junction_bp", "target_start", "target_end",
