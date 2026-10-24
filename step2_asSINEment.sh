@@ -122,6 +122,71 @@ parse_args(){
   log "Output directory: $OUTDIR"
 }
 
+# One voting cycle = one ssearch36 -z 11 call per library part, as before; the cycle is one independent stochastic estimate
+# (the shuffle statistics are seeded from the clock: -z 11 IS the quality filter, keep it). VOTE_PAR > 1 (2026-10-24, opt-in) runs
+# VOTE_PAR cycles at the same time with THREADS / VOTE_PAR ssearch36 threads each, instead of one after another with THREADS
+# each: one call of 22 consensuses x 20,000 copies took 13.6 s at -T 32 (342 s CPU) and 40.1 s at -T 8
+# (303 s CPU). Each cycle writes its own raw_<cycle>.m8 and log; the votes are taken in cycle order 1..10 as before.
+cycle_best(){   # RAW.m8 -> per sequence: seq, best consensus, its bits, runner-up consensus, its bits
+    awk '{
+      seq=$2; cons=$1; bs=$12+0
+      key=seq SUBSEP cons
+      if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
+    }
+    END{
+      for(key in pair_bs){
+        split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
+        if(!(seq in best_bs) || bs > best_bs[seq]){
+          if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
+          best_bs[seq]=bs; best_cons[seq]=cons
+        } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
+          runner_bs[seq]=bs; runner_cons[seq]=cons
+        }
+      }
+      for(seq in best_cons){
+        rb = (seq in runner_bs ? runner_bs[seq] : 0)
+        rc = (seq in runner_cons ? runner_cons[seq] : "NA")
+        printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
+      }
+    }' "$1"
+}
+run_vote_cycles(){   # VOTES_OUT: ten cycles over "$TMPDIR"/splits/*.fasta, votes appended in cycle order
+  local votes=$1 par ct cycle part n nbig=0
+  # VOTE_PAR unset or 1 (default): one cycle after another with -T THREADS, the vote as before. VOTE_PAR=10 is a PROPOSAL for the
+  # owner (docs/SPEEDUP_SSEARCH.md section 6): per-call outcomes matched in 40-60 calls per setting, but two of three replicate
+  # runs had a cycle in which ~110 MEG-RS copies went to MEG-RL (old runs: none in three), and such rare events need more
+  # replicates to compare
+  par=${VOTE_PAR:-1}; (( par >= 1 )) || par=1; (( par <= 10 )) || par=10
+  ct=$(( THREADS / par )); (( ct >= 1 )) || ct=1
+  # A part of fewer than 500 copies (shuff_max) gives ssearch36 too few scores: it then fits the statistics from shuffles whose
+  # buffers are sized by the thread count (fasta36 buf_shuf_seq), so its E-values depend on -T. Such a part (a short last part,
+  # a small Tier-2 set) keeps -T THREADS, as before; only parts of >= 500 copies get the smaller per-cycle -T. With no part of
+  # >= 500 copies the cycles run one after another, exactly as before.
+  : > "$TMPDIR/part_threads.tsv"
+  for part in "$TMPDIR"/splits/*.fasta; do
+    n=$(count_fasta "$part")
+    if (( n < 500 )); then printf '%s\t%s\n' "${part##*/}" "$THREADS"; else printf '%s\t%s\n' "${part##*/}" "$ct"; nbig=$((nbig + 1)); fi
+  done >> "$TMPDIR/part_threads.tsv"
+  (( nbig > 0 )) || { par=1; ct=$THREADS; }
+  log "  10 cycles, $par at a time, $ct ssearch36 threads each (parts under 500 copies: $THREADS)"
+  rm -f "$TMPDIR"/cycle_*.failed
+  seq 1 10 | PT="$TMPDIR/part_threads.tsv" CONS="$TMPDIR/consensus_clean.fa" SPLITS="$TMPDIR/splits" WD="$TMPDIR" xargs -P "$par" -I{} bash -c '
+      c={}; : > "$WD/raw_$c.m8"; : > "$WD/ssearch_$c.log"
+      for part in "$SPLITS"/*.fasta; do
+        CT=$(awk -F"\t" -v p="${part##*/}" "\$1 == p { print \$2 }" "$PT")
+        ssearch36 -g -3 -T "$CT" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8 "$CONS" "$part" >> "$WD/raw_$c.m8" 2>> "$WD/ssearch_$c.log" \
+          || { echo "${part##*/}" > "$WD/cycle_$c.failed"; exit 1; }
+      done' || true
+  : > "$OUTDIR/ssearch.log"
+  for cycle in $(seq 1 10); do
+    cat "$TMPDIR/ssearch_$cycle.log" >> "$OUTDIR/ssearch.log"
+    [[ ! -e "$TMPDIR/cycle_$cycle.failed" ]] || die "ssearch36 failed (cycle $cycle, $(cat "$TMPDIR/cycle_$cycle.failed")); see $OUTDIR/ssearch.log"
+    # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
+    ! grep -q '\*\*\*' "$TMPDIR/ssearch_$cycle.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$TMPDIR/ssearch_$cycle.log" | head -1)"
+    cycle_best "$TMPDIR/raw_${cycle}.m8" >> "$votes"
+  done
+}
+
 count_fasta(){
   awk 'BEGIN{c=0} /^>/{c++} END{printf("%d\n", c)}' "$1"
 }
@@ -183,43 +248,7 @@ run_assignment(){
   : > "$TMPDIR/votes.tsv"
   : > "$OUTDIR/ssearch.log"
 
-  for cycle in $(seq 1 10); do
-    printf "  Cycle %2d/10\r" "$cycle" >&2
-    : > "$TMPDIR/raw_${cycle}.m8"
-
-    for part in "$TMPDIR"/splits/*.fasta; do
-      ssearch36 -g -3 -T "$THREADS" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8 \
-        "$TMPDIR/consensus_clean.fa" "$part" \
-        >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
-        || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
-    done
-    # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
-    ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
-
-    # Extract best hit per sequence for this cycle, plus the best-scoring distinct
-    # runner-up consensus (second place), for downstream LEAK/ambiguity detection.
-    awk '{
-      seq=$2; cons=$1; bs=$12+0
-      key=seq SUBSEP cons
-      if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
-    }
-    END{
-      for(key in pair_bs){
-        split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
-        if(!(seq in best_bs) || bs > best_bs[seq]){
-          if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
-          best_bs[seq]=bs; best_cons[seq]=cons
-        } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
-          runner_bs[seq]=bs; runner_cons[seq]=cons
-        }
-      }
-      for(seq in best_cons){
-        rb = (seq in runner_bs ? runner_bs[seq] : 0)
-        rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-        printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
-      }
-    }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
-  done
+  run_vote_cycles "$TMPDIR/votes.tsv"
   echo >&2 "  Cycle 10/10 done."
 
   # Aggregate votes
@@ -620,39 +649,7 @@ run_incremental_assignment(){
     fi
 
     : > "$TMPDIR/votes.tsv"
-    for cycle in $(seq 1 10); do
-      printf "  Cycle %2d/10\r" "$cycle" >&2
-      : > "$TMPDIR/raw_${cycle}.m8"
-      for part in "$TMPDIR"/splits/*.fasta; do
-        ssearch36 -g -3 -T "$THREADS" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8 \
-          "$TMPDIR/consensus_clean.fa" "$part" \
-          >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
-          || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
-      done
-      # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
-      ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
-      awk '{
-        seq=$2; cons=$1; bs=$12+0
-        key=seq SUBSEP cons
-        if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
-      }
-      END{
-        for(key in pair_bs){
-          split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
-          if(!(seq in best_bs) || bs > best_bs[seq]){
-            if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
-            best_bs[seq]=bs; best_cons[seq]=cons
-          } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
-            runner_bs[seq]=bs; runner_cons[seq]=cons
-          }
-        }
-        for(seq in best_cons){
-          rb = (seq in runner_bs ? runner_bs[seq] : 0)
-          rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-          printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
-        }
-      }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
-    done
+    run_vote_cycles "$TMPDIR/votes.tsv"
     echo >&2 "  Cycle 10/10 done."
 
     # Aggregate Tier 2 votes
