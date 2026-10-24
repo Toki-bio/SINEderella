@@ -88,9 +88,7 @@ def body_ids(pairs):
         with open(q, "w") as fh: fh.write(f">{x}\n{seq[x]}\n")
         with open(lib, "w") as fh:
             for y in sorted(ys): fh.write(f">{y}\n{seq[y]}\n")
-        # -T 1 (2026-10-24): without it every call starts one worker thread per CPU (128 on therioserver) for a library of a few
-        # sequences: 250 ms of CPU per call instead of 35 ms, the same first HSP per partner (the only line read below)
-        r = subprocess.run(["ssearch36", "-T", "1", "-m", "8", "-E", "100", "-b", str(len(ys) + 5), "-d", "0", q, lib],
+        r = subprocess.run(["ssearch36", "-m", "8", "-E", "100", "-b", str(len(ys) + 5), "-d", "0", q, lib],
                            capture_output=True, text=True)
         os.remove(q); os.remove(lib)
         if r.returncode != 0: raise RuntimeError("fs9_bodycheck: ssearch36 failed: " + r.stderr[-300:])
