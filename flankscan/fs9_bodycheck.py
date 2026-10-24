@@ -23,6 +23,7 @@ bodycheck.txt: background, threshold, counts. Needs bedtools and ssearch36. One 
 """
 import argparse, os, random, shutil, subprocess, sys, tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 ap = argparse.ArgumentParser(description="element test of fs9 twin pairs")
 ap.add_argument("genome"); ap.add_argument("bed"); ap.add_argument("out")
@@ -32,6 +33,9 @@ ap.add_argument("genome"); ap.add_argument("bed"); ap.add_argument("out")
 ap.add_argument("--random", type=int, default=20000); ap.add_argument("--seed", type=int, default=1)
 ap.add_argument("--alpha", type=float, default=0.05); ap.add_argument("--min-copies", type=int, default=20)
 ap.add_argument("--min-background", type=int, default=10)
+# parallel ssearch36 calls (2026-10-24): one call per copy with partners, run one after another, took 8-10 h on tbr VES
+# (620,807 copies, 99,793 with partners); results are keyed by pair, so they do not depend on the order of the calls
+ap.add_argument("--threads", type=int, default=int(os.environ.get("BODYCHECK_THREADS") or 1))
 a = ap.parse_args()
 O = lambda f: os.path.join(a.out, f)
 
@@ -78,20 +82,31 @@ def body_ids(pairs):
     for x, y in pairs:
         x, y = (x, y) if x < y else (y, x)
         part[x].add(y)
-    res = {}
-    q, lib = os.path.join(tmp, "q.fa"), os.path.join(tmp, "lib.fa")
-    for x, ys in part.items():
+    def one(job):
+        i, x, ys = job
+        q, lib = os.path.join(tmp, "q%d.fa" % i), os.path.join(tmp, "lib%d.fa" % i)
         with open(q, "w") as fh: fh.write(f">{x}\n{seq[x]}\n")
         with open(lib, "w") as fh:
             for y in sorted(ys): fh.write(f">{y}\n{seq[y]}\n")
         r = subprocess.run(["ssearch36", "-m", "8", "-E", "100", "-b", str(len(ys) + 5), "-d", "0", q, lib],
                            capture_output=True, text=True)
-        if r.returncode != 0: sys.exit("fs9_bodycheck: ssearch36 failed: " + r.stderr[-300:])
+        os.remove(q); os.remove(lib)
+        if r.returncode != 0: raise RuntimeError("fs9_bodycheck: ssearch36 failed: " + r.stderr[-300:])
+        out = {}
         for l in r.stdout.splitlines():
             if not l.strip() or l.startswith("#"): continue
             f = l.split("\t")
-            if f[1] in ys and (x, f[1]) not in res: res[(x, f[1])] = (float(f[2]), int(f[3]))   # first HSP = best
-        for y in ys: res.setdefault((x, y), (0.0, 0))
+            if f[1] in ys and (x, f[1]) not in out: out[(x, f[1])] = (float(f[2]), int(f[3]))   # first HSP = best
+        for y in ys: out.setdefault((x, y), (0.0, 0))
+        return out
+    res = {}
+    jobs = [(i, x, ys) for i, (x, ys) in enumerate(part.items())]
+    try:
+        with ThreadPoolExecutor(max_workers=max(1, a.threads)) as ex:
+            for out in ex.map(one, jobs):
+                res.update(out)
+    except RuntimeError as e:
+        sys.exit(str(e))
     return res
 
 def get(res, x, y): return res[(x, y) if x < y else (y, x)]

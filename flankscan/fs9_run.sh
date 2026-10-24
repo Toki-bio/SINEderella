@@ -19,6 +19,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # MIN_COPIES 2: any two copies can be compared; until 2026-10-21 it was 20, and smaller families never got a copy verdict
 RUN=$(readlink -f "${1:?RUN_DIR}"); T=${2:-8}; MINC=${3:-${MIN_COPIES:-2}}
+export BODYCHECK_THREADS=${BODYCHECK_THREADS:-$T}   # parallel ssearch36 calls in fs9_bodycheck.py
 G="$RUN/genome.clean.fa"; AF="$RUN/results/assignment_full.tsv"; OUT="$RUN/results/flank_twins"
 [[ -s "$G" && -s "$AF" ]] || { echo "fs9_run: need $G and $AF" >&2; exit 1; }
 [[ -s "$G.fai" ]] || samtools faidx "$G"
