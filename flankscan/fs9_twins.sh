@@ -41,11 +41,16 @@
 #      OUT/summary.txt       counts and shares
 # Env: SOFTMASK=both|0|1 IDMASK=95 BODYCHECK=1|0 MK1=6 MK2=3 (shared seeds needed in pass 1 / 2) W=100 IW=80 MINFL=50 MINLEN=50 START=20 BAND=3 CAP=20 GCAP=20 ID1=85 ID2=70 ARRKB=2000
 #      KCOUNT=<file "20-mer TAB count" of the genome, canonical, e.g. jellyfish dump -c>; counted here up to 300 Mb
+#      FS9_THREADS (default BODYCHECK_THREADS, else 1): workers of fs9_seeds.py and of the confirmation step
+#      FS9_AWK=1: the repeat filter and steps 2-3 in awk, the reference implementation (it writes keys/hits files of tens of GB
+#      on families of 10^5 copies); default fs9_repmask.py and fs9_seeds.py: the same rows, nothing large on disk
 set -euo pipefail
 G=${1:?GENOME.fa}; B=${2:?COPIES.bed}; OUT=${3:?OUT_DIR}
 W=${W:-100}; IW=${IW:-80}; MINFL=${MINFL:-50}; MINLEN=${MINLEN:-50}; START=${START:-20}; BAND=${BAND:-3}
 CAP=${CAP:-20}; GCAP=${GCAP:-20}; ID1=${ID1:-85}; ID2=${ID2:-70}; ARRKB=${ARRKB:-2000}; MK1=${MK1:-6}; MK2=${MK2:-3}
 SOFTMASK=${SOFTMASK:-0}; IDMASK=${IDMASK:-95}
+FS9_AWK=${FS9_AWK:-0}; FS9_THREADS=${FS9_THREADS:-${BODYCHECK_THREADS:-1}}
+HERE9="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 case $SOFTMASK in both|0|1) ;; *) echo "fs9: SOFTMASK must be both, 0 or 1" >&2; exit 1 ;; esac
 mkdir -p "$OUT"; G=$(readlink -f "$G"); B=$(readlink -f "$B"); cd "$OUT"
 [[ -s "$G.fai" ]] || samtools faidx "$G"
@@ -77,11 +82,18 @@ if [[ -n "${KCOUNT:-}" && -s "${KCOUNT:-}" ]]; then
     # jellyfish dump -c writes "KMER COUNT" separated by a SPACE; the first version split on tabs only, so $2 was empty,
     # rep20.tsv came out empty and the repeat filter was silently off in every run with a KCOUNT (rsi, 2026-10-01)
     # only the 20-mers that occur in a flank are kept: a genome's repeated 20-mers can be hundreds of millions (anoCar2)
+    if [[ $FS9_AWK == 1 ]]; then
     gawk -F'\t' -v K=$GK "$RC"'{ s = $3; n = length(s); for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue
                                   r = rc(m); if (r < m) m = r; print m } }' seqs.tsv | sort -u > flank20.tsv
     gawk -v C=$GCAP 'FILENAME == ARGV[1] { want[$1]; next } NF >= 2 { any = 1; m = toupper($1); if ($2 + 0 > C && (m in want)) print m }
                      END { if (!any) exit 1 }' flank20.tsv "$KCOUNT" > rep20.tsv ||
         { echo "fs9: KCOUNT $KCOUNT has no 'KMER COUNT' lines: wrong file or format (jellyfish dump -c)" >&2; exit 1; }
+    rm -f flank20.tsv
+    else
+    # the same rep20.tsv with the flank 20-mers held in memory as numbers (flank20.tsv was 1.3 GB on mau VES, left in the results)
+    python3 -I "$HERE9/fs9_repmask.py" rep seqs.tsv "$KCOUNT" "$GCAP" > rep20.tsv ||
+        { echo "fs9: KCOUNT $KCOUNT has no 'KMER COUNT' lines: wrong file or format (jellyfish dump -c)" >&2; exit 1; }
+    fi
 else
     SZ=$(gawk '{ s += $2 } END { print s + 0 }' "$G.fai")
     (( SZ <= 300000000 )) || { echo "fs9: genome > 300 Mb: give KCOUNT (jellyfish dump -c, k=20, canonical)" >&2; exit 1; }
@@ -91,6 +103,7 @@ else
         END { scan(); for (m in c) if (c[m] > C) print m }' "$G" > rep20.tsv
 fi
 rep_mask() {   # bases covered by a repeated 20-mer become N (seqs.tsv in place)
+    if [[ $FS9_AWK != 1 ]]; then python3 -I "$HERE9/fs9_repmask.py" mask seqs.tsv rep20.tsv > seqs.masked.tsv; mv seqs.masked.tsv seqs.tsv; return; fi
     gawk -F'\t' -v K=$GK "$RC"'
         FILENAME == ARGV[1] { rep[$1]; next }
         { s = $3; n = length(s); for (i = 1; i <= n; i++) mk[i] = 0
@@ -102,6 +115,12 @@ rep_mask() {   # bases covered by a repeated 20-mer become N (seqs.tsv in place)
 # 2-4) one pass: pass_run PATTERN MINKEYS IDMIN TAG
 pass_run() {
     local PAT=$1 MK=$2 IDM=$3 TAG=$4
+    if [[ $FS9_AWK != 1 ]]; then
+        # steps 2-3 in memory, row for row the awk below (fs9_seeds.py): the awk writes one text row per seed shared by two copies
+        # and sorts them (tbr VES, 620,807 copies: hits.p1.tsv 45 GB, hits.p2.tsv 92 GB, keys 3.6 GB each)
+        python3 -I "$HERE9/fs9_seeds.py" seqs.tsv "$PAT" "$MK" --iw "$IW" --cap "$CAP" --band "$BAND" --start "$START" --slack 25 \
+            --threads "$FS9_THREADS" | sort -u > "cand.$TAG.tsv"
+    else
     # seeds: the pattern's 1-positions of each window, with the offset of the window start from the junction; windows with N
     # or with at most 2 distinct bases are skipped
     gawk -F'\t' -v PAT="$PAT" -v IW=$IW 'BEGIN { L = length(PAT); for (j = 1; j <= L; j++) if (substr(PAT, j, 1) == "1") pos[++np] = j }
@@ -133,10 +152,19 @@ pass_run() {
           if (p != cur) { flush(); cur = p; delete c; dl = ""; ma = 1e9; mb = 1e9 }
           c[$4]++; dl = dl " " $4; if ($5 < ma) ma = $5; if ($6 < mb) mb = $6 }
         END { flush() }' | sort -u > "cand.$TAG.tsv"
-    # confirmation: score the diagonal and BAND diagonals around it (offset in copy a = offset in copy b + delta)
-    gawk -F'\t' -v OFS='\t' -v IDM=$IDM -v ML=$MINLEN -v START=$START -v BAND=$BAND -v TAG=$TAG '
+    rm -f "keys.$TAG.tsv" "hits.$TAG.tsv"
+    fi
+    # confirmation: score the diagonal and BAND diagonals around it (offset in copy a = offset in copy b + delta).
+    # FS9_THREADS > 1: the candidate rows are cut into consecutive ranges, one awk each, and the outputs joined in order: the same
+    # rows in the same order as one awk (one awk took 6-28 min per pass on the 340k-620k copy VES families)
+    local NCAND P k lo hi rc=0; local -a pids=()
+    NCAND=$(wc -l < "cand.$TAG.tsv"); P=$FS9_THREADS; (( NCAND < 20000 )) && P=1
+    for (( k = 0; k < P; k++ )); do
+    lo=$(( NCAND * k / P )); hi=$(( NCAND * (k + 1) / P ))
+    gawk -F'\t' -v OFS='\t' -v IDM=$IDM -v ML=$MINLEN -v START=$START -v BAND=$BAND -v TAG=$TAG -v LO=$lo -v HI=$hi '
         FILENAME == ARGV[1] { sq[$1 SUBSEP $2] = $3; next }
-        { A = sq[$2 SUBSEP $1]; Bq = sq[$3 SUBSEP $1]; la = length(A); lb = length(Bq); bestid = 0; bestl = 0
+        FNR <= LO || FNR > HI { next }
+        { A =sq[$2 SUBSEP $1]; Bq = sq[$3 SUBSEP $1]; la = length(A); lb = length(Bq); bestid = 0; bestl = 0
           for (dd = $4 - BAND; dd <= $4 + BAND; dd++) {
               sc = 0; st = 0; mt = 0; ln = 0; bs = 0; bm = 0; bl = 0
               for (j = 1; j <= lb; j++) { i = j + dd; if (i < 1 || i > la) continue
@@ -147,7 +175,13 @@ pass_run() {
                   ln++; if (x == y) { sc++; mt++ } else sc--
                   if (sc > bs) { bs = sc; bm = mt; bl = ln } }
               if (bl >= ML && 100 * bm / bl >= IDM && bl > bestl) { bestl = bl; bestid = 100 * bm / bl } }
-          if (bestl >= ML) printf "%s\t%s\t%s\t%.1f\t%d\t%s\n", $2, $3, $1, bestid, bestl, TAG }' seqs.tsv "cand.$TAG.tsv" > "conf.$TAG.tsv"
+          if (bestl >= ML) printf "%s\t%s\t%s\t%.1f\t%d\t%s\n", $2, $3, $1, bestid, bestl, TAG }' seqs.tsv "cand.$TAG.tsv" > "conf.$TAG.tsv.$k" &
+    pids+=($!)
+    done
+    for k in "${pids[@]}"; do wait "$k" || rc=1; done
+    (( rc == 0 )) || { echo "fs9: confirmation of $TAG failed" >&2; exit 1; }
+    for (( k = 0; k < P; k++ )); do cat "conf.$TAG.tsv.$k"; done > "conf.$TAG.tsv"
+    for (( k = 0; k < P; k++ )); do rm -f "conf.$TAG.tsv.$k"; done
 }
 
 find_pairs() {   # SM IDa IDb OUTFILE: pairs of one masking mode, pass 1 at IDa, pass 2 at IDb
