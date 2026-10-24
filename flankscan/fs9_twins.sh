@@ -206,7 +206,7 @@ fi
 gawk -F'\t' -v M=$MINFL '{ s = $3; nn = gsub(/N/, "", s); if (length(s) < M) print $1 }' seqs.tsv | sort -u > masked.txt
 # arrays: copies on one contig closer than ARRKB to a twin partner form one array; every pair inside it is "array", not "twin"
 gawk -F'\t' -v OFS='\t' -v KB=$ARRKB 'FILENAME == ARGV[1] { ctg[$4] = $1; pos[$4] = $2; next }
-    function root(x) { while (up[x] != x) x = up[x]; return x }
+    function root(x,   r, y) { r = x; while (up[r] != r) r = up[r]; while (x != r) { y = up[x]; up[x] = r; x = y }; return r }   # path compression, same roots (2026-10-24): the status step took 178 s on cth VES, 92k copies; now 1.6 s
     FILENAME == ARGV[2] { a[++n] = $0; if (!($1 in up)) up[$1] = $1; if (!($2 in up)) up[$2] = $2
         d = pos[$1] - pos[$2]; if (d < 0) d = -d
         if (ctg[$1] == ctg[$2] && d < KB) { ra = root($1); rb = root($2); if (ra != rb) up[ra] = rb; arr[$1]; arr[$2] }; next }
@@ -215,7 +215,7 @@ gawk -F'\t' -v OFS='\t' -v KB=$ARRKB 'FILENAME == ARGV[1] { ctg[$4] = $1; pos[$4
 
 # per-copy status; precedence twin1 > twin2 > array > untestable > masked > unique; groups = twin pairs joined
 gawk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { allc[$4]; next } FILENAME == ARGV[2] { unt[$1]; next } FILENAME == ARGV[3] { msk[$1]; next }
-    function root(x) { while (up[x] != x) x = up[x]; return x }
+    function root(x,   r, y) { r = x; while (up[r] != r) r = up[r]; while (x != r) { y = up[x]; up[x] = r; x = y }; return r }   # path compression, same roots (2026-10-24): the status step took 178 s on cth VES, 92k copies; now 1.6 s
     { a = $1; b = $2; if (!(a in up)) up[a] = a; if (!(b in up)) up[b] = b
       st = ($7 == "array") ? "array" : ($6 == "T1" ? "twin1" : "twin2"); rank = (st == "twin1") ? 4 : (st == "twin2") ? 3 : 2
       for (v = 1; v <= 2; v++) { c = (v == 1) ? a : b; if (rank > R[c]) { R[c] = rank; S[c] = st }; np[c]++ }
