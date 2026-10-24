@@ -104,6 +104,9 @@ seed, off, cop, sid = seed[keep], off[keep], cop[keep], sid[keep]; del keep, brk
 K = len(seed)
 if K == 0: sys.exit(0)
 pos = np.arange(K, dtype=np.int64)            # position in the awk's row order (rows not paired removed; order kept)
+# the 64-bit keys below: (copy_a * NC + copy_b) * 2 + side, times 256 for the delta; position_i * K + position_j
+if NC * NC * 512 >= 2 ** 63 or K * K >= 2 ** 63:
+    sys.exit("fs9_seeds: %d copies / %d seed rows: too many for the 64-bit pair keys; use FS9_AWK=1" % (NC, K))
 
 # ---- partner index: rows grouped by (seed, side), copies ascending; partners of a row = rows of its group with a larger copy
 o2 = np.lexsort((cop, sid, seed))
