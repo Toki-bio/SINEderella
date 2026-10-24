@@ -51,6 +51,8 @@ gawk -F'\t' 'NR > 1 && $5 == "assigned" { print $2 }' "$AF" | sort | uniq -c | g
         END { printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.1f\n", F, t, n["twin1"], n["twin2"], n["array"], n["masked"], n["untestable"], n["unique"],
                      t ? 100 * (n["twin1"] + n["twin2"]) / t : 0 }' "$D/copy_status.tsv" >> "$OUT.tsv"
     rm -f "$D"/keys.p?.tsv "$D"/hits.p?.tsv "$D"/f5.fa "$D"/f3.fa "$D"/seqs.tsv "$D"/rep20.tsv "$D"/flank20.tsv
+    # intermediates no other step reads (2026-10-24; cand.p1/p2 were 0.6 GB on tbr VES); FS9_KEEP=1 keeps them for debugging
+    [[ ${FS9_KEEP:-0} == 1 ]] || rm -f "$D"/cand.p?.tsv "$D"/conf.p?.tsv "$D"/pairs*.body "$D"/flank_groups.body "$D"/seqs.raw.tsv
 done
 echo "fs9_run: $(( $(wc -l < "$OUT.tsv") - 1 )) families -> $OUT.tsv"
 column -t "$OUT.tsv" 2> /dev/null || cat "$OUT.tsv"
