@@ -20,6 +20,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # MIN_COPIES 2: any two copies can be compared; until 2026-10-21 it was 20, and smaller families never got a copy verdict
 RUN=$(readlink -f "${1:?RUN_DIR}"); T=${2:-8}; MINC=${3:-${MIN_COPIES:-2}}
 export BODYCHECK_THREADS=${BODYCHECK_THREADS:-$T}   # parallel ssearch36 calls in fs9_bodycheck.py
+export FS9_THREADS=${FS9_THREADS:-$T}               # workers of fs9_seeds.py and of the confirmation awks
 G="$RUN/genome.clean.fa"; AF="$RUN/results/assignment_full.tsv"; OUT="$RUN/results/flank_twins"
 [[ -s "$G" && -s "$AF" ]] || { echo "fs9_run: need $G and $AF" >&2; exit 1; }
 [[ -s "$G.fai" ]] || samtools faidx "$G"
@@ -49,7 +50,9 @@ gawk -F'\t' 'NR > 1 && $5 == "assigned" { print $2 }' "$AF" | sort | uniq -c | g
     gawk -F'\t' -v OFS='\t' -v F="$FAM" '{ n[$2]++; t++ }
         END { printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.1f\n", F, t, n["twin1"], n["twin2"], n["array"], n["masked"], n["untestable"], n["unique"],
                      t ? 100 * (n["twin1"] + n["twin2"]) / t : 0 }' "$D/copy_status.tsv" >> "$OUT.tsv"
-    rm -f "$D"/keys.p?.tsv "$D"/hits.p?.tsv "$D"/f5.fa "$D"/f3.fa "$D"/seqs.tsv "$D"/rep20.tsv
+    rm -f "$D"/keys.p?.tsv "$D"/hits.p?.tsv "$D"/f5.fa "$D"/f3.fa "$D"/seqs.tsv "$D"/rep20.tsv "$D"/flank20.tsv
+    # intermediates no other step reads (2026-10-24; cand.p1/p2 were 0.6 GB on tbr VES); FS9_KEEP=1 keeps them for debugging
+    [[ ${FS9_KEEP:-0} == 1 ]] || rm -f "$D"/cand.p?.tsv "$D"/conf.p?.tsv "$D"/pairs*.body "$D"/flank_groups.body "$D"/seqs.raw.tsv
 done
 echo "fs9_run: $(( $(wc -l < "$OUT.tsv") - 1 )) families -> $OUT.tsv"
 column -t "$OUT.tsv" 2> /dev/null || cat "$OUT.tsv"

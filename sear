@@ -407,8 +407,15 @@ else
   rm -f "${WB_BASE}".2k.part_* "${WB_BASE}.2k.stamp"
   # windows of 3,000 bp every 2,000 bp: neighbouring windows share 1,000 bp, so a copy up to 1 kb lies whole in one window (the
   # length filter is applied per window: with 2,500 bp windows copies over 500 bp across a border were lost or cut, audit 2026-10-14)
-  seqkit sliding -g -s 2000 -W 3000 "$WORKING_BANK" > "$WORKING_BANK"."2k.bnk"
-  seqkit split2 -p 20 -O . "$WORKING_BANK"."2k.bnk"
+  # streamed into the 20 parts (2026-10-24): the whole window bank (1.5 x the genome, 3.1 GB for rsi) was written first and
+  # stayed on disk for the whole of step 1, read by nothing; the parts are byte-identical (rsi, all 20 compared)
+  rm -rf "${WB_BASE}.2k.split.tmp"; mkdir "${WB_BASE}.2k.split.tmp"
+  seqkit sliding -g -s 2000 -W 3000 "$WORKING_BANK" | seqkit split2 -p 20 -O "${WB_BASE}.2k.split.tmp"
+  for _p in "${WB_BASE}".2k.split.tmp/stdin.part_*; do
+    _n=${_p##*/stdin.part_}; mv "$_p" "${WB_BASE}.2k.part_${_n%.*}.bnk"
+  done
+  rmdir "${WB_BASE}.2k.split.tmp"
+  compgen -G "${WB_BASE}.2k.part_*.bnk" > /dev/null || { echo "sear: no window parts were written for $WORKING_BANK" >&2; exit 1; }
   echo "$WB_STAMP" > "${WB_BASE}.2k.stamp"
 fi
 
@@ -466,9 +473,6 @@ for bank in "${WB_BASE}".2k.part_*.bnk; do
       break
     fi
 
-    samtools faidx "$bank" >/dev/null 2>&1 || true
-    sort -V "$bank".fai > "${bank}_s.fai"
-
     if [[ "$Pl" == "0" ]]; then
       round=$((round+1))
       break
@@ -477,6 +481,11 @@ for bank in "${WB_BASE}".2k.part_*.bnk; do
     if [[ $DO_MINUS -eq 0 ]]; then
       break
     fi
+
+    # the sorted part index is read only by the minus bank below; it was built after every part of every query (1.4-2.0 s
+    # per 155 MB part on rsi: ~12 of the 19 min of step-1 searches with 22 consensuses), also without --minus (2026-10-24)
+    samtools faidx "$bank" >/dev/null 2>&1 || true
+    sort -V "$bank".fai > "${bank}_s.fai"
 
     echo "creating minus bank"
     cat plus_to_add_*_"$bank".bed | sort -V > "$round"_"$bank".bed

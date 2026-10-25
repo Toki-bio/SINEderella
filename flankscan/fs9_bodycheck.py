@@ -38,6 +38,8 @@ ap.add_argument("--min-background", type=int, default=10)
 ap.add_argument("--threads", type=int, default=int(os.environ.get("BODYCHECK_THREADS") or 1))
 a = ap.parse_args()
 O = lambda f: os.path.join(a.out, f)
+SST = os.environ.get("BODYCHECK_SSEARCH_T", "").strip()
+if SST and not SST.isdigit(): sys.exit("fs9_bodycheck: BODYCHECK_SSEARCH_T must be a number of threads")
 
 loc = {}
 for line in open(a.bed):
@@ -88,7 +90,11 @@ def body_ids(pairs):
         with open(q, "w") as fh: fh.write(f">{x}\n{seq[x]}\n")
         with open(lib, "w") as fh:
             for y in sorted(ys): fh.write(f">{y}\n{seq[y]}\n")
-        r = subprocess.run(["ssearch36", "-m", "8", "-E", "100", "-b", str(len(ys) + 5), "-d", "0", q, lib],
+        # BODYCHECK_SSEARCH_T (2026-10-24, owner's decision, default unset = no -T = one worker per CPU): a library of a few
+        # copies is scored against shuffles whose buffers are sized by the worker count, so the E-values, and which weak pairs
+        # pass -E 100, depend on -T (docs/SPEEDUP_SSEARCH.md). -T 1: 35 ms CPU per one-partner call instead of 250 ms, the
+        # same verdicts in every family tested, weak background pairs can differ; without -T the result depends on the machine
+        r = subprocess.run(["ssearch36"] + (["-T", SST] if SST else []) + ["-m", "8", "-E", "100", "-b", str(len(ys) + 5), "-d", "0", q, lib],
                            capture_output=True, text=True)
         os.remove(q); os.remove(lib)
         if r.returncode != 0: raise RuntimeError("fs9_bodycheck: ssearch36 failed: " + r.stderr[-300:])
