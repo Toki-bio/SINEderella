@@ -104,6 +104,23 @@ fi
 
 echo "[$(date)] Found ${#QUERY_FILES[@]} consensus sequences to search"
 
+# --- COMPOSITE PIECES (docs/PARTIAL_COPIES.md, 2026-10-26): sear keeps hits covering >= 80 % of the query, so a copy of one
+#     unit of a composite is missed unless it is also 80 % of another bank entry (rsi without r1_9seqs: 3 of 21 r1 loci).
+#     Every composite stretch >= 50 bp (tools/composite_units.py --bank) is searched as a query of its own; its header's
+#     first word is the composite, so its hits carry the composite's label. Step 2 votes with the bank only. PIECE_SEARCH=0: off.
+_TOOLS_P="${SINEDERELLA_TOOLS:-$(dirname "$(readlink -f "$0")")/tools}"
+rm -f pieces.part_*.fa pieces.named.fa composite_units.bank.tsv
+if [[ "${PIECE_SEARCH:-1}" != "0" && -f "$_TOOLS_P/composite_units.py" && -f "$_TOOLS_P/composite_pieces.py" ]]; then
+    python3 "$_TOOLS_P/composite_units.py" --bank "$CONSENSUS" composite_units.bank.tsv "${THREADS:-4}" >&2 \
+        || { echo "ERROR: composite_units.py --bank failed (PIECE_SEARCH=0 searches without composite pieces)"; exit 1; }
+    _npieces=$(python3 "$_TOOLS_P/composite_pieces.py" composite_units.bank.tsv "$CONSENSUS" . "${PIECE_MIN_LEN:-50}") \
+        || { echo "ERROR: composite_pieces.py failed (PIECE_SEARCH=0 searches without composite pieces)"; exit 1; }
+    if (( _npieces > 0 )); then
+        QUERY_FILES+=(pieces.part_*.fa)
+        echo "[$(date)] + ${_npieces} composite pieces (>= ${PIECE_MIN_LEN:-50} bp) searched as queries of their own"
+    fi
+fi
+
 # KEY CHANGE: keep genome split parts during this entire Step1 run (reuse across queries)
 # sear must implement -k/--keep as discussed
 # sear writes its work files (the 2.5-3 kb window bank, 1.25 x the genome; a cleaned copy when names carry '_') next to the genome
@@ -150,7 +167,12 @@ if [[ "${SKIP_SATELLITES:-0}" == "1" ]]; then
     echo "skipped (SKIP_SATELLITES=1)" > satellites/screen_status.txt
 elif [[ -f "$_TOOLS/satellite_stage.py" ]] && command -v trf >/dev/null 2>&1; then
     echo "[$(date)] Satellite screen (tools/satellite_stage.py) on searches/"
-    _SAT_ARGS=(--searches searches --genome "$GENOME" --cons "$CONSENSUS" --out satellites --threads "${THREADS:-$(nproc 2>/dev/null || echo 8)}")
+    # composite pieces are screened too, under their file names (searches/pieces.named.fa)
+    _SAT_CONS="$CONSENSUS"
+    if [[ -s searches/pieces.named.fa ]]; then
+        cat "$CONSENSUS" searches/pieces.named.fa > satellites_queries.fa; _SAT_CONS="$(readlink -f satellites_queries.fa)"
+    fi
+    _SAT_ARGS=(--searches searches --genome "$GENOME" --cons "$_SAT_CONS" --out satellites --threads "${THREADS:-$(nproc 2>/dev/null || echo 8)}")
     [[ "${SATELLITE_EXCLUDE:-1}" == "0" ]] && _SAT_ARGS+=(--no-exclude)
     _SAT_ARGS+=(--exclude-b "${SATELLITE_EXCLUDE_B:-verified}")
     set +e
