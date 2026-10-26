@@ -22,8 +22,8 @@ rsi: r1_9seqs (155 bp, 21 copies) is in the bank only for this; without it its c
 ## Test (therioserver `/home/toki/rhin/rsi_nor1_20261026/partial_test/`, `mini.sh`)
 20,000 random copies of the no-r1 run plus the 19 copies overlapping the 21 r1 loci of rsi_main_20261022; step 2 (this
 branch) + family roll-up, bank without r1.
-- r1 loci: 18 of 19 labelled partial: 11 on the head only (`r1_r3_P2:2-89` ~ P1 / C11 2-89, 83-113 bp), 7 on head + module
-  (`P1 / C11 2-161`, 131-160 bp); 1 is a full r1_r3_P1 copy (subfamily-firm). Coverage 0.20-0.37, every one above its
+- r1 loci: 18 of 19 labelled partial: 10 with r1_r3_P2 best (head, `r1_r3_P2:2-83` to `2-113`, 82-112 bp), 8 longer
+  (head + module, best C11 or P1, 119-160 bp); 1 is a full r1_r3_P1 copy (subfamily-firm). Coverage 0.20-0.37, every one above its
   stretch bar (685-1401 against 355-671).
 - All copies: 232 partial (1.2 %), 1 below its stretch bar, 941 still unresolved, of 1,173 subfamily-open; partial copies
   of C11 53, P1 37, P2 36, P18 36, r6 17, P26 14, others <= 8.
