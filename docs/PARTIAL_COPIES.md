@@ -46,6 +46,17 @@ Rhin_partial1 (P1 2-200, 1) and one single-copy stretch. Assignments, votes and 
 
 ## What the rule cannot reach: step 1 keeps only hits covering >= 80 % of a query
 `sear` keeps a hit only when it covers >= Slf (0.8) x the query length. A copy that is a part of a composite and not 80 %
-of any bank entry is never extracted, so no step-2 rule sees it (rsi without r1: 3 of the 21 r1 loci). Test running:
-step 1 with every composite stretch >= 50 bp (`composite_units.tsv`) as a query of its own
-(therioserver `/home/toki/rhin/rsi_nor1_20261026/blocktest/`).
+of any bank entry is never extracted, so no step-2 rule sees it (rsi without r1: 3 of the 21 r1 loci).
+
+Test (therioserver `/home/toki/rhin/rsi_nor1_20261026/blocktest/`, `blocktest.sh`, `blockcmp.py`, `blockcmp.txt`): step 1
+search (same code, cleaned genome and settings as the no-r1 run) with the 18 composite stretches >= 50 bp of
+`composite_units.tsv` as queries of their own; hits merged into loci (bedtools merge) and compared with the no-r1 run's
+loci before its satellite screen (67,299). The satellite screen of the test itself did not run (trf not on PATH outside
+the orchestrator), so no satellite loci were removed from the test's side.
+- 71,533 piece loci; 1,570 overlap no locus of the bank without r1 (2.3 %).
+- All 21 r1 loci are among the piece loci, the 3 the bank without r1 missed included.
+- New loci per query (a locus found by several queries counts for each): P18 290-426 (r8 module) 492, C11 472-589
+  (r3-type end) 345, P18 152-289 (the 10-bp-unit middle piece) 334, the r1-type head of C11 / P1 / P2 283 / 281 / 247,
+  every other stretch <= 70.
+- Not yet known: whether the new loci are SINE loci. They need the vote and the flank verdict (a full run with the pieces
+  in the search bank); the middle piece of P18 is a tandem of 10-bp units and may mostly find simple repeats.
