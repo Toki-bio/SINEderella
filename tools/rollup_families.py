@@ -117,44 +117,59 @@ def partial_call(rows, lens, thr, f_of, fam_name, fam_bs):
 
 
 def group_partials(items):
-    """Group partial copies into stretches. items: list of (family, {consensus: (start, end)}). Two copies of one family are
-    linked when, on a consensus both match, their starts and their ends each differ by at most max(10, 10 % of the shorter
-    span); a stretch = a connected group. Returns (group index per item, groups), a group = (family, [item indexes],
+    """Group partial copies into stretches. items: list of (family, best consensus, {consensus: (start, end)}).
+    Seeds, not chains (2026-10-27: single linkage joined 1,219 of 1,291 rfe partial copies through copies of intermediate
+    spans into one stretch with no common span). 1. Per family and best consensus, the copies' spans on it are taken in order
+    of how often they occur; a copy joins the first seed whose start and end each lie within max(10 bp, 10 % of the seed's
+    length) of its own, else it seeds a new group. 2. Two groups of one family with different best consensuses are joined
+    when, on a consensus both match, their median spans lie within the same distance (the same head found best on P1 by
+    some copies and on P2 by others). Returns (group index per item, groups), a group = (family, [item indexes],
     {consensus: (median start, median end)} over the consensuses matched by at least half of its copies), groups sorted by
     family and size (largest first)."""
-    par = list(range(len(items)))
+    tol = lambda s, e: max(10, 0.1 * (e - s + 1))
+    close = lambda x, y: abs(x[0] - y[0]) <= tol(*y) and abs(x[1] - y[1]) <= tol(*y)
+    med = lambda x: sorted(x)[len(x) // 2]
+    by = defaultdict(list)
+    for i, (F, best, comp) in enumerate(items):
+        by[(F, best)].append(i)
+    seeds = []                                   # [family, best, seed span, [item indexes]]
+    for (F, best), idx in by.items():
+        count = defaultdict(int)
+        for i in idx:
+            count[items[i][2][best]] += 1
+        own = []
+        for i in sorted(idx, key=lambda i: (-count[items[i][2][best]], items[i][2][best], i)):
+            sp = items[i][2][best]
+            for g in own:
+                if close(sp, g[2]):
+                    g[3].append(i)
+                    break
+            else:
+                own.append([F, best, sp, [i]])
+        seeds += own
+    def spans_of(idx):
+        sp = defaultdict(list)
+        for i in idx:
+            for c, se in items[i][2].items():
+                sp[c].append(se)
+        return {c: (med([x for x, _ in v]), med([y for _, y in v])) for c, v in sp.items() if 2 * len(v) >= len(idx)}
+    par = list(range(len(seeds)))
     def find(i):
         while par[i] != i:
             par[i] = par[par[i]]
             i = par[i]
         return i
-    by = defaultdict(list)
-    for i, (F, comp) in enumerate(items):
-        for c, (s, e) in comp.items():
-            by[(F, c)].append((s, e, i))
-    for key, v in by.items():
-        v.sort()
-        for a in range(len(v)):
-            sa, ea, ia = v[a]
-            for b in range(a + 1, len(v)):
-                sb, eb, ib = v[b]
-                tol = max(10, 0.1 * min(ea - sa + 1, eb - sb + 1))
-                if sb - sa > tol:
-                    break
-                if abs(eb - ea) <= tol:
-                    par[find(ia)] = find(ib)
+    sps = [spans_of(g[3]) for g in seeds]
+    for a in range(len(seeds)):
+        for b in range(a + 1, len(seeds)):
+            if seeds[a][0] != seeds[b][0] or seeds[a][1] == seeds[b][1]:
+                continue
+            if any(c in sps[b] and close(sps[a][c], sps[b][c]) for c in sps[a]):
+                par[find(a)] = find(b)
     comps = defaultdict(list)
-    for i in range(len(items)):
-        comps[find(i)].append(i)
-    med = lambda x: sorted(x)[len(x) // 2]
-    groups = []
-    for idx in comps.values():
-        spans = defaultdict(list)
-        for i in idx:
-            for c, se in items[i][1].items():
-                spans[c].append(se)
-        keep = {c: (med([s for s, _ in v]), med([e for _, e in v])) for c, v in spans.items() if 2 * len(v) >= len(idx)}
-        groups.append((items[idx[0]][0], sorted(idx), keep))
+    for k, g in enumerate(seeds):
+        comps[find(k)] += g[3]
+    groups = [(items[idx[0]][0], sorted(idx), spans_of(idx)) for idx in comps.values()]
     groups.sort(key=lambda g: (g[0], -len(g[1]), min(g[1])))
     gi = [0] * len(items)
     for k, g in enumerate(groups):
@@ -343,7 +358,7 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
         if new_status != "assigned":
             stats[F]["not_firm"] += 1
     # partial copies grouped into stretches; each copy's layer2 gets its stretch id (<family>_partial<n>, largest first)
-    gi, groups = group_partials([(partial_rows[j][1], partial_rows[j][9]) for _, j in pending])
+    gi, groups = group_partials([(partial_rows[j][1], partial_rows[j][2], partial_rows[j][9]) for _, j in pending])
     sid, nth = [], defaultdict(int)
     for F_, idx, sp in groups:
         nth[F_] += 1

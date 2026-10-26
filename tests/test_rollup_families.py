@@ -129,17 +129,20 @@ def test_partial_copies(tmp_path):
 
 
 def test_group_partials():
-    """copies whose spans on a shared consensus start and end close together form one stretch; head-only vs head+module apart"""
-    items = [("R", {"P2": (2, 89), "P1": (2, 89)}),        # head, best P2
-             ("R", {"P2": (2, 83), "C11": (2, 83)}),       # head, linked to the first through P2
-             ("R", {"P1": (2, 93), "C11": (7, 93)}),       # head, linked to the first through P1 (ends 4 bp apart)
-             ("R", {"P1": (2, 161), "C11": (2, 161)}),     # head + module: ends 70 bp past the head
-             ("R", {"C11": (7, 141), "P1": (7, 141)}),     # head + module, ends 20 bp from the fourth: more than 13.5 allowed
-             ("M", {"P2": (2, 89)})]                       # another family: never linked
+    """seeds per best consensus, then groups joined on a shared consensus; head-only vs head+module apart; no chaining"""
+    items = [("R", "P2", {"P2": (2, 89), "P1": (2, 89)}),        # head, best P2
+             ("R", "P2", {"P2": (2, 83), "C11": (2, 83)}),       # head, same seed as the first (ends 6 bp apart)
+             ("R", "P1", {"P1": (2, 93), "C11": (7, 93)}),       # head found best on P1: joined through P1 (4 bp)
+             ("R", "P1", {"P1": (2, 161), "C11": (2, 161)}),     # head + module: ends 68 bp past the head
+             ("R", "C11", {"C11": (7, 141), "P1": (7, 141)}),    # head + module, ends 20 bp from the fourth: more than 16
+             ("M", "P2", {"P2": (2, 89)})]                       # another family: never joined
     gi, groups = rf.group_partials(items)
-    assert gi[0] == gi[1] == gi[2] and gi[3] != gi[0] and gi[5] not in (gi[0], gi[3])
-    assert gi[4] != gi[3]                                  # 20 bp > max(10, 10 % of 135): two stretches
+    assert gi[0] == gi[1] == gi[2] and gi[3] != gi[0] and gi[5] not in (gi[0], gi[3]) and gi[4] != gi[3]
     big = groups[gi[0]]
     assert big[0] == "R" and big[1] == [0, 1, 2]
     assert big[2]["P2"] == (2, 89) and big[2]["P1"] == (2, 93) and "C11" in big[2]
     assert rf.stretch_label({"P2": (2, 89), "P1": (2, 93)}) == "P1:2-93,P2:2-89"
+    # spans growing by 11 bp from the head to head + module: single linkage made one group of them (rfe), seeds do not
+    chain = [("R", "P1", {"P1": (2, e)}) for e in (89, 100, 111, 122, 133, 144, 161)] + [("R", "P1", {"P1": (2, 89)})] * 5
+    gi2, groups2 = rf.group_partials(chain)
+    assert len(groups2) > 3 and groups2[0][1] == [0, 7, 8, 9, 10, 11] and groups2[0][2]["P1"] == (2, 89)
