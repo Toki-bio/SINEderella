@@ -97,7 +97,7 @@ def partial_call(rows, lens, thr, f_of, fam_name, fam_bs):
     bank). Competitors = the consensuses of the family that won a cycle, plus the best one's runner-up when it scores >= 90 % of it.
     Partial when the copy covers < 60 % of every competitor and >= 50 bp of the best. It must pass the best consensus's threshold
     scaled to the stretch (threshold x stretch length / consensus length; the threshold is 0.45 x the 10th-best full-length sum).
-    Returns None (not partial, or spans unknown) or (label, best, coverage, stretch threshold, passes)."""
+    Returns None (not partial, or spans unknown) or (label, best, coverage, stretch threshold, passes, {consensus: span})."""
     own = [r for r in rows if f_of(r[0]) == fam_name and r[1] > 0]
     if not own or any(r[5] is None for r in own):
         return None
@@ -113,7 +113,60 @@ def partial_call(rows, lens, thr, f_of, fam_name, fam_bs):
     sthr = thr[best[0]] * bspan / float(lens[best[0]])
     order = [best[0]] + sorted(c for c in comp if c != best[0])
     label = ",".join("%s:%d-%d" % (c, comp[c][0], comp[c][1]) for c in order)
-    return label, best[0], cov[best[0]], sthr, fam_bs >= sthr
+    return label, best[0], cov[best[0]], sthr, fam_bs >= sthr, comp
+
+
+def group_partials(items):
+    """Group partial copies into stretches. items: list of (family, {consensus: (start, end)}). Two copies of one family are
+    linked when, on a consensus both match, their starts and their ends each differ by at most max(10, 10 % of the shorter
+    span); a stretch = a connected group. Returns (group index per item, groups), a group = (family, [item indexes],
+    {consensus: (median start, median end)} over the consensuses matched by at least half of its copies), groups sorted by
+    family and size (largest first)."""
+    par = list(range(len(items)))
+    def find(i):
+        while par[i] != i:
+            par[i] = par[par[i]]
+            i = par[i]
+        return i
+    by = defaultdict(list)
+    for i, (F, comp) in enumerate(items):
+        for c, (s, e) in comp.items():
+            by[(F, c)].append((s, e, i))
+    for key, v in by.items():
+        v.sort()
+        for a in range(len(v)):
+            sa, ea, ia = v[a]
+            for b in range(a + 1, len(v)):
+                sb, eb, ib = v[b]
+                tol = max(10, 0.1 * min(ea - sa + 1, eb - sb + 1))
+                if sb - sa > tol:
+                    break
+                if abs(eb - ea) <= tol:
+                    par[find(ia)] = find(ib)
+    comps = defaultdict(list)
+    for i in range(len(items)):
+        comps[find(i)].append(i)
+    med = lambda x: sorted(x)[len(x) // 2]
+    groups = []
+    for idx in comps.values():
+        spans = defaultdict(list)
+        for i in idx:
+            for c, se in items[i][1].items():
+                spans[c].append(se)
+        keep = {c: (med([s for s, _ in v]), med([e for _, e in v])) for c, v in spans.items() if 2 * len(v) >= len(idx)}
+        groups.append((items[idx[0]][0], sorted(idx), keep))
+    groups.sort(key=lambda g: (g[0], -len(g[1]), min(g[1])))
+    gi = [0] * len(items)
+    for k, g in enumerate(groups):
+        for i in g[1]:
+            gi[i] = k
+    return gi, groups
+
+
+def stretch_label(spans):
+    """'cons:start-end' of a stretch on each of its consensuses, the longest-matched one first"""
+    order = sorted(spans, key=lambda c: (-(spans[c][1] - spans[c][0]), c))
+    return ",".join("%s:%d-%d" % (c, spans[c][0], spans[c][1]) for c in order)
 
 
 def merge_regions(rows):
@@ -215,9 +268,8 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
 
     stats = defaultdict(lambda: defaultdict(int))
     per_copy = []
-    full_out = open(os.path.join(out, "step2", "step2_output", "assignment_full.tsv"), "w")
-    full_out.write("Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold\tRunnerInfo\n")
-    votes_out = open(os.path.join(out, "step2", "step2_output", "all_votes.tsv"), "w")
+    out_rows = []                 # assignment rows, written after the partial copies are grouped into stretches
+    pending = []                  # (row index, partial_rows index) of the copies labelled partial
     for seq, sub, bs, nv, status, th, tag in rows_full:
         F = f_of(sub)
         new_status, new_bs, new_nv, new_th = status, bs, nv, th
@@ -262,11 +314,12 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
                 layer2 = ";layer2=unresolved"
                 pc = partial_call(votes[seq], lens, thr, f_of, best, fb[best]) if lens else None
                 if pc:
-                    label, pbest, pcov, sthr, ok = pc
-                    partial_rows.append((seq, best, pbest, label, "%.2f" % pcov, str(int(fb[best] + 0.5)), str(int(sthr + 0.5)),
-                                         "partial" if ok else "below_stretch_threshold"))
+                    label, pbest, pcov, sthr, ok, comp = pc
+                    partial_rows.append([seq, best, pbest, label, "%.2f" % pcov, str(int(fb[best] + 0.5)), str(int(sthr + 0.5)),
+                                         "partial" if ok else "below_stretch_threshold", "-", comp])
                     if ok:
-                        layer2 = ";layer2=partial:" + label
+                        layer2 = ";layer2=partial:"          # + stretch id, filled in after grouping
+                        pending.append((len(out_rows), len(partial_rows) - 1))
                         stats[F]["partial"] += 1
                 rc = fc.get(best, "NA")
                 runner = f_of(rc) if rc != "NA" else "NA"
@@ -284,23 +337,46 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
             new_tag = f"runner=NA;runner_bs=0;runner_ratio=0.0000{layer2};tie_with={rd.get('runner', 'NA')}"
         else:
             new_tag = "NA" if tag == "NA" and not layer2 else f"runner={runner};runner_bs={rbs};runner_ratio={rratio}{layer2}"
-        full_out.write("\t".join([seq, F, str(new_bs), str(new_nv), new_status, str(new_th), new_tag]) + "\n")
-        votes_out.write(f"{seq}\t{F}\t{new_nv}\t{new_bs}\n")
-        per_copy.append((seq, sub, F, status, new_status, new_nv, layer2.lstrip(";")))
+        out_rows.append([seq, F, str(new_bs), str(new_nv), new_status, str(new_th), new_tag])
+        per_copy.append([seq, sub, F, status, new_status, new_nv, layer2.lstrip(";")])
         stats[F]["total"] += 1
         if new_status != "assigned":
             stats[F]["not_firm"] += 1
-    full_out.close()
-    votes_out.close()
+    # partial copies grouped into stretches; each copy's layer2 gets its stretch id (<family>_partial<n>, largest first)
+    gi, groups = group_partials([(partial_rows[j][1], partial_rows[j][9]) for _, j in pending])
+    sid, nth = [], defaultdict(int)
+    for F_, idx, sp in groups:
+        nth[F_] += 1
+        sid.append("%s_partial%d" % (F_, nth[F_]))
+    for k, (ri, j) in enumerate(pending):
+        out_rows[ri][6] = out_rows[ri][6].replace("layer2=partial:", "layer2=partial:" + sid[gi[k]], 1)
+        per_copy[ri][6] = per_copy[ri][6].replace("layer2=partial:", "layer2=partial:" + sid[gi[k]], 1)
+        partial_rows[j][8] = sid[gi[k]]
+    with open(os.path.join(out, "step2", "step2_output", "assignment_full.tsv"), "w") as full_out, \
+            open(os.path.join(out, "step2", "step2_output", "all_votes.tsv"), "w") as votes_out:
+        full_out.write("Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold\tRunnerInfo\n")
+        for r in out_rows:
+            full_out.write("\t".join(r) + "\n")
+            votes_out.write(f"{r[0]}\t{r[1]}\t{r[3]}\t{r[2]}\n")
+    with open(os.path.join(out, "partial_stretches.tsv"), "w") as fo:
+        fo.write("Stretch\tFamily\tCopies\tMedian_length\tSpans\n")
+        for k, (F_, idx, sp) in enumerate(groups):
+            L = []
+            for i in idx:
+                r = partial_rows[pending[i][1]]
+                b0, b1 = r[9][r[2]]
+                L.append(b1 - b0 + 1)
+            L.sort()
+            fo.write("%s\t%s\t%d\t%d\t%s\n" % (sid[k], F_, len(idx), L[len(L) // 2], stretch_label(sp)))
     with open(os.path.join(out, "family_view.tsv"), "w") as fo:
         fo.write("Sequence\tSubfamily\tFamily\tStatus_subfamily\tStatus_family\tFamily_votes\tLayer2\n")
         for r in per_copy:
             fo.write("\t".join(r) + "\n")
     # partial copies: family-firm copies that match only a stretch of their consensuses (partial_call)
     with open(os.path.join(out, "partial_copies.tsv"), "w") as fo:
-        fo.write("Sequence\tFamily\tBest\tStretch\tCoverage_of_best\tFamily_score\tStretch_threshold\tStatus\n")
+        fo.write("Sequence\tFamily\tBest\tStretch\tCoverage_of_best\tFamily_score\tStretch_threshold\tStatus\tStretch_id\n")
         for r in partial_rows:
-            fo.write("\t".join(r) + "\n")
+            fo.write("\t".join(r[:9]) + "\n")
     members = defaultdict(list)
     for s in set(list(fam.keys()) + list(thr.keys())):
         members[f_of(s)].append(s)

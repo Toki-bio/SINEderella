@@ -113,13 +113,33 @@ def test_partial_copies(tmp_path):
     rf.rollup(root, os.path.join(root, "fam.tsv"), os.path.join(root, "fam.fa"), out, os.path.join(root, "votes.tsv"),
               bank=os.path.join(root, "bank.fa"), tie_rel=0)
     t = table(os.path.join(out, "step2", "step2_output", "assignment_full.tsv"))
-    assert t["c6"][4] == "assigned" and "layer2=partial:A2:1-80,A1:1-80" in t["c6"][6]
+    assert t["c6"][4] == "assigned" and t["c6"][6].endswith("layer2=partial:A_partial1")
+    st = table(os.path.join(out, "partial_stretches.tsv"))
+    assert st["A_partial1"][1:] == ["A", "1", "80", "A1:1-80,A2:1-80"]
     assert t["c7"][4] == "assigned" and "layer2=unresolved" in t["c7"][6] and "partial" not in t["c7"][6]
     assert t["c8"][4] == "assigned" and "layer2=unresolved" in t["c8"][6]          # runner A1 at 93 % competes; below the stretch bar
     assert "layer2=unresolved" in t["c3"][6]                                       # old vote table without spans: unchanged
     p = table(os.path.join(out, "partial_copies.tsv"))
     assert set(p) == {"c6", "c8"}
     assert p["c6"][2] == "A2" and p["c6"][4] == "0.27" and p["c6"][6] == "240" and p["c6"][7] == "partial"
-    assert p["c8"][3] == "A2:1-80,A1:1-80" and p["c8"][7] == "below_stretch_threshold"
+    assert p["c8"][3] == "A2:1-80,A1:1-80" and p["c8"][7] == "below_stretch_threshold" and p["c8"][8] == "-"
+    assert p["c6"][8] == "A_partial1"
     s = table(os.path.join(out, "family_view.summary.tsv"))
     assert s["A"][5] == "4"                                                         # c3, c6, c7, c8 family-firm only
+
+
+def test_group_partials():
+    """copies whose spans on a shared consensus start and end close together form one stretch; head-only vs head+module apart"""
+    items = [("R", {"P2": (2, 89), "P1": (2, 89)}),        # head, best P2
+             ("R", {"P2": (2, 83), "C11": (2, 83)}),       # head, linked to the first through P2
+             ("R", {"P1": (2, 93), "C11": (7, 93)}),       # head, linked to the first through P1 (ends 4 bp apart)
+             ("R", {"P1": (2, 161), "C11": (2, 161)}),     # head + module: ends 70 bp past the head
+             ("R", {"C11": (7, 141), "P1": (7, 141)}),     # head + module, ends 20 bp from the fourth: more than 13.5 allowed
+             ("M", {"P2": (2, 89)})]                       # another family: never linked
+    gi, groups = rf.group_partials(items)
+    assert gi[0] == gi[1] == gi[2] and gi[3] != gi[0] and gi[5] not in (gi[0], gi[3])
+    assert gi[4] != gi[3]                                  # 20 bp > max(10, 10 % of 135): two stretches
+    big = groups[gi[0]]
+    assert big[0] == "R" and big[1] == [0, 1, 2]
+    assert big[2]["P2"] == (2, 89) and big[2]["P1"] == (2, 93) and "C11" in big[2]
+    assert rf.stretch_label({"P2": (2, 89), "P1": (2, 93)}) == "P1:2-93,P2:2-89"
