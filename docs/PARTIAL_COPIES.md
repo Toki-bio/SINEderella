@@ -60,3 +60,16 @@ the orchestrator), so no satellite loci were removed from the test's side.
   every other stretch <= 70.
 - Not yet known: whether the new loci are SINE loci. They need the vote and the flank verdict (a full run with the pieces
   in the search bank); the middle piece of P18 is a tandem of 10-bp units and may mostly find simple repeats.
+
+## Full run on the whole genome (therioserver `/home/toki/rhin/rsi_nor1_partial_20261026/run_20261026_183325`, 9ad52fa)
+Bank without r1, otherwise as rsi_nor1_20261026; finished 19:50, report built.
+- `vote_summary.tsv.gz` carries the spans; 690 partial copies (4 below their stretch bar) in 40 stretches.
+- Largest stretches: Rhin_partial1 196 copies (C11 2-180 = P1 2-168: the r1-type head and module), Rhin_partial2 145
+  (C11 337-606), Rhin_partial3 139 (P26 2-145 = P48 1-141, the r5-type head), Rhin_partial4 125 (P18 283-418),
+  Rhin_partial5 34 (r10 2-81 = P18del 2-81); the other 35 hold 8 copies or fewer.
+- The 21 r1 loci of rsi_main_20261022: 16 in Rhin_partial1, 1 in Rhin_partial38, 1 a full r1_r3_P1 copy (tie), 3 not
+  extracted (step 1, see above).
+- Subfamily assignments against the run without the branch (copies matched by overlap, `moved.py`): every subfamily
+  within 44 copies (r1_r3_P1 14,457 -> 14,413), the vote's run-to-run spread.
+- Grouping at this scale: copies of the head alone (2-89) and of head + module (2-161) are joined through copies of
+  intermediate length into one stretch (single linkage). Whether they should stay apart is open.
