@@ -34,3 +34,18 @@ branch) + family roll-up, bank without r1.
   consensus) before they can be counted and plotted.
 - The family bar is the lowest member threshold (rsi Rhin: 158, from r4_32seqs with 12 copies), lenient.
 - Not in the subfamily list (loci_verdict) or the report yet.
+
+## Stretches (commit 9ad52fa)
+Partial copies are grouped: two copies of one family are linked when, on a consensus both match, their starts and their
+ends each differ by at most max(10 bp, 10 % of the shorter span); a stretch is a connected group, named
+`<family>_partial<n>` (largest first), with the median span on every consensus that at least half of its copies match.
+`layer2=partial:<stretch id>`; `family_view/partial_stretches.tsv` (Stretch, Family, Copies, Median_length, Spans);
+`partial_copies.tsv` gets the copy's Stretch_id. On the test data: 232 copies, 41 stretches (21 of one copy); r1 loci in
+Rhin_partial2 (head, P1 / P2 2-89, 9 loci), Rhin_partial7 (head + module, C11 / P1 2-141, 5), Rhin_partial11 (P2 2-116, 2),
+Rhin_partial1 (P1 2-200, 1) and one single-copy stretch. Assignments, votes and family calls identical to the ungrouped run.
+
+## What the rule cannot reach: step 1 keeps only hits covering >= 80 % of a query
+`sear` keeps a hit only when it covers >= Slf (0.8) x the query length. A copy that is a part of a composite and not 80 %
+of any bank entry is never extracted, so no step-2 rule sees it (rsi without r1: 3 of the 21 r1 loci). Test running:
+step 1 with every composite stretch >= 50 bp (`composite_units.tsv`) as a query of its own
+(therioserver `/home/toki/rhin/rsi_nor1_20261026/blocktest/`).
