@@ -83,3 +83,22 @@ Toy (therioserver `/home/toki/tmp/toy_pieces/`, `toy_pieces.sh`: 61 rsi windows 
 r1, whole pipeline with --families): both runs complete; with pieces 18 pieces searched, satellite screen ran, no piece name
 among the hit labels, 331 loci against 177, 210 assigned copies against 174. A 2.4-Mb genome gives short queries better
 E-values than the whole genome, so the toy shows that the code works, not how many loci the pieces add (whole genome: 2.3 %).
+
+## Final runs 2026-10-26 (main a9d2a51; stretches regrouped with 9d484fa) - published in Tal
+Bank: rsi without r1_9seqs (therioserver `/home/toki/rhin/final_bank_20261026/`); runs `/home/toki/rhin/{rsi_main_20261026,
+rfe_main_20261026,hla_rsibank_20261026}`, Tal directories of the same names.
+- rsi: 68,581 copies, 62,650 assigned, 51,399 SINE loci; 18 pieces searched; 1,421 partial copies, 95 stretches. All 21
+  loci of r1_9seqs (run 22) found: 12 in Rhin_partial2 (head + module, C11 / P1 1-189), 7 in Rhin_partial7 (head alone,
+  P1 / P2 1-85), 1 alone, 1 a full P1 copy. 1,342 r6 copies lost their subfamily to a vote split with P26 (r6 = P26
+  138-376 at 100 %); every other subfamily within 90 copies of run 22.
+- rfe (R. ferrumequinum GCF_004115265.2, first run): 63,089 copies, 49,125 SINE loci, 1,291 partial copies, 93 stretches.
+- hla with the rsi bank: 233,325 copies, 144,006 SINE loci; ~15,000 partial copies on the first 86 bp of the r5 head only.
+- Grouping: single linkage (9ad52fa) chained 1,219 of 1,291 rfe partial copies into one stretch without a common span;
+  seeds per best consensus, joined on matching median spans (9d484fa) fixed it; assignments identical.
+
+## Open
+- r6 / P26: a unit contained at 100 % in a composite splits the vote of its own full copies (rsi ~1,300-2,000 copies per
+  run). Possible rule: a copy covering >= 90 % of one competitor and < 60 % of the others, which contain it, goes to the
+  covered one. Not built (owner's decision).
+- Copies without a subfamily, partial copies included, are not_SINE in loci_verdict.tsv; their flanks are not tested.
+- Stretch rows and plates on the report page.
