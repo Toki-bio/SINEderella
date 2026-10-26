@@ -71,15 +71,49 @@ def parse_runner(tag):
 
 
 def read_votes(path):
-    """seq -> list of (cons, votes, bs_sum, rbs_sum, rcons)"""
+    """seq -> list of (cons, votes, bs_sum, rbs_sum, rcons, span, runner_span); span = (start, end) of the copy on cons in its best
+    cycle, runner_span the same on rcons (step 2 since 2026-10-26, columns 7-10; None in older vote tables)"""
     out = defaultdict(list)
+    sp = lambda a, b: (int(a), int(b)) if a.isdigit() and b.isdigit() and int(b) > 0 else None
     for line in opener(path):
         f = line.rstrip("\r\n").split("\t")
         if len(f) < 4:
             continue
         rb = float(f[4]) if len(f) > 4 and f[4] not in ("", "NA") else 0.0
-        out[f[0]].append((f[1], int(f[2]), float(f[3]), rb, f[5] if len(f) > 5 else "NA"))
+        s = sp(f[6], f[7]) if len(f) > 7 else None
+        r = sp(f[8], f[9]) if len(f) > 9 else None
+        out[f[0]].append((f[1], int(f[2]), float(f[3]), rb, f[5] if len(f) > 5 else "NA", s, r))
     return out
+
+
+PARTIAL_COVER = 0.60    # a copy covering less than this share of every consensus it competes for is a partial copy
+PARTIAL_MIN_BP = 50     # shorter matches are not labelled
+PARTIAL_RUNNER = 0.90   # a runner-up scoring at least this share of the winner competes too
+
+
+def partial_call(rows, lens, thr, f_of, fam_name, fam_bs):
+    """Partial copy (2026-10-26): a family-firm copy whose subfamily is open because it matches only a stretch of its
+    consensuses, typically a unit that several composites share (rsi: the r1 head of r1_r3_P1, r1_r3_P2 and C11 without r1 in the
+    bank). Competitors = the consensuses of the family that won a cycle, plus the best one's runner-up when it scores >= 90 % of it.
+    Partial when the copy covers < 60 % of every competitor and >= 50 bp of the best. It must pass the best consensus's threshold
+    scaled to the stretch (threshold x stretch length / consensus length; the threshold is 0.45 x the 10th-best full-length sum).
+    Returns None (not partial, or spans unknown) or (label, best, coverage, stretch threshold, passes)."""
+    own = [r for r in rows if f_of(r[0]) == fam_name and r[1] > 0]
+    if not own or any(r[5] is None for r in own):
+        return None
+    best = max(own, key=lambda r: (r[1], r[2]))
+    comp = {r[0]: r[5] for r in own}
+    if best[4] not in ("", "NA") and f_of(best[4]) == fam_name and best[6] is not None and best[2] > 0 \
+            and best[3] / best[2] >= PARTIAL_RUNNER and best[4] not in comp:
+        comp[best[4]] = best[6]
+    cov = {c: (s[1] - s[0] + 1) / float(lens[c]) for c, s in comp.items() if lens.get(c)}
+    bspan = best[5][1] - best[5][0] + 1
+    if not cov or max(cov.values()) >= PARTIAL_COVER or bspan < PARTIAL_MIN_BP or best[0] not in thr:
+        return None
+    sthr = thr[best[0]] * bspan / float(lens[best[0]])
+    order = [best[0]] + sorted(c for c in comp if c != best[0])
+    label = ",".join("%s:%d-%d" % (c, comp[c][0], comp[c][1]) for c in order)
+    return label, best[0], cov[best[0]], sthr, fam_bs >= sthr
 
 
 def merge_regions(rows):
@@ -173,6 +207,11 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
             fam_thr[f_of(s)].append(t)
     votes = read_votes(votes_path) if votes_path else {}
     dist = ConsDist(bank) if bank and tie_rel > 0 else None
+    lens = {}
+    if bank and os.path.exists(bank):
+        import families as fm
+        lens = {k: len(v) for k, v in fm.read_fasta(bank).items()}
+    partial_rows = []
 
     stats = defaultdict(lambda: defaultdict(int))
     per_copy = []
@@ -205,7 +244,7 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
             fb = defaultdict(float)
             fr = defaultdict(float)
             fc = {}
-            for cons, v, b, r, rc in votes[seq]:
+            for cons, v, b, r, rc, _s, _rs in votes[seq]:
                 g = f_of(cons)
                 fv[g] += v
                 fb[g] += b
@@ -221,6 +260,14 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
                 new_status = "assigned"
                 new_th = str(int(lowest))
                 layer2 = ";layer2=unresolved"
+                pc = partial_call(votes[seq], lens, thr, f_of, best, fb[best]) if lens else None
+                if pc:
+                    label, pbest, pcov, sthr, ok = pc
+                    partial_rows.append((seq, best, pbest, label, "%.2f" % pcov, str(int(fb[best] + 0.5)), str(int(sthr + 0.5)),
+                                         "partial" if ok else "below_stretch_threshold"))
+                    if ok:
+                        layer2 = ";layer2=partial:" + label
+                        stats[F]["partial"] += 1
                 rc = fc.get(best, "NA")
                 runner = f_of(rc) if rc != "NA" else "NA"
                 rbs = str(int(fr[best] + 0.5))
@@ -248,6 +295,11 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
     with open(os.path.join(out, "family_view.tsv"), "w") as fo:
         fo.write("Sequence\tSubfamily\tFamily\tStatus_subfamily\tStatus_family\tFamily_votes\tLayer2\n")
         for r in per_copy:
+            fo.write("\t".join(r) + "\n")
+    # partial copies: family-firm copies that match only a stretch of their consensuses (partial_call)
+    with open(os.path.join(out, "partial_copies.tsv"), "w") as fo:
+        fo.write("Sequence\tFamily\tBest\tStretch\tCoverage_of_best\tFamily_score\tStretch_threshold\tStatus\n")
+        for r in partial_rows:
             fo.write("\t".join(r) + "\n")
     members = defaultdict(list)
     for s in set(list(fam.keys()) + list(thr.keys())):

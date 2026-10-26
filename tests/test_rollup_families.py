@@ -93,3 +93,33 @@ def test_near_tie_between_subfamilies_of_one_family(tmp_path):
     rf.rollup(root, os.path.join(root, "fam.tsv"), os.path.join(root, "fam.fa"), out2, None, near_tie=0.05)
     t2 = table(os.path.join(out2, "step2", "step2_output", "assignment_full.tsv"))
     assert "layer2=tie" in t2["c1"][6]                                  # at 5 % it is
+
+
+def test_partial_copies(tmp_path):
+    """family-firm copies matching only a stretch of their consensuses get layer2=partial:<stretch> when they pass the stretch threshold"""
+    root = str(tmp_path / "run")
+    make_run(root)
+    with open(os.path.join(root, "step2", "step2_output", "assignment_full.tsv"), "a") as fh:
+        fh.write("c9\tA2\t2000\t10\tassigned\t900\tNA\n"            # A2 threshold 900 (A1 100: the family's lowest)
+                 "c6\tA2\t1900\t6\tno_unanimous\t900\tNA\n"         # split, first 80 bp of both: partial, passes 900 x 80 / 300
+                 "c7\tA2\t1500\t6\tno_unanimous\t900\tNA\n"         # split, but covers most of A2: not partial
+                 "c8\tA2\t150\t10\trejected_low_bitscore\t900\tNA\n")   # partial, family-firm (>= 100) but below 240
+    with open(os.path.join(root, "votes.tsv"), "a") as fh:
+        fh.write("c6\tA1\t4\t800\t0\tNA\t1\t80\t0\t0\nc6\tA2\t6\t1100\t0\tNA\t1\t80\t0\t0\n"
+                 "c7\tA1\t4\t600\t0\tNA\t1\t150\t0\t0\nc7\tA2\t6\t900\t0\tNA\t1\t290\t0\t0\n"
+                 "c8\tA2\t10\t150\t140\tA1\t1\t80\t1\t80\n")
+    w(os.path.join(root, "bank.fa"), ">A1\n%s\n>A2\n%s\n>B1\n%s\n" % ("A" * 200, "C" * 300, "G" * 100))
+    out = str(tmp_path / "fv")
+    rf.rollup(root, os.path.join(root, "fam.tsv"), os.path.join(root, "fam.fa"), out, os.path.join(root, "votes.tsv"),
+              bank=os.path.join(root, "bank.fa"), tie_rel=0)
+    t = table(os.path.join(out, "step2", "step2_output", "assignment_full.tsv"))
+    assert t["c6"][4] == "assigned" and "layer2=partial:A2:1-80,A1:1-80" in t["c6"][6]
+    assert t["c7"][4] == "assigned" and "layer2=unresolved" in t["c7"][6] and "partial" not in t["c7"][6]
+    assert t["c8"][4] == "assigned" and "layer2=unresolved" in t["c8"][6]          # runner A1 at 93 % competes; below the stretch bar
+    assert "layer2=unresolved" in t["c3"][6]                                       # old vote table without spans: unchanged
+    p = table(os.path.join(out, "partial_copies.tsv"))
+    assert set(p) == {"c6", "c8"}
+    assert p["c6"][2] == "A2" and p["c6"][4] == "0.27" and p["c6"][6] == "240" and p["c6"][7] == "partial"
+    assert p["c8"][3] == "A2:1-80,A1:1-80" and p["c8"][7] == "below_stretch_threshold"
+    s = table(os.path.join(out, "family_view.summary.tsv"))
+    assert s["A"][5] == "4"                                                         # c3, c6, c7, c8 family-firm only

@@ -201,22 +201,24 @@ run_assignment(){
     awk '{
       seq=$2; cons=$1; bs=$12+0
       key=seq SUBSEP cons
-      if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
+      # pair_sp: where the best HSP of the pair lies on the consensus (m8 columns 7-8, the query is the consensus); read by
+      # tools/rollup_families.py to find copies that cover only a part of their consensuses (partial copies)
+      if(!(key in pair_bs) || bs > pair_bs[key]){ pair_bs[key]=bs; pair_sp[key]=$7 "\t" $8 }
     }
     END{
       for(key in pair_bs){
         split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
         if(!(seq in best_bs) || bs > best_bs[seq]){
-          if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
-          best_bs[seq]=bs; best_cons[seq]=cons
+          if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq]; runner_sp[seq]=best_sp[seq] }
+          best_bs[seq]=bs; best_cons[seq]=cons; best_sp[seq]=pair_sp[key]
         } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
-          runner_bs[seq]=bs; runner_cons[seq]=cons
+          runner_bs[seq]=bs; runner_cons[seq]=cons; runner_sp[seq]=pair_sp[key]
         }
       }
       for(seq in best_cons){
         rb = (seq in runner_bs ? runner_bs[seq] : 0)
         rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-        printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
+        printf "%s\t%s\t%d\t%s\t%d\t%s\t%s\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5), best_sp[seq], (seq in runner_sp ? runner_sp[seq] : "0\t0")
       }
     }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
   done
@@ -232,13 +234,17 @@ run_assignment(){
     if(!(key in best_runner_bs) || $5+0 > best_runner_bs[key]){
       best_runner_bs[key] = $5+0
       runner_cons[key] = $4
+      runner_sp[key] = $8 FS $9
     }
+    if(!(key in top_bs) || $3+0 > top_bs[key]){ top_bs[key] = $3+0; sp[key] = $6 FS $7 }
   }
   END{
+    # columns 7-10 (2026-10-26): span of the copy on this consensus in its best cycle, and on the runner-up consensus in the cycle
+    # with the best runner-up score; columns 1-6 as before
     for(key in vote_count){
       split(key, a, FS)
       rc = (key in runner_cons ? runner_cons[key] : "NA")
-      print a[1], a[2], vote_count[key], bitscore_sum[key], runner_bs_sum[key], rc
+      print a[1], a[2], vote_count[key], bitscore_sum[key], runner_bs_sum[key], rc, sp[key], runner_sp[key]
     }
   }' "$TMPDIR/votes.tsv" | sort -k1,1 -k3,3nr -k2,2 > "$TMPDIR/vote_summary.tsv"
   # keep the per-consensus tally (used by tools/rollup_families.py); small next to the m8 files
@@ -634,22 +640,22 @@ run_incremental_assignment(){
       awk '{
         seq=$2; cons=$1; bs=$12+0
         key=seq SUBSEP cons
-        if(!(key in pair_bs) || bs > pair_bs[key]) pair_bs[key]=bs
+        if(!(key in pair_bs) || bs > pair_bs[key]){ pair_bs[key]=bs; pair_sp[key]=$7 "\t" $8 }   # span on the consensus, as in tier 1
       }
       END{
         for(key in pair_bs){
           split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
           if(!(seq in best_bs) || bs > best_bs[seq]){
-            if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq] }
-            best_bs[seq]=bs; best_cons[seq]=cons
+            if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq]; runner_sp[seq]=best_sp[seq] }
+            best_bs[seq]=bs; best_cons[seq]=cons; best_sp[seq]=pair_sp[key]
           } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
-            runner_bs[seq]=bs; runner_cons[seq]=cons
+            runner_bs[seq]=bs; runner_cons[seq]=cons; runner_sp[seq]=pair_sp[key]
           }
         }
         for(seq in best_cons){
           rb = (seq in runner_bs ? runner_bs[seq] : 0)
           rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-          printf "%s\t%s\t%d\t%s\t%d\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5)
+          printf "%s\t%s\t%d\t%s\t%d\t%s\t%s\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5), best_sp[seq], (seq in runner_sp ? runner_sp[seq] : "0\t0")
         }
       }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
     done
@@ -658,12 +664,13 @@ run_incremental_assignment(){
     # Aggregate Tier 2 votes
     awk 'BEGIN{FS=OFS="\t"}{
       key = $1 FS $2; vote_count[key]++; bitscore_sum[key] += $3; runner_bs_sum[key] += $5
-      if(!(key in best_runner_bs) || $5+0 > best_runner_bs[key]){ best_runner_bs[key] = $5+0; runner_cons[key] = $4 }
+      if(!(key in best_runner_bs) || $5+0 > best_runner_bs[key]){ best_runner_bs[key] = $5+0; runner_cons[key] = $4; runner_sp[key] = $8 FS $9 }
+      if(!(key in top_bs) || $3+0 > top_bs[key]){ top_bs[key] = $3+0; sp[key] = $6 FS $7 }
     }
     END{
       for(key in vote_count){
         split(key, a, FS)
-        print a[1], a[2], vote_count[key], bitscore_sum[key], runner_bs_sum[key], runner_cons[key]
+        print a[1], a[2], vote_count[key], bitscore_sum[key], runner_bs_sum[key], runner_cons[key], sp[key], runner_sp[key]   # 7-10: spans, as in tier 1
       }
     }' "$TMPDIR/votes.tsv" | sort -k1,1 -k3,3nr -k2,2 > "$TMPDIR/tier2_vote_summary.tsv"
     gzip -c "$TMPDIR/tier2_vote_summary.tsv" > "$OUTDIR/vote_summary.tsv.gz" || true
