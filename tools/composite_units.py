@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """composite_units.py RUN_ROOT [THREADS=4]
+   composite_units.py --bank BANK.fa OUT.tsv [THREADS=4]
 
 Which units each consensus of the searched bank is made of, for the report's Element hierarchy (owner 2026-10-18: show
 the parts of composites that no unit explains, in grey; r4 sits inside P1 although P1 is named r1 + r3).
@@ -24,12 +25,19 @@ import tempfile
 MIN_ID, MIN_LEN, MIN_RUN = 75.0, 50, 10
 FULL_ID, FULL_FRAC, MIN_REST = 90.0, 0.70, 120
 
-run = sys.argv[1].rstrip("/")
-threads = sys.argv[2] if len(sys.argv) > 2 else "4"
-s2s = sorted(glob.glob(os.path.join(run, "step2", "step2_output*")), key=os.path.getmtime)
-if not s2s:
-    sys.exit("composite_units: no step2/step2_output* in %s" % run)
-bank = os.path.join(run, "consensuses.clean.fa")
+if len(sys.argv) > 3 and sys.argv[1] == "--bank":
+    # composite_units.py --bank BANK.fa OUT.tsv [THREADS]: the same table from a bank alone (step 1 uses it to search the
+    # composites' stretches as queries of their own, tools/composite_pieces.py)
+    bank, outp = sys.argv[2], sys.argv[3]
+    threads = sys.argv[4] if len(sys.argv) > 4 else "4"
+else:
+    run = sys.argv[1].rstrip("/")
+    threads = sys.argv[2] if len(sys.argv) > 2 else "4"
+    s2s = sorted(glob.glob(os.path.join(run, "step2", "step2_output*")), key=os.path.getmtime)
+    if not s2s:
+        sys.exit("composite_units: no step2/step2_output* in %s" % run)
+    bank = os.path.join(run, "consensuses.clean.fa")
+    outp = os.path.join(s2s[-1], "composite_units.tsv")
 if not os.path.isfile(bank):
     sys.exit("composite_units: missing %s" % bank)
 
@@ -102,7 +110,6 @@ for t in order:
         rows.append((t, "composite", a, b, u, "%.1f" % max(ids) if ids else "-",
                      ", ".join("%s %.1f" % (n, p) for p, n in alts) or "-"))
 
-outp = os.path.join(s2s[-1], "composite_units.tsv")
 with open(outp, "w") as fo:
     fo.write("consensus\tkind\tstart\tend\tunit\tidentity\talternatives\n")
     for r in rows:

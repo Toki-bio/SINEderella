@@ -73,3 +73,13 @@ Bank without r1, otherwise as rsi_nor1_20261026; finished 19:50, report built.
   within 44 copies (r1_r3_P1 14,457 -> 14,413), the vote's run-to-run spread.
 - Grouping at this scale: copies of the head alone (2-89) and of head + module (2-161) are joined through copies of
   intermediate length into one stretch (single linkage). Whether they should stay apart is open.
+
+## Piece search in step 1 (branch piece-search, 057a0f3)
+`step1_search_extract.sh` runs `tools/composite_units.py --bank` and `tools/composite_pieces.py` before the search and adds
+every composite stretch >= 50 bp (`PIECE_MIN_LEN`) to the queries; the header of each piece file names the composite, so
+every hit-labelling path gives its hits the composite's label; the satellite screen covers the pieces under their file
+names; step 2 votes with the bank only. `PIECE_SEARCH=0` turns it off.
+Toy (therioserver `/home/toki/tmp/toy_pieces/`, `toy_pieces.sh`: 61 rsi windows of 40 kb, 21 around r1 loci, bank without
+r1, whole pipeline with --families): both runs complete; with pieces 18 pieces searched, satellite screen ran, no piece name
+among the hit labels, 331 loci against 177, 210 assigned copies against 174. A 2.4-Mb genome gives short queries better
+E-values than the whole genome, so the toy shows that the code works, not how many loci the pieces add (whole genome: 2.3 %).
