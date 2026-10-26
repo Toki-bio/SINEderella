@@ -38,8 +38,9 @@ ap.add_argument("--min-background", type=int, default=10)
 ap.add_argument("--threads", type=int, default=int(os.environ.get("BODYCHECK_THREADS") or 1))
 a = ap.parse_args()
 O = lambda f: os.path.join(a.out, f)
-SST = os.environ.get("BODYCHECK_SSEARCH_T", "").strip()
-if SST and not SST.isdigit(): sys.exit("fs9_bodycheck: BODYCHECK_SSEARCH_T must be a number of threads")
+SST = os.environ.get("BODYCHECK_SSEARCH_T", "1").strip()       # default 1 since 2026-10-26; 0 = no -T (one worker per CPU)
+if not SST.isdigit(): sys.exit("fs9_bodycheck: BODYCHECK_SSEARCH_T must be a number of threads (0 = no -T)")
+if SST == "0": SST = ""
 
 loc = {}
 for line in open(a.bed):
@@ -90,10 +91,12 @@ def body_ids(pairs):
         with open(q, "w") as fh: fh.write(f">{x}\n{seq[x]}\n")
         with open(lib, "w") as fh:
             for y in sorted(ys): fh.write(f">{y}\n{seq[y]}\n")
-        # BODYCHECK_SSEARCH_T (2026-10-24, owner's decision, default unset = no -T = one worker per CPU): a library of a few
-        # copies is scored against shuffles whose buffers are sized by the worker count, so the E-values, and which weak pairs
-        # pass -E 100, depend on -T (docs/SPEEDUP_SSEARCH.md). -T 1: 35 ms CPU per one-partner call instead of 250 ms, the
-        # same verdicts in every family tested, weak background pairs can differ; without -T the result depends on the machine
+        # BODYCHECK_SSEARCH_T (owner's decisions: opt-in 2026-10-24, default 1 since 2026-10-26; 0 = no -T = one worker per
+        # CPU): a library of a few copies is scored against shuffles whose buffers are sized by the worker count, so the
+        # E-values, and which weak pairs pass -E 100, depend on -T (docs/SPEEDUP_SSEARCH.md). -T 1: 35 ms CPU per one-partner
+        # call instead of 250 ms, the same verdicts in every family tested, weak background pairs can differ, and the result no
+        # longer depends on the machine's CPU count. Without -T, 32 parallel calls each started 128 workers on therioserver
+        # (load ~1,400 during the 2026-10-26 runs)
         r = subprocess.run(["ssearch36"] + (["-T", SST] if SST else []) + ["-m", "8", "-E", "100", "-b", str(len(ys) + 5), "-d", "0", q, lib],
                            capture_output=True, text=True)
         os.remove(q); os.remove(lib)

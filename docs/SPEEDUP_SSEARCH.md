@@ -105,7 +105,7 @@ and windows.masked.fa (read by stages 3, 5, 6, 8), trf.raw (5.3), genome.clean.f
 | 4.6 | sear: `samtools faidx` + `sort -V` of each part only when a minus bank is built (`--minus`; step 1 never asks for it) | sear | 1.4-2.0 s per part per consensus; rsi 3 consensuses 259 / 238 s -> 145 / 116 s | the removed commands wrote only `*_s.fai`, read only by the minus bank; loci differ old-new as much as old-old (below) | accepted |
 | 4.7 | sear: window bank streamed into the 20 parts | sear | 3.1 GB less disk for rsi | the 20 parts byte-identical (cmp) | accepted |
 | 4.8 | step 2: ten cycles at once (THREADS/10 threads per call; parts under 500 copies at -T THREADS) | step2_asSINEment.sh | rsi 497-574 s -> 404-435 s | the vote distribution changed (section 6) | **rejected, reverted** |
-| 4.9 | body check: ssearch36 `-T 1` instead of no -T (= all CPUs) | fs9_bodycheck.py | 250 -> 35 ms CPU per call; tbr VES body check at 4 workers: default 1,031 s wall / 17,476 s CPU, -T 1 639 s / 2,493 s; -T 1 at 24 workers 2 min | verdicts identical in all 24 families tested; weak background pairs can differ (5.1) | **owner's decision**: opt-in `BODYCHECK_SSEARCH_T=1` |
+| 4.9 | body check: ssearch36 `-T 1` instead of no -T (= all CPUs) | fs9_bodycheck.py | 250 -> 35 ms CPU per call; tbr VES body check at 4 workers: default 1,031 s wall / 17,476 s CPU, -T 1 639 s / 2,493 s; -T 1 at 24 workers 2 min | verdicts identical in all 24 families tested; weak background pairs can differ (5.1) | owner: opt-in 2026-10-24, **default since 2026-10-26** (`BODYCHECK_SSEARCH_T=0` = no -T) |
 | 4.10 | `-z 0` in the body check | fs9_bodycheck.py | no gain: it still shuffles (0.75 s per 20 calls, as -z 1) | - | rejected |
 | 4.11 | `-z -1` (no statistics) in the body check | fs9_bodycheck.py | 0.14 vs 0.75 s per 20 calls | E-values become meaningless (1, 46) while `-E 100` decides which pairs count | rejected |
 | 4.12 | prefilter (fasta36 ktup, blastn, minimap2) + ssearch36 only on candidates | sear, step 2 | not run | changes which copies are found (sear fast mode loses ~1 % of loci, docs/FAST_MODE.md); in step 2 -z 11 is the filter | rejected (rule 1) |
@@ -198,7 +198,7 @@ From the stored stage times (section 2) with the measured stage changes; stages 
 | 56b3b41 | fs9_bodycheck: -T 1 | reverted by fa31519 (5.1) |
 | 913de9a | sear: no per-part re-index, streamed window bank | accepted |
 | fa31519 | revert of 56b3b41, with the -T measurement | - |
-| 2954930 | fs9_bodycheck: BODYCHECK_SSEARCH_T (default unset = unchanged) | owner's decision |
+| 2954930 | fs9_bodycheck: BODYCHECK_SSEARCH_T (default unset = unchanged) | owner: opt-in; default 1 since 2026-10-26 (load ~1,400 from 32 parallel calls x 128 workers each) |
 | 7b53a1c | fs9_seeds: overflow guard | accepted |
 | 4210956 | step2: VOTE_PAR parallel cycles | reverted by f54bb09 (section 6) |
 | f54bb09 | revert of 4210956, with the replicate result | - |
