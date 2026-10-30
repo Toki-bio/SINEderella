@@ -14,7 +14,8 @@
 #
 # Env: TRNA_REF (required; without it the step is skipped), RFAM_CM, RNATOOLS_BIN (a bin dir with cmscan / tRNAscan-SE,
 #      e.g. a separate conda env), SHUF_N=20
-# Out: <step2_output>/trna/ (queries.fa, ss.m8, shuf.m8, cm.tbl, trnascan.out) and <step2_output>/trna/trna_heads.tsv
+# Out: <step2_output>/trna/ (queries.fa, ss.m8, shuf.m8, cm.tbl, trnascan.out), <step2_output>/trna/trna_heads.tsv and
+#      <step2_output>/trna/plates/ (each consensus against its best tRNA gene, tools/trna_plates.py; plates/index.tsv)
 set -uo pipefail
 RUN=$(readlink -f "${1:?RUN_ROOT}"); T=${2:-8}
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,4 +77,5 @@ else
   echo "trna_heads: no tRNAscan-SE - column empty" >&2
 fi
 python3 "$HERE/trna_heads_summary.py" > trna_heads.tsv || { echo "trna_heads: summary failed" >&2; exit 1; }
+python3 "$HERE/trna_plates.py" || echo "trna_heads: plates failed (trna_heads.tsv is complete)" >&2
 echo "TRNA_HEADS queries=$(grep -c '>' queries.fa) -> $OUT/trna_heads.tsv"
