@@ -286,6 +286,17 @@ if [[ "${SATELLITE_EXCLUDE:-1}" != "0" && -s satellites/exclude_regions.bed ]]; 
     BED_COUNT=$_after
 fi
 
+# --- END EXTENSION (docs/END_EXTENSION.md): a locus ends where the longest bank consensus that hit it stops; when the genome's
+#     element goes on (hla shorties: the tail after the r5-type head, 2026-10-29), the ends are walked outward over K-mers
+#     shared by many copies of the same group. END_EXTENSION=0 skips it.
+if [[ "${END_EXTENSION:-1}" != "0" ]]; then
+    cp merged_hits.bed merged_hits.bed.before_extension
+    python3 "$_TOOLS_M/extend_ends.py" merged_hits.bed.before_extension searches/all_hits.labeled.bed "$GENOME" \
+        merged_hits.bed.tmp end_extension | tee -a end_extension.log
+    [[ "$(wc -l < merged_hits.bed.tmp)" -eq "$BED_COUNT" ]] || { echo "ERROR: end extension changed the number of loci" >&2; exit 1; }
+    mv merged_hits.bed.tmp merged_hits.bed
+fi
+
 echo "[$(date)] Extracting sequences..."
 rm -f .step1_complete
 bedtools getfasta -s -fi "$GENOME" -bed merged_hits.bed > extracted.fasta.tmp
