@@ -24,9 +24,76 @@ log(){ printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2; }
 abs_path(){ local p="$1"; [[ "$p" = /* ]] && printf '%s\n' "$p" || printf '%s\n' "$PWD/$p"; }
 cleanup(){ [[ -n "$STEP2_WORK" && -d "$STEP2_WORK" ]] && rm -rf "$STEP2_WORK"; }
 trap cleanup EXIT
+STEP2_TOOLS="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/tools"
+
+# Unit vs composite (owner 2026-11-01; rsi r6 vs r5_r6_P26, Tal rsi_composites_test/r6_P26_20261101/): a composite holds
+# its unit entire, so a copy of the unit alone aligns to both with the same alignment and the cycles split by -z 11 noise
+# (rsi: 1,188 standalone r6 copies split their votes with P26 and stayed unassigned; ~60 more went to P26 10/10). Rule,
+# in every cycle: when the best and the runner-up consensus are a unit and a composite containing it, the composite wins
+# only if the copy's alignment to it covers >= UNIT_COVER_OTHER (0.5) of the composite's sequence outside that unit;
+# otherwise the unit wins. Units and their intervals come from tools/composite_units.py --bank on the bank (no declared
+# table); a composite with < 30 bp outside the unit is left to the bitscore. UNIT_RULE=0 turns it off.
+UNIT_RULE="${UNIT_RULE:-1}"; UNIT_COVER_OTHER="${UNIT_COVER_OTHER:-0.5}"
+unit_table(){   # BANK.fa OUT.tsv: composite_units.py --bank, or an empty table with UNIT_RULE=0
+  case "$UNIT_RULE" in 0) : > "$2"; return ;; 1) ;; *) die "UNIT_RULE must be 0 or 1 (got: $UNIT_RULE)" ;; esac
+  python3 "$STEP2_TOOLS/composite_units.py" --bank "$1" "$2" "$THREADS" >&2 \
+    || die "tools/composite_units.py --bank failed (UNIT_RULE=0 votes without the unit/composite rule)"
+}
+cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per copy in one cycle, unit/composite rule applied
+  awk -v F="$UNIT_COVER_OTHER" -v SW="$TMPDIR/unit_rule_swaps.tsv" 'BEGIN{FS="\t"}
+    FILENAME == ARGV[1] {
+      if (FNR == 1 || $2 != "composite") next
+      if ($4 + 0 > clen[$1]) clen[$1] = $4 + 0
+      if ($5 != "-") { k = $5 SUBSEP $1; ulen[k] += $4 - $3 + 1; iv[k] = iv[k] " " $3 "-" $4 }
+      next }
+    { seq=$2; cons=$1; bs=$12+0
+      key=seq SUBSEP cons
+      # pair_sp: where the best HSP of the pair lies on the consensus (m8 columns 7-8, the query is the consensus); read by
+      # tools/rollup_families.py to find copies that cover only a part of their consensuses (partial copies)
+      if(!(key in pair_bs) || bs > pair_bs[key]){ pair_bs[key]=bs; pair_sp[key]=$7 "\t" $8 } }
+    # a copy is the composite only if its alignment to it covers >= F of the composite outside the unit AND >= F of the
+    # unit stretches themselves: a real composite copy spans both parts, a standalone copy only one. The second condition
+    # matters when the unit resembles the other part of the composite (rsi r5 vs r5_r5_P48 = r5 + r6, r5 97 percent like
+    # r6): a standalone r5 can align onto the r6 part of P48, covering the "other" part without touching the unit (first
+    # version, rsi 2026-11-02: 1,522 of 1,927 r5 copies went to P48)
+    function other_cov(u, c, sq,   k, s, e, n, i, iv2, ab, cov, covu, other) {   # -1: rule does not apply; else 1 = composite wins
+      k = u SUBSEP c; if (!(k in ulen)) return -1
+      other = clen[c] - ulen[k]; if (other < 30) return -1
+      split(pair_sp[sq SUBSEP c], ab, "\t"); s = ab[1] + 0; e = ab[2] + 0; if (s > e) { t = s; s = e; e = t }
+      cov = e - s + 1; covu = 0; n = split(iv[k], iv2, " ")
+      for (i = 1; i <= n; i++) { split(iv2[i], ab, "-"); lo = (ab[1] > s ? ab[1] : s); hi = (ab[2] < e ? ab[2] : e); if (hi >= lo) { cov -= hi - lo + 1; covu += hi - lo + 1 } }
+      return (cov >= F * other && covu >= F * ulen[k]) ? 1 : 0 }
+    END{
+      for(key in pair_bs){
+        split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
+        if(!(seq in best_bs) || bs > best_bs[seq]){
+          if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq]; runner_sp[seq]=best_sp[seq] }
+          best_bs[seq]=bs; best_cons[seq]=cons; best_sp[seq]=pair_sp[key]
+        } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
+          runner_bs[seq]=bs; runner_cons[seq]=cons; runner_sp[seq]=pair_sp[key]
+        }
+      }
+      for(seq in best_cons){
+        if (seq in runner_cons) {
+          b = best_cons[seq]; r = runner_cons[seq]; win = ""
+          x = other_cov(b, r, seq); if (x == 1) win = r      # best = unit, runner = composite it is in, copy reaches the rest
+          y = other_cov(r, b, seq); if (y == 0) win = r      # best = composite, runner = its unit, copy does not reach the rest
+          if (win == r) {
+            print seq "\t" b "\t" r >> SW
+            t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
+            t = best_sp[seq]; best_sp[seq] = runner_sp[seq]; runner_sp[seq] = t
+            best_cons[seq] = r; runner_cons[seq] = b
+          }
+        }
+        rb = (seq in runner_bs ? runner_bs[seq] : 0)
+        rc = (seq in runner_cons ? runner_cons[seq] : "NA")
+        printf "%s\t%s\t%d\t%s\t%d\t%s\t%s\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5), best_sp[seq], (seq in runner_sp ? runner_sp[seq] : "0\t0")
+      }
+    }' "$1" "$2"
+}
 
 check_deps(){
-  local req=(seqkit ssearch36 awk sed grep sort)
+  local req=(seqkit ssearch36 awk sed grep sort python3)   # python3: tools/composite_units.py (unit/composite rule)
   local missing=()
   for t in "${req[@]}"; do
     command -v "$t" >/dev/null 2>&1 || missing+=("$t")
@@ -178,6 +245,7 @@ run_assignment(){
     rm -rf "$TMPDIR/splits_raw"
   fi
 
+  unit_table "$TMPDIR/consensus_clean.fa" "$TMPDIR/units.tsv"; : > "$TMPDIR/unit_rule_swaps.tsv"
   # Run 10 voting cycles
   log "Running 10 ssearch36 voting cycles..."
   : > "$TMPDIR/votes.tsv"
@@ -196,33 +264,14 @@ run_assignment(){
     # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
     ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
 
-    # Extract best hit per sequence for this cycle, plus the best-scoring distinct
-    # runner-up consensus (second place), for downstream LEAK/ambiguity detection.
-    awk '{
-      seq=$2; cons=$1; bs=$12+0
-      key=seq SUBSEP cons
-      # pair_sp: where the best HSP of the pair lies on the consensus (m8 columns 7-8, the query is the consensus); read by
-      # tools/rollup_families.py to find copies that cover only a part of their consensuses (partial copies)
-      if(!(key in pair_bs) || bs > pair_bs[key]){ pair_bs[key]=bs; pair_sp[key]=$7 "\t" $8 }
-    }
-    END{
-      for(key in pair_bs){
-        split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
-        if(!(seq in best_bs) || bs > best_bs[seq]){
-          if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq]; runner_sp[seq]=best_sp[seq] }
-          best_bs[seq]=bs; best_cons[seq]=cons; best_sp[seq]=pair_sp[key]
-        } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
-          runner_bs[seq]=bs; runner_cons[seq]=cons; runner_sp[seq]=pair_sp[key]
-        }
-      }
-      for(seq in best_cons){
-        rb = (seq in runner_bs ? runner_bs[seq] : 0)
-        rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-        printf "%s\t%s\t%d\t%s\t%d\t%s\t%s\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5), best_sp[seq], (seq in runner_sp ? runner_sp[seq] : "0\t0")
-      }
-    }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
+    # best hit per copy for this cycle and the best-scoring distinct runner-up (LEAK / ambiguity downstream), with the
+    # unit/composite rule (cycle_best, top of this file)
+    cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
   done
   echo >&2 "  Cycle 10/10 done."
+  # unit/composite rule: one row per copy and cycle where it changed the winner (copy, bitscore winner, rule winner)
+  cp "$TMPDIR/unit_rule_swaps.tsv" "$OUTDIR/unit_rule_swaps.tsv"; cp "$TMPDIR/units.tsv" "$OUTDIR/unit_rule_units.tsv"
+  log "Unit/composite rule: $(cut -f1 "$OUTDIR/unit_rule_swaps.tsv" | sort -u | wc -l) copies, $(wc -l < "$OUTDIR/unit_rule_swaps.tsv") cycle winners changed (unit_rule_swaps.tsv)"
 
   # Aggregate votes
   log "Aggregating votes and calculating thresholds..."
@@ -595,6 +644,7 @@ run_incremental_assignment(){
   # Run 10-cycle ssearch36 on Tier 2 only
   #---------------------------------------------------------------------------
   : > "$TMPDIR/tier2_unanimous.tsv"
+  : > "$OUTDIR/unit_rule_swaps.tsv"   # no tier 2 copies: no swaps, and no stale file from an earlier run
   : > "$TMPDIR/tier2_all_votes.tsv"
   : > "$OUTDIR/ssearch.log"
 
@@ -625,6 +675,7 @@ run_incremental_assignment(){
       rm -rf "$TMPDIR/splits_raw"
     fi
 
+    unit_table "$TMPDIR/consensus_clean.fa" "$TMPDIR/units.tsv"; : > "$TMPDIR/unit_rule_swaps.tsv"
     : > "$TMPDIR/votes.tsv"
     for cycle in $(seq 1 10); do
       printf "  Cycle %2d/10\r" "$cycle" >&2
@@ -637,29 +688,11 @@ run_incremental_assignment(){
       done
       # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
       ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
-      awk '{
-        seq=$2; cons=$1; bs=$12+0
-        key=seq SUBSEP cons
-        if(!(key in pair_bs) || bs > pair_bs[key]){ pair_bs[key]=bs; pair_sp[key]=$7 "\t" $8 }   # span on the consensus, as in tier 1
-      }
-      END{
-        for(key in pair_bs){
-          split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
-          if(!(seq in best_bs) || bs > best_bs[seq]){
-            if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq]; runner_sp[seq]=best_sp[seq] }
-            best_bs[seq]=bs; best_cons[seq]=cons; best_sp[seq]=pair_sp[key]
-          } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
-            runner_bs[seq]=bs; runner_cons[seq]=cons; runner_sp[seq]=pair_sp[key]
-          }
-        }
-        for(seq in best_cons){
-          rb = (seq in runner_bs ? runner_bs[seq] : 0)
-          rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-          printf "%s\t%s\t%d\t%s\t%d\t%s\t%s\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5), best_sp[seq], (seq in runner_sp ? runner_sp[seq] : "0\t0")
-        }
-      }' "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
+      cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
     done
     echo >&2 "  Cycle 10/10 done."
+    cp "$TMPDIR/unit_rule_swaps.tsv" "$OUTDIR/unit_rule_swaps.tsv"
+    log "Unit/composite rule (tier 2): $(cut -f1 "$TMPDIR/unit_rule_swaps.tsv" | sort -u | wc -l) copies changed"
 
     # Aggregate Tier 2 votes
     awk 'BEGIN{FS=OFS="\t"}{
