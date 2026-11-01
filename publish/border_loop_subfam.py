@@ -73,8 +73,10 @@ def update_bed_3prime(bed_in, extend_bp, work):
         for line in fh:
             ctg, ln = line.rstrip().split("\t")
             sizes[ctg] = int(ln)
-    with open(bed_in) as fin, open(bed_out, "w") as fout:
-        for line in fin:
+    with open(bed_in) as fin:              # read before writing: from round 2 on bed_in IS bed_out (see update_bed_5prime)
+        lines = fin.readlines()
+    with open(bed_out, "w") as fout:
+        for line in lines:
             ctg, s, e, name, sc, strand = line.rstrip().split("\t")
             s, e = int(s), int(e)
             if extend_bp <= 0:

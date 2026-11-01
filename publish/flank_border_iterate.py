@@ -388,8 +388,12 @@ def update_bed_5prime(bed_in, extend_bp, work):
         for line in fh:
             ctg, ln = line.rstrip().split("\t")
             sizes[ctg] = int(ln)
-    with open(bed_in) as fin, open(bed_out, "w") as fout:
-        for line in fin:
+    # read before writing: from round 2 on bed_in IS bed_out, and opening it for writing emptied it before it was read
+    # (rsi MEG-RS 2026-11-01: the 3' side got an empty bed and border_loop_subfam.py crashed with an IndexError)
+    with open(bed_in) as fin:
+        lines = fin.readlines()
+    with open(bed_out, "w") as fout:
+        for line in lines:
             ctg, s, e, name, sc, strand = line.rstrip().split("\t")
             s, e = int(s), int(e)
             if extend_bp <= 0:
