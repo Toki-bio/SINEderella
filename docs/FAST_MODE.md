@@ -14,7 +14,7 @@ with two engines:
 | | regular (default) | fast |
 |---|---|---|
 | round 1 | `ssearch36 -g -3 -z 11 -E 2 ... 3` | `fasta36 -g -3 -z 11 -E 2 ... 6` (ktup 6) |
-| length rule, round 1 | longest single HSP >= 0.8 x query | merged span of HSPs within 50 bp >= 0.8 x query |
+| length rule, round 1 | longest single HSP >= 0.8 x query | the same (until 2026-11-01: merged span of HSPs within 50 bp) |
 | round 2 | only with `--minus` | always, once: `ssearch36 -z 1` on the minus bank |
 | rounds 3+ | `--minus` only, ssearch36 `-z 11` | `--minus` only, ssearch36 `-z 1` |
 
@@ -24,7 +24,13 @@ filters as in regular mode. What fasta36 finds, ssearch36 would also have found
 (the same loci at 65 % identity and 0.8 length). If fasta36 finds nothing in a
 part, the ssearch36 round runs on the whole part.
 
-Why the span rule: fasta36 aligns inside a band of width 16 around the seed
+**2026-11-01: the span rule was dropped.** On rsi (r7, 20 Mb) it admitted 48 loci (6 %) that regular mode rejects: all
+were in regular's raw hits, fragments joined across insertions or neighbouring elements (median span 239 bp for a
+154 bp consensus). With the single-HSP rule round 1 claims only what ssearch36 would accept on the same evidence;
+fragmented copies stay in the minus bank for the ssearch36 round. Six rsi families on 20 Mb: 99.4-100 % of regular
+loci, 1-8 extra per family. `SEAR_SPAN_GAP=N` brings the old rule back for experiments.
+
+The old reasoning (why the span rule was tried): fasta36 aligns inside a band of width 16 around the seed
 diagonal, so a diverged copy often comes back as two or three HSPs instead of
 one. With the single-HSP rule 18 % of loci would fail the length test although
 they were found. Hits closer than 50 bp are one locus (`bedtools merge -d 50`),

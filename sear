@@ -68,7 +68,6 @@ KEEP_FLAG=0
 FORCE_SSEARCH=0
 SEAR_MODE="${SEAR_MODE:-regular}"      # regular | fast (docs/FAST_MODE.md)
 FAST_RESCUE="${SEAR_NO_RESCUE:+0}"; FAST_RESCUE="${FAST_RESCUE:-1}"   # SEAR_NO_RESCUE=1: fasta36 alone, no ssearch36 round (loses ~1 % of loci; not a documented mode)
-FAST_SPAN_GAP="${SEAR_SPAN_GAP:-50}"   # fast mode, round 1: fasta36 HSPs closer than this are one locus for the length rule
 SLOP_L=""
 SLOP_R=""
 
@@ -467,12 +466,16 @@ for bank in "${WB_BASE}".2k.part_*.bnk; do
   while [[ $Pl != "0" ]]; do
     # Engine for this round (docs/FAST_MODE.md).
     #   regular: ssearch36 -z 11 every round, the longest single HSP must be >= flen.
-    #   fast:    round 1 fasta36 ktup 6 (banded alignments come fragmented, so the merged span of HSPs
-    #            within FAST_SPAN_GAP bp is what must be >= flen); round 2+ ssearch36 -z 1 on the minus bank,
-    #            which holds everything round 1 did not claim, so nothing ssearch36 would find is lost.
-    #            -z 1 and not 11: identical loci on the depleted bank, 1.6x cheaper; never -z 3 there.
+    #   fast:    round 1 fasta36 ktup 6 with the regular rule (longest single HSP >= flen): fasta36 claims only the
+    #            loci ssearch36 would accept on the same evidence; a copy fasta36 returns fragmented stays in the
+    #            minus bank, where round 2+ (ssearch36 -z 1) judges it as regular mode does. Nothing ssearch36
+    #            would find is lost. -z 1 and not 11: identical loci on the depleted bank, 1.6x cheaper; never -z 3.
+    #            Until 2026-11-01 round 1 tested the merged span of HSPs within 50 bp instead: on rsi (r7, 20 Mb)
+    #            that admitted 48 loci (6 %) regular mode rejects, fragments joined across insertions or neighbours
+    #            (median span 239 bp for a 154 bp consensus). SEAR_SPAN_GAP=N brings that rule back (experiments).
     if [[ "$SEAR_MODE" == fast && $round -eq 1 ]]; then
-      prog=fasta36; ktup=6; zstat=11; merge_d="$FAST_SPAN_GAP"; lenrule='($3-$2)'
+      prog=fasta36; ktup=6; zstat=11
+      if [[ -n "${SEAR_SPAN_GAP:-}" ]]; then merge_d="$SEAR_SPAN_GAP"; lenrule='($3-$2)'; else merge_d=0; lenrule='$4'; fi
     elif [[ "$SEAR_MODE" == fast ]]; then
       prog=ssearch36; ktup=3; zstat=1; merge_d=0; lenrule='$4'
     else
