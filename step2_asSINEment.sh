@@ -35,7 +35,7 @@ STEP2_TOOLS="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/tool
 # table); a composite with < 30 bp outside the unit is left to the bitscore. UNIT_RULE=0 turns it off.
 UNIT_RULE="${UNIT_RULE:-1}"; UNIT_COVER_OTHER="${UNIT_COVER_OTHER:-0.5}"
 unit_table(){   # BANK.fa OUT.tsv: composite_units.py --bank, or an empty table with UNIT_RULE=0
-  if [[ "$UNIT_RULE" == 0 ]]; then : > "$2"; return; fi
+  case "$UNIT_RULE" in 0) : > "$2"; return ;; 1) ;; *) die "UNIT_RULE must be 0 or 1 (got: $UNIT_RULE)" ;; esac
   python3 "$STEP2_TOOLS/composite_units.py" --bank "$1" "$2" "$THREADS" >&2 \
     || die "tools/composite_units.py --bank failed (UNIT_RULE=0 votes without the unit/composite rule)"
 }
@@ -88,7 +88,7 @@ cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per co
 }
 
 check_deps(){
-  local req=(seqkit ssearch36 awk sed grep sort)
+  local req=(seqkit ssearch36 awk sed grep sort python3)   # python3: tools/composite_units.py (unit/composite rule)
   local missing=()
   for t in "${req[@]}"; do
     command -v "$t" >/dev/null 2>&1 || missing+=("$t")
@@ -639,6 +639,7 @@ run_incremental_assignment(){
   # Run 10-cycle ssearch36 on Tier 2 only
   #---------------------------------------------------------------------------
   : > "$TMPDIR/tier2_unanimous.tsv"
+  : > "$OUTDIR/unit_rule_swaps.tsv"   # no tier 2 copies: no swaps, and no stale file from an earlier run
   : > "$TMPDIR/tier2_all_votes.tsv"
   : > "$OUTDIR/ssearch.log"
 
