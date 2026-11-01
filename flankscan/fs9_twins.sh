@@ -56,6 +56,10 @@ mkdir -p "$OUT"; G=$(readlink -f "$G"); B=$(readlink -f "$B"); cd "$OUT"
 [[ -s "$G.fai" ]] || samtools faidx "$G"
 export LC_ALL=C
 RC='function rc(s,   r, i, c) { r = ""; for (i = length(s); i >= 1; i--) { c = substr(s, i, 1); r = r (c == "A" ? "T" : c == "C" ? "G" : c == "G" ? "C" : c == "T" ? "A" : "N") } return r }'
+# 5' flanks are stored reversed (outward from the junction, step 1): the repeat filter takes their 20-mers in genome orientation
+# (rev), else a 5' 20-mer is neither the genome 20-mer nor its reverse complement and no 5' flank is ever masked (found 2026-10-11,
+# branch claude/fs9-5prime-kmer-mask; fixed in the rep step, the awk mask and fs9_repmask.py 2026-11-01)
+REV=' function rev(s,   r, i) { r = ""; for (i = length(s); i >= 1; i--) r = r substr(s, i, 1); return r }'
 
 # 1) flanks, outward from the junction (5' flank reversed), soft-masked bases kept in lower case (seqs.raw.tsv); make_seqs SM writes
 #    seqs.tsv in upper case with masked bases as N (SM=1) or as bases (SM=0). History: the first version always used SM=1; SM=0 alone
@@ -83,7 +87,7 @@ if [[ -n "${KCOUNT:-}" && -s "${KCOUNT:-}" ]]; then
     # rep20.tsv came out empty and the repeat filter was silently off in every run with a KCOUNT (rsi, 2026-10-01)
     # only the 20-mers that occur in a flank are kept: a genome's repeated 20-mers can be hundreds of millions (anoCar2)
     if [[ $FS9_AWK == 1 ]]; then
-    gawk -F'\t' -v K=$GK "$RC"'{ s = $3; n = length(s); for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue
+    gawk -F'\t' -v K=$GK "$RC$REV"'{ s = ($2 == 5 ? rev($3) : $3); n = length(s); for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue
                                   r = rc(m); if (r < m) m = r; print m } }' seqs.tsv | sort -u > flank20.tsv
     gawk -v C=$GCAP 'FILENAME == ARGV[1] { want[$1]; next } NF >= 2 { any = 1; m = toupper($1); if ($2 + 0 > C && (m in want)) print m }
                      END { if (!any) exit 1 }' flank20.tsv "$KCOUNT" > rep20.tsv ||
@@ -104,11 +108,11 @@ else
 fi
 rep_mask() {   # bases covered by a repeated 20-mer become N (seqs.tsv in place)
     if [[ $FS9_AWK != 1 ]]; then python3 -I "$HERE9/fs9_repmask.py" mask seqs.tsv rep20.tsv > seqs.masked.tsv; mv seqs.masked.tsv seqs.tsv; return; fi
-    gawk -F'\t' -v K=$GK "$RC"'
+    gawk -F'\t' -v K=$GK "$RC$REV"'
         FILENAME == ARGV[1] { rep[$1]; next }
-        { s = $3; n = length(s); for (i = 1; i <= n; i++) mk[i] = 0
+        { s = ($2 == 5 ? rev($3) : $3); n = length(s); for (i = 1; i <= n; i++) mk[i] = 0
           for (i = 1; i + K - 1 <= n; i++) { m = substr(s, i, K); if (m ~ /N/) continue; r = rc(m); if (r < m) m = r; if (m in rep) for (j = i; j < i + K; j++) mk[j] = 1 }
-          o = ""; for (i = 1; i <= n; i++) o = o (mk[i] ? "N" : substr(s, i, 1)); print $1 "\t" $2 "\t" o }' rep20.tsv seqs.tsv > seqs.masked.tsv
+          o = ""; for (i = 1; i <= n; i++) o = o (mk[i] ? "N" : substr(s, i, 1)); print $1 "\t" $2 "\t" ($2 == 5 ? rev(o) : o) }' rep20.tsv seqs.tsv > seqs.masked.tsv
     mv seqs.masked.tsv seqs.tsv
 }
 
