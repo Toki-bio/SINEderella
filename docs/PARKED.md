@@ -1,0 +1,14 @@
+# Parked work (reviewed 2026-11-01)
+
+Every branch that is not in main, what it does, and why it is not merged. Inventory by GLM (glm-harness
+`tasks/parked/`, `out/parked-*.json`), every claim below checked against the code and, where marked, by a test run.
+
+| branch | what it does | status |
+|---|---|---|
+| `fs9-5prime-orientation` (from `claude/fs9-5prime-kmer-mask`) | fs9 repeat filter: 5' flanks are stored reversed, so their 20-mers were never the genome 20-mers and **no 5' flank was ever masked**, in every path (rep step, awk mask, default `fs9_repmask.py`). Fixed in all three. | **Blocked.** `flankscan/tests/test_fs9.sh` passes on main and fails with the fix: 2 of 40 hot-spot copies become twin2. The body check's partner correction (alpha/k, k = flank partners) protected hot-spot copies only because their unmasked 5' flanks gave them many partners (HOT009: 38 on main, 2 with the fix). Needs a decision on how hot spots are recognised once the mask works (e.g. k counted before masking). The fix also finds S7 (78 %) 2/2 (0/2 on main). |
+| `coverage-tiebreak` | step 2: for declared unit/composite pairs the coordinate rule decides (composite only if the copy covers >= half of the composite's other unit); COMPOSITES table, `tools/place_modules.py` | **Owner decision**: the r6 -> P26 / P48 movers and r10's interval (2026-10-17); conflicts with main's step 2 (runner span columns added 2026-10-26); intervals must be rewritten for r11. |
+| `junction-flanks` | border loop: core aligned once per side, flanks taken from the genome and packed at the junction (owner's design, 2026-10-18); step8a delivers the joined plate | **To finish**: merges cleanly, but the promised renaming of plate rows to the extended coordinates is computed and never written (`newname` in `tools/extend_plate.py` unused); no test of the border loop; must be run on a real plate set before merge. |
+| `fast-mode` | sear `--fast`: fasta36 ktup 6 first round + one ssearch36 rescue round; `SEAR_NO_RESCUE` | **Owner decision**: about 2x faster step 1, loci differ by ~0.1 % (D. valentini 110,493 vs 110,710); `SEAR_NO_RESCUE` loses ~1 % (old copies). Conflicts with main's sear and SINEderella. |
+| `fs9b-partners` | one-sided unknown partners of flank groups (`fs9b_partners.sh`, `fs9b_review.py`, toy) | **Not merged**: not wired; known defect (2026-10-17): "no stage-9 pair on the other side" is taken as "other side unique", while in rsi 6 of 7 candidates had that side untested (masked). |
+| `glm-uniq-cpg-leak` (was local only; pushed 2026-11-01) | CpG divergence tool and survey (already in main), `tools/cand_ends.py`, `tools/leak_div_example.py` | **Obsolete**: the CpG parts are in main; the two research tools are not wired and not needed by the workflow. |
+| `untested-minimap2-adaptive-thresholds` | looser minlen / merge distance for sear's minimap2 mode | **Obsolete**: main rewrote the minimap2 mode (2026-10-05); only queries >= 1 kb reach it. |
