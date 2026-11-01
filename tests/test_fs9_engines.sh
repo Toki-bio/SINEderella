@@ -15,7 +15,7 @@ export LC_ALL=C BODYCHECK=0
 FAILS=0
 cmp_dirs() {   # NAME DIR_AWK DIR_NEW
     local f n=0
-    for f in rep20.tsv seqs.tsv cand.p1.tsv cand.p2.tsv conf.p1.tsv conf.p2.tsv pairs.body pairs.strict.body pairs.masked95.body \
+    for f in rep20.tsv seqs.tsv cand.nomask.tsv conf.nomask.tsv partners_unmasked.tsv cand.p1.tsv cand.p2.tsv conf.p1.tsv conf.p2.tsv pairs.body pairs.strict.body pairs.masked95.body \
              flank_groups.tsv copy_status.tsv masked.txt untestable.txt; do
         [[ -e "$2/$f" || -e "$3/$f" ]] || continue
         if cmp -s "$2/$f" "$3/$f"; then n=$((n + 1)); else echo "FAIL $1: $f differs ($(wc -l < "$2/$f") vs $(wc -l < "$3/$f") rows)"; FAILS=$((FAILS + 1)); fi

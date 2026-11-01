@@ -196,6 +196,15 @@ find_pairs() {   # SM IDa IDb OUTFILE: pairs of one masking mode, pass 1 at IDa,
     gawk -F'\t' -v OFS='\t' -v ID1=$ID1 '{ key = $1 SUBSEP $2 SUBSEP $3; if (key in done) next; done[key] = 1
           print $1, $2, $3, $4, $5, ($4 >= ID1 ? "T1" : "T2"), "twin" }' conf.p1.tsv conf.p2.tsv | sort -k1,1 -k2,2 -k3,3 > "$4"
 }
+# partners before the repeat filter: pass 1 on the flanks with no base masked, every pair at >= ID2 counted per copy
+# (partners_unmasked.tsv: copy, partners). The body check's partner correction takes the larger of this and the masked count: a
+# copy inserted at a hot spot (inside copies of a repeat) shares its neighbourhood with many copies, and that is the evidence,
+# even where the repeat filter has masked the shared 20-mers. Before 2026-11-01 the 5' flanks were never masked (orientation bug)
+# and gave hot-spot copies these partners by accident (toy HOT009: 38 partners; with the 5' mask working and no count, 2).
+make_seqs 0
+pass_run 111111111111 $MK1 $ID2 nomask
+gawk -F'\t' -v OFS='\t' '{ k = $1 SUBSEP $2; if (k in seen) next; seen[k]; n[$1]++; n[$2]++ } END { for (c in n) print c, n[c] }' \
+    conf.nomask.tsv | sort > partners_unmasked.tsv
 if [[ $SOFTMASK == both ]]; then
     find_pairs 0 $IDMASK $IDMASK pairs.masked95.body       # masked bases kept, near-identical flanks only
     find_pairs 1 $ID1 $ID2 pairs.strict.body               # masked bases as N, the usual tiers (its seqs.tsv stays)
