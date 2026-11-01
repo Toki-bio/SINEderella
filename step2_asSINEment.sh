@@ -51,13 +51,18 @@ cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per co
       # pair_sp: where the best HSP of the pair lies on the consensus (m8 columns 7-8, the query is the consensus); read by
       # tools/rollup_families.py to find copies that cover only a part of their consensuses (partial copies)
       if(!(key in pair_bs) || bs > pair_bs[key]){ pair_bs[key]=bs; pair_sp[key]=$7 "\t" $8 } }
-    function other_cov(u, c, sq,   k, s, e, n, i, iv2, ab, cov, other) {   # -1: rule does not apply; else 1 = composite wins
+    # a copy is the composite only if its alignment to it covers >= F of the composite outside the unit AND >= F of the
+    # unit stretches themselves: a real composite copy spans both parts, a standalone copy only one. The second condition
+    # matters when the unit resembles the other part of the composite (rsi r5 vs r5_r5_P48 = r5 + r6, r5 97 percent like
+    # r6): a standalone r5 can align onto the r6 part of P48, covering the "other" part without touching the unit (first
+    # version, rsi 2026-11-02: 1,522 of 1,927 r5 copies went to P48)
+    function other_cov(u, c, sq,   k, s, e, n, i, iv2, ab, cov, covu, other) {   # -1: rule does not apply; else 1 = composite wins
       k = u SUBSEP c; if (!(k in ulen)) return -1
       other = clen[c] - ulen[k]; if (other < 30) return -1
       split(pair_sp[sq SUBSEP c], ab, "\t"); s = ab[1] + 0; e = ab[2] + 0; if (s > e) { t = s; s = e; e = t }
-      cov = e - s + 1; n = split(iv[k], iv2, " ")
-      for (i = 1; i <= n; i++) { split(iv2[i], ab, "-"); lo = (ab[1] > s ? ab[1] : s); hi = (ab[2] < e ? ab[2] : e); if (hi >= lo) cov -= hi - lo + 1 }
-      return (cov >= F * other) ? 1 : 0 }
+      cov = e - s + 1; covu = 0; n = split(iv[k], iv2, " ")
+      for (i = 1; i <= n; i++) { split(iv2[i], ab, "-"); lo = (ab[1] > s ? ab[1] : s); hi = (ab[2] < e ? ab[2] : e); if (hi >= lo) { cov -= hi - lo + 1; covu += hi - lo + 1 } }
+      return (cov >= F * other && covu >= F * ulen[k]) ? 1 : 0 }
     END{
       for(key in pair_bs){
         split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
