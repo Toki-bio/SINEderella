@@ -9,7 +9,8 @@ SINE) carry bodies only as similar as two random copies of the family. A flank p
 its two bodies are more similar than the 1 - alpha/k quantile of --random random pairs of the family's copies that are in
 no flank pair (seeded; fewer than --min-background such copies: no check, the flank result stands), k = the
 larger number of flank partners of its two copies: a copy at a hot spot has many partners and so many chances to pass by
-luck (toy: 9 of 40 hot-spot copies passed a plain 95 % cut; with the partner correction 0). The other pairs get class
+luck (toy: 9 of 40 hot-spot copies passed a plain 95 % cut; with the partner correction 0). Partners are counted both on
+the masked flanks (flank_groups.tsv) and before the repeat filter (partners_unmasked.tsv); the larger count is k. The other pairs get class
 "flank_only" and do not make a copy a twin. Families with fewer than --min-copies copies are not checked.
 
 Measured 2026-10-14 (flankscan/tests/real_twins/, share of pairs with the body above the random 95th percentile):
@@ -125,7 +126,14 @@ def quant(q): return bg[min(len(bg) - 1, int(q * len(bg)))]
 thr = quant(1 - a.alpha)
 deg = defaultdict(set)
 for r in rows: deg[r[0]].add(r[1]); deg[r[1]].add(r[0])
-def pair_thr(x, y): return quant(1 - a.alpha / max(1, len(deg[x]), len(deg[y])))
+# partners before the repeat filter (fs9_twins.sh, partners_unmasked.tsv): a hot-spot copy keeps its many partners as evidence
+# even where the filter masked the shared 20-mers; k = the larger count (2026-11-01; absent file = masked count only)
+degu = {}
+if os.path.exists(O("partners_unmasked.tsv")):
+    for l in open(O("partners_unmasked.tsv")):
+        f = l.rstrip("\n").split("\t")
+        if len(f) == 2: degu[f[0]] = int(f[1])
+def pair_thr(x, y): return quant(1 - a.alpha / max(1, len(deg[x]), len(deg[y]), degu.get(x, 0), degu.get(y, 0)))
 pres = body_ids([(r[0], r[1]) for r in rows])
 
 shutil.copy(O("flank_groups.tsv"), O("flank_groups.flank.tsv")); shutil.copy(O("copy_status.tsv"), O("copy_status.flank.tsv"))

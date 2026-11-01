@@ -10,6 +10,7 @@ The repeat filter of fs9_twins.sh, the same rows as its awk version, in numbers 
         The awk version first wrote every distinct flank 20-mer to flank20.tsv (1.3 GB on mau VES, 425,267 copies, kept in
         the results) and sorted it; here the set is held in memory as 40-bit numbers.
   mask: seqs.tsv rows (name TAB side TAB sequence) in input order, every base covered by a 20-mer of rep20.tsv as N.
+  Both modes read a 5' flank (side 5, stored reversed) in genome orientation, as fs9_twins.sh does.
 """
 import sys
 import numpy as np
@@ -25,6 +26,11 @@ def read_seqs(path):
             f = line.rstrip(b"\n").split(b"\t")
             names.append(f[:2]); rows.append(f[2] if len(f) > 2 else b"")
     return names, rows
+
+def genome_oriented(names, rows):
+    """5' flanks (side 5) are stored reversed, outward from the junction: reversed back, their 20-mers are genome 20-mers (a
+    reversed 20-mer is neither the 20-mer nor its reverse complement, so no 5' flank was ever masked before 2026-11-01)"""
+    return [s[::-1] if len(nm) > 1 and nm[1] == b"5" else s for nm, s in zip(names, rows)]
 
 def kmers(rows):
     """per chunk of rows: canonical 20-mer codes of every window without N: (row index, window start, code), int64 (2 bits/base)"""
@@ -63,7 +69,7 @@ def encode(s):
 mode = sys.argv[1] if len(sys.argv) > 1 else ""
 w = sys.stdout.buffer
 if mode == "rep" and len(sys.argv) == 5:
-    _, rows = read_seqs(sys.argv[2])
+    names, rows = read_seqs(sys.argv[2]); rows = genome_oriented(names, rows); del names
     parts = [sorted_unique(c) for _, _, c in kmers(rows)]; del rows
     flank = sorted_unique(np.concatenate(parts)) if parts else np.zeros(0, np.int64); del parts
     import re
@@ -95,7 +101,7 @@ if mode == "rep" and len(sys.argv) == 5:
         flush(ms)
     sys.exit(0 if anyline else 1)
 elif mode == "mask" and len(sys.argv) == 4:
-    names, rows = read_seqs(sys.argv[2])
+    names, rows = read_seqs(sys.argv[2]); rows = genome_oriented(names, rows)
     rep = []
     with open(sys.argv[3], "rb") as fh:
         for line in fh:
@@ -115,6 +121,7 @@ elif mode == "mask" and len(sys.argv) == 4:
             b = bytearray(s)
             for i_ in cover[n]: b[i_:i_ + K] = b"N" * K
             s = bytes(b)
+        if len(nm) > 1 and nm[1] == b"5": s = s[::-1]         # back to the stored order
         w.write(nm[0] + b"\t" + (nm[1] if len(nm) > 1 else b"") + b"\t" + s + b"\n")
 else:
     sys.exit(__doc__)
