@@ -103,7 +103,7 @@ def main():
     wfa = os.path.join(out, "windows.fa")
     subprocess.run("bedtools getfasta -fi %s -bed %s -s -nameOnly > %s" % (shlex.quote(genome), shlex.quote(bed), shlex.quote(wfa)), shell=True, check=True)
     hits_path = os.path.join(out, "hits.m8")
-    subprocess.run("ssearch36 -m 8 -E 1e-5 -z 11 -T %d %s %s > %s 2> /dev/null" % (T, shlex.quote(cons), shlex.quote(wfa), shlex.quote(hits_path)),
+    subprocess.run("ssearch36 -g -3 -m 8 -E 1e-5 -z 11 -T %d %s %s > %s 2> /dev/null" % (T, shlex.quote(cons), shlex.quote(wfa), shlex.quote(hits_path)),
                    shell=True, check=True)
 
     # window geometry: offset of the locus inside the window (window is in locus orientation)

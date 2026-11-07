@@ -1066,7 +1066,7 @@ def build_sineplot_iframe(s2_out: Path,
         LOG.info("  ssearch36 all-vs-all on %d sequences", len(records))
         with scores.open("w") as fh:
             r = subprocess.run(
-                ["ssearch36", "-m", "8", "-T", str(threads),
+                ["ssearch36", "-g", "-3", "-m", "8", "-T", str(threads),
                  str(all_fa), str(all_fa)],
                 stdout=fh, stderr=subprocess.PIPE, check=False)
         if r.returncode != 0:

@@ -150,7 +150,7 @@ def build_bitscore_matrix(assignment_path, consensus_path, subfamily_fastas,
     # Run ssearch36: consensus queries vs copy subjects
     ssearch_out = tempfile.NamedTemporaryFile(
         mode="w", suffix=".m8", delete=False).name
-    cmd = (f"ssearch36 -Q -n -z 11 -E 100 -T {threads} -m 8 "
+    cmd = (f"ssearch36 -g -3 -Q -n -z 11 -E 100 -T {threads} -m 8 "
            f"{shlex.quote(consensus_path)} {shlex.quote(all_copies_fa)} > {shlex.quote(ssearch_out)}")
     log(f"  Running ssearch36 ({n_copies} copies Ã— query consensuses) ...")
     ret = subprocess.run(cmd, shell=True, stderr=subprocess.PIPE, text=True)
@@ -1059,14 +1059,14 @@ def generate_sineplot_input(consensus_seqs, subfamily_fastas, outdir, threads):
                     fh.write(f">{name}\n{seq}\n")
 
     scores_out = os.path.join(outdir, "sineplot_input.txt")
-    cmd = (f"ssearch36 -m 8 -T {threads} {shlex.quote(combined)} {shlex.quote(combined)} > {shlex.quote(scores_out)}")
+    cmd = (f"ssearch36 -g -3 -m 8 -T {threads} {shlex.quote(combined)} {shlex.quote(combined)} > {shlex.quote(scores_out)}")
     log(f"  Running ssearch36 all-vs-all (this may take a while) ...")
     ret = subprocess.run(cmd, shell=True, stderr=subprocess.PIPE, text=True)
     if ret.returncode != 0:
         log(f"  WARNING: ssearch36 failed: {ret.stderr[:200]}")
         log(f"  You can generate SINEplot input manually with:")
         log(f"    cat consensuses.fa subfamilies/*.fasta > all.fa")
-        log(f"    ssearch36 -m 8 -T 4 all.fa all.fa > {scores_out}")
+        log(f"    ssearch36 -g -3 -m 8 -T 4 all.fa all.fa > {scores_out}")
         if os.path.exists(scores_out):     # the truncated output was returned as a result until 2026-10-19 (GLM audit 2026-10-19)
             os.unlink(scores_out)
     else:

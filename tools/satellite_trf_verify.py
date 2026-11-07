@@ -222,7 +222,7 @@ def verify(recs, cons, ssearch, workdir, threads):
     # ssearch36 cannot open a file whose path is longer than ~120 characters (FASTA36 file-name limit): every kind-A call failed
     # in the Sicista runs (2026-10-06). The consensus is copied next to the units and both are given by bare name inside workdir.
     shutil.copyfile(cons, os.path.join(workdir, "cons.fa"))
-    cmd = [ssearch, "-m", "8", "-E", str(MAX_E), "-z", "11", "-T", str(threads), "units2.fa", "cons.fa"]
+    cmd = [ssearch, "-g", "-3", "-m", "8", "-E", str(MAX_E), "-z", "11", "-T", str(threads), "units2.fa", "cons.fa"]
     r = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
     if r.returncode != 0:
         # a failed call used to read as "no SINE-derived locus" (Sicista 2026-10-06: 0 loci in every consensus); run it once more,

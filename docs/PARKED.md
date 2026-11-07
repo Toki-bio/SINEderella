@@ -13,7 +13,7 @@ Every branch that is not in main, what it does, and why it is not merged. Invent
 | `glm-uniq-cpg-leak` (was local only; pushed 2026-11-01) | CpG divergence tool and survey (already in main), `tools/cand_ends.py`, `tools/leak_div_example.py` | **Obsolete**: the CpG parts are in main; the two research tools are not wired and not needed by the workflow. |
 | `untested-minimap2-adaptive-thresholds` | looser minlen / merge distance for sear's minimap2 mode | **Obsolete**: main rewrote the minimap2 mode (2026-10-05); only queries >= 1 kb reach it. |
 
-## One gap cost in ssearch36: tested 2026-11-07, decision open
+## One gap cost in ssearch36: tested and decided 2026-11-07
 
 The steps mix two gap costs: sear, step 2 and step4_plots pass `-g -3` (12 + 3k), the others pass nothing (12 + 4k). Full oma runs on
 current main, one `ssearch36` wrapper per arm, no code changed, in DRAGEN `/staging/tmp/zoo_gap/arms`:
@@ -27,3 +27,5 @@ current main, one `ssearch36` wrapper per arm, no code changed, in DRAGEN `/stag
 All 12 + 3k is the same as now within noise, apart from a few pctid medians. All 12 + 4k loses 11,456 of 97,174 loci (161 go the other way). The 3,582 firm
 copies among them are older and shorter (median identity 85.4 against 88.9, length 202 against 222) but no worse by verdict (SINE 44 %,
 not_SINE 6 %, against 40 % and 7 % of all firm copies). One genome and one bank.
+
+**Decided 2026-11-07: every ssearch36 call in the workflow uses `-g -3` (12 + 3k).** The 24 remaining calls in 16 files were changed. length_variants.py and the two tRNA scripts were held back for a moment: on rsi r7 + r8, 589 of 10,250 copies moved from an end below 170 to 170 or more against the r8 consensus, and 0 moved back. In the alignment of 20 short, 40 moved and 20 long copies the owner sees no difference between the three groups in consensus 154-181, the 8 length verdicts did not change, and all 42 best tRNA matches did not change, so no exception was kept. Linkage values did change (0.97 to 0.95, 0.96 to 0.91, 0.57 to 0.51, 0.33 to 0, threshold 0.4), and the second isotype name changes in 5 rows. Not tested: whether the same setting stretches copy ends in sear and step 2.

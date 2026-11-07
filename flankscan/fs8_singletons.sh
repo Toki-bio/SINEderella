@@ -80,7 +80,7 @@ extract() {   # extract GROUP FL
 }
 
 # relaxed partner search, E per flank
-ssearch36 -m 8 -E 1 -Z 1 -z 11 -T "$T" cons.masked.fa "$D/flanks.fa" 2> /dev/null \
+ssearch36 -g -3 -m 8 -E 1 -Z 1 -z 11 -T "$T" cons.masked.fa "$D/flanks.fa" 2> /dev/null \
   | gawk -F'\t' -v OFS='\t' -v M=$MINLEN '
       { lo = ($9 < $10 ? $9 : $10); hi = ($9 < $10 ? $10 : $9); if (hi - lo + 1 < M) next
         if (!($2 in be) || $11 < be[$2]) { be[$2] = $11; bq[$2] = $1 } }

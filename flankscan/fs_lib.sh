@@ -122,7 +122,7 @@ fs_fold() {
     local LIST=$1 STATUS=$2 XMIN=${XMIN:-40}
     cut -f1 "$LIST" | while read -r N; do cat "cand/$N.fa"; done > cand/all.fa
     # a failed self-search is an error, not "no pair" (every candidate came out "kept"; GLM audit 2026-10-19)
-    ssearch36 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> cand/self.err > cand/self.m8 \
+    ssearch36 -g -3 -m 8 -E 1e-5 -z 11 -Z 1000 cand/all.fa cand/all.fa 2> cand/self.err > cand/self.m8 \
         || { echo "fs_fold: ssearch36 failed: $(tail -3 cand/self.err)" >&2; return 1; }
     # it also exits 0 when it cannot open a file; then only "***" on stderr shows it
     ! grep -q '\*\*\*' cand/self.err || { echo "fs_fold: ssearch36 failed: $(grep '\*\*\*' cand/self.err | head -2)" >&2; return 1; }
@@ -141,7 +141,7 @@ fs_fold() {
             # (the string constant used to span a line break; gawk rejects that as an "unterminated string", so this
             #  gawk failed, fold.x.fa stayed empty and rule 2 never blocked a pair - found in the audit of 2026-10-05)
             gawk -v S=$S -v E=$E '!/^>/ { print ">x\n" substr($0, S, E - S + 1) }' "cand/$N.fa" > cand/fold.x.fa
-            if [[ -n $(ssearch36 -m 8 -E 1e-3 -Z 1000 cand/fold.x.fa cons.masked.fa 2> /dev/null | gawk -F'\t' '$4 >= 40 { print "hit"; exit }') ]]; then
+            if [[ -n $(ssearch36 -g -3 -m 8 -E 1e-3 -Z 1000 cand/fold.x.fa cons.masked.fa 2> /dev/null | gawk -F'\t' '$4 >= 40 { print "hit"; exit }') ]]; then
                 printf "%s\t%s\n" "$A" "$B" >> cand/fold.block; break
             fi
         done
@@ -183,7 +183,7 @@ fs_endcheck() {
     # gap and the chain extension of stage 6c were off by the missing length (GLM audit 2026-10-19).
     seqkit fx2tab -n -l "cand/ends/$N.f5.fa" > "cand/ends/$N.l5"
     for S in 5 3; do
-        ssearch36 -m 8 -E 1e-3 -Z 1000 -z 11 -T "$T" cons.masked.fa "cand/ends/$N.f$S.fa" 2> /dev/null \
+        ssearch36 -g -3 -m 8 -E 1e-3 -Z 1000 -z 11 -T "$T" cons.masked.fa "cand/ends/$N.f$S.fa" 2> /dev/null \
         | gawk -F'\t' -v S=$S -v FL=$EFL -v NEAR=$NEAR -v ML=$MINLEN -v OFS='\t' '
             FILENAME == ARGV[1] { if (S == 5) off[$1] = FL - $2; next }
             { lo = ($9 < $10 ? $9 : $10) + off[$2]; hi = ($9 < $10 ? $10 : $9) + off[$2]; if (hi - lo + 1 < ML) next

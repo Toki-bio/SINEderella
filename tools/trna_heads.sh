@@ -42,7 +42,7 @@ with open("queries.fa", "w") as fo:
                 fo.write(">%s:%d-%d|%s\n%s\n" % (r["consensus"], a, b, r["unit"], seq[r["consensus"]][a - 1:b]))
 PY
 cp -f "$TRNA_REF" ref.fa
-ssearch36 -3 -m 8 -E 10 -T "$T" queries.fa ref.fa > ss.m8 2>/dev/null || { echo "trna_heads: ssearch36 failed" >&2; exit 1; }
+ssearch36 -g -3 -3 -m 8 -E 10 -T "$T" queries.fa ref.fa > ss.m8 2>/dev/null || { echo "trna_heads: ssearch36 failed" >&2; exit 1; }
 N=${SHUF_N:-20}
 if command -v esl-shuffle > /dev/null; then
   esl-shuffle -d -N "$N" --seed 42 queries.fa > shuf.fa 2>/dev/null
@@ -60,7 +60,7 @@ with open("shuf.fa", "w") as fo:
             x = list(s); random.shuffle(x); fo.write(">%s-shuffled-%d\n%s\n" % (name, k + 1, "".join(x)))
 PY
 fi
-ssearch36 -3 -m 8 -E 10 -T "$T" shuf.fa ref.fa > shuf.m8 2>/dev/null || { echo "trna_heads: ssearch36 (null) failed" >&2; exit 1; }
+ssearch36 -g -3 -3 -m 8 -E 10 -T "$T" shuf.fa ref.fa > shuf.m8 2>/dev/null || { echo "trna_heads: ssearch36 (null) failed" >&2; exit 1; }
 PATHX="${RNATOOLS_BIN:+$RNATOOLS_BIN:}$PATH"
 # no pre-made output files: tRNAscan-SE asks before overwriting one and, with no input, loops forever at 100 % CPU
 # (rsi 2026-10-18: 2 h); -Q = never prompt

@@ -55,7 +55,7 @@ def markx10(qname, tname):
         fo.write(">%s\n%s\n" % (qname, seq[qname]))
     with open("plate_t.fa", "w") as fo:
         fo.write(">%s\n%s\n" % (tname, ref[tname]))
-    out = subprocess.run(["ssearch36", "-3", "-m", "10", "-b", "1", "-d", "1", "plate_q.fa", "plate_t.fa"],
+    out = subprocess.run(["ssearch36", "-g", "-3", "-3", "-m", "10", "-b", "1", "-d", "1", "plate_q.fa", "plate_t.fa"],
                          capture_output=True, text=True, check=True).stdout
     part = out.split("\n>>", 1)[1].split("\n>>>", 1)[0]       # the one hit
     recs = []

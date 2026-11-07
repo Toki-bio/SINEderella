@@ -110,7 +110,7 @@ def getfasta(genome, bed_rows, tmp):
 def ssearch(query_fa, lib_fa, threads, nbest=5):
     """ssearch36 -m 8, forward strand of the queries only; a failed call is an error, not 'no hits' (ssearch36 can exit 0
     with '***' on stderr when it cannot read a file)."""
-    out = subprocess.run(["ssearch36", "-m", "8", "-3", "-E", EVALUE, "-b", str(nbest), "-d", "0", "-T", str(threads), query_fa, lib_fa],
+    out = subprocess.run(["ssearch36", "-g", "-3", "-m", "8", "-3", "-E", EVALUE, "-b", str(nbest), "-d", "0", "-T", str(threads), query_fa, lib_fa],
                          capture_output=True, text=True)
     if out.returncode != 0 or "***" in out.stderr:
         raise RuntimeError("ssearch36 failed: " + out.stderr.strip()[:300])

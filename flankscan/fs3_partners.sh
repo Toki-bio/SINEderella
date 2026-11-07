@@ -92,7 +92,7 @@ dustmasker -in lib.in.fa -outfmt fasta 2> /dev/null | seqkit seq -w 0 \
 #    in every genome, whatever its copy number.
 rm -rf ss_parts; seqkit split2 -s $CHUNK -O ss_parts windows.masked.fa 2> /dev/null
 for f in ss_parts/*; do
-    ssearch36 -m 8 -E $EVAL -Z $CHUNK -z 11 -T "$T" cons.masked.fa "$f" 2> /dev/null
+    ssearch36 -g -3 -m 8 -E $EVAL -Z $CHUNK -z 11 -T "$T" cons.masked.fa "$f" 2> /dev/null
 done > hits.m8
 rm -rf ss_parts
 

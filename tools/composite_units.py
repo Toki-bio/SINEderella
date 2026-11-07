@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
     with open(os.path.join(tmp, "b.fa"), "w") as fh:
         for k in order:
             fh.write(">%s\n%s\n" % (k, "".join(seq[k])))
-    out = subprocess.run(["ssearch36", "-3", "-m", "8", "-E", "1e-5", "-T", threads, "b.fa", "b.fa"], cwd=tmp,
+    out = subprocess.run(["ssearch36", "-g", "-3", "-3", "-m", "8", "-E", "1e-5", "-T", threads, "b.fa", "b.fa"], cwd=tmp,
                          capture_output=True, text=True, check=True).stdout
 
 hits = {}                                      # target -> [(start, end, query, identity)]

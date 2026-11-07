@@ -101,7 +101,7 @@ def verify_runs_serial(runs, starts, genome, workdir, max_units=MAX_UNITS, min_i
                 fl.write(">u%d\n%s\n" % (k, sq))
         # ssearch36 cannot open a file whose path is longer than ~120 characters (FASTA36 file-name limit; Sicista 2026-10-06):
         # run it inside the directory with the bare file names
-        res = subprocess.run(["ssearch36", "-m", "8", "-E", "10", "-z", "11", "-T", str(threads), os.path.basename(qf), os.path.basename(lf)],
+        res = subprocess.run(["ssearch36", "-g", "-3", "-m", "8", "-E", "10", "-z", "11", "-T", str(threads), os.path.basename(qf), os.path.basename(lf)],
                              capture_output=True, text=True, cwd=tmp).stdout
         best = {}
         for line in res.splitlines():
@@ -137,7 +137,7 @@ def verify_runs_serial(runs, starts, genome, workdir, max_units=MAX_UNITS, min_i
 # (24 lines for one 26 x 20 kb pair of a real rsi array: 56 s; -z -1: 2 lines, 5.5 s, the same best alignment 99.92 % over 13 445 bp).
 # The best alignment is what the identity of a real array comes from, so ARRAY identities are unchanged; a pair of unrelated units can
 # score a little lower (an alternative local match no longer listed), which only lowers COPIES numbers far below the threshold.
-SSEARCH_OPTS = ["-m", "8", "-E", "10", "-z", "-1"]
+SSEARCH_OPTS = ["-g", "-3", "-m", "8", "-E", "10", "-z", "-1"]
 _PAIR_CACHE = {}          # (genome, query region, partner region) -> best score of the pair, None when ssearch36 reported no line
 
 
