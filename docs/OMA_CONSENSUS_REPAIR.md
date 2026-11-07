@@ -20,6 +20,8 @@ read exactly, site d is A in 90 % of the oma_SINE10 copies and T in 91 % of the 
 C or A in 94 %. The oma_big76 variant is younger (15 % of copies at 95 % identity or more, against 4 %). With exact mirror seeds no copy of
 either pair becomes firm, and the tied copies show no gap in young copies (16.0 % and 16.1 %; medians 88.6 and 89.0).
 
+**Owner decision 2026-11-07: oma_SINE10 and oma_big76 are one subfamily.** Read from the alignment of 50 best unique-flank copies each, which looks like a single group. Sites 221, 231 and 256 do vary together, but as several mixed combinations, not two clean groups. The expected merge in Phase B stands.
+
 ## Phase A — Audit current oma run (DRAGEN, read-only)
 
 ```bash
