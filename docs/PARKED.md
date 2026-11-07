@@ -12,3 +12,18 @@ Every branch that is not in main, what it does, and why it is not merged. Invent
 | `fs9b-partners` | one-sided unknown partners of flank groups (`fs9b_partners.sh`, `fs9b_review.py`, toy) | **Not merged**: not wired; known defect (2026-10-17): "no stage-9 pair on the other side" is taken as "other side unique", while in rsi 6 of 7 candidates had that side untested (masked). |
 | `glm-uniq-cpg-leak` (was local only; pushed 2026-11-01) | CpG divergence tool and survey (already in main), `tools/cand_ends.py`, `tools/leak_div_example.py` | **Obsolete**: the CpG parts are in main; the two research tools are not wired and not needed by the workflow. |
 | `untested-minimap2-adaptive-thresholds` | looser minlen / merge distance for sear's minimap2 mode | **Obsolete**: main rewrote the minimap2 mode (2026-10-05); only queries >= 1 kb reach it. |
+
+## One gap cost in ssearch36: tested 2026-11-07, decision open
+
+The steps mix two gap costs: sear, step 2 and step4_plots pass `-g -3` (12 + 3k), the others pass nothing (12 + 4k). Full oma runs on
+current main, one `ssearch36` wrapper per arm, no code changed, in DRAGEN `/staging/tmp/zoo_gap/arms`:
+
+| compared | firm set Jaccard | firm copies | pctid median change, mean / max |
+|---|---|---|---|
+| same code twice (noise) | 0.9985 | 77,624 / 77,588 | 0.003 / 0.02 |
+| current against all 12 + 3k | 0.9984 | 77,624 / 77,601 | 0.024 / 0.23 |
+| current against all 12 + 4k | 0.979 | 77,624 / 72,597 | 0.46 / 4.1 |
+
+All 12 + 3k is the same as now within noise, apart from a few pctid medians. All 12 + 4k loses 11,456 of 97,174 loci (161 go the other way). The 3,582 firm
+copies among them are older and shorter (median identity 85.4 against 88.9, length 202 against 222) but no worse by verdict (SINE 44 %,
+not_SINE 6 %, against 40 % and 7 % of all firm copies). One genome and one bank.

@@ -12,6 +12,14 @@ repaired until the steps below are executed there.**
 | step4 pctid without `-g -3` | Divergence curves disagree for ± pairs | `step4_plots.sh` now uses `-g -3` (matches step2). This sets the gap extension to 3; both strands were searched before and after, so it is not a strand fix |
 | step4 uses AnnoSINE seeds | Ns in consensus; pctid vs wrong reference | `rebuild_consensus_bank.py` before step4 → `consensuses.rebuilt.fa` |
 
+**Measured 2026-11-07 (full runs on oma, current main): the second row is not the cause.** The divergence gap between ± pairs
+(medians 87.9 and 90.6 for oma_SINE10 and oma_big76) stays whatever the gap cost (moves at most 0.3) and whichever consensus
+is used (at most about 1). The two seeds are reverse complements that differ only where one has an N. Each seed therefore
+fixes a real base where the other has N, and the copies sort by real variants at those sites: for copies where the site could be
+read exactly, site d is A in 90 % of the oma_SINE10 copies and T in 91 % of the oma_big76 copies; site a is T in 83 % against
+C or A in 94 %. The oma_big76 variant is younger (15 % of copies at 95 % identity or more, against 4 %). With exact mirror seeds no copy of
+either pair becomes firm, and the tied copies show no gap in young copies (16.0 % and 16.1 %; medians 88.6 and 89.0).
+
 ## Phase A — Audit current oma run (DRAGEN, read-only)
 
 ```bash
