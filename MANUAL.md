@@ -1229,10 +1229,10 @@ ssearch36 -g -3 -T <threads> -Q -n -z 11 -E 2 -w 95 -W 70 -m 8
 | `-T` | Thread count |
 | `-Q` | Quiet mode |
 | `-n` | Nucleotide comparison |
-| `-z 11` | Z-score normalization method 11 (shuffle with composition) |
+| `-z 11` | Estimate the statistics from a shuffled copy of each library sequence. The shuffles are random, so E-values and bit scores vary a little from run to run. Needed here because the library is full of homologs: with the default `-z 1` a test library of 300 related copies gave no hits at `-E 2`, with `-z 11` about 300 |
 | `-E 2` | E-value threshold |
-| `-w 95` | Alignment width |
-| `-W 70` | Window size |
+| `-w 95` | Line width of displayed alignments. In `-m 8C` it is also the width of the subject name column, which keeps long window names intact |
+| `-W 70` | Sequence context shown around a displayed alignment. No effect on the `-m 8` and `-m 8C` tables |
 | `-m 8` | BLAST-tabular output format |
 
 ### 16.3 Bitscore Thresholds
