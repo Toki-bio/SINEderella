@@ -1225,8 +1225,7 @@ ssearch36 -g -3 -T <threads> -Q -n -z 11 -E 2 -w 95 -W 70 -m 8
 
 | Flag | Meaning |
 |------|---------|
-| `-g` | Global/gapped alignment |
-| `-3` | Forward strand + reverse complement |
+| `-g -3` | Gap-extension penalty of 3 per gap residue (DNA default 4). The `-3` is the value of `-g`, not a flag of its own. The gap-open penalty stays at the default 12, so a gap of k bases costs 12 + 3k. Both strands are searched because that is the default for DNA; `-3` on its own would mean forward strand only |
 | `-T` | Thread count |
 | `-Q` | Quiet mode |
 | `-n` | Nucleotide comparison |

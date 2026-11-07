@@ -87,7 +87,7 @@ AnnoSINE can emit ± duplicates as separate seed names. Before step1,
 same-orientation pairs only at ≥98%, and only when the two lengths are within 90% of each other. A shorter variant is never an alias of a longer one
 (2026-10-02: rsi r9 105 bp, r7 154 bp, MEG-RS 135 bp and MEG-RL 207 bp were merged at 89.5/97 % by a position-by-position identity, and the kept name carried the other's sequence)
 and orients to AT-rich 3′. step4 pctid is measured against that bank, the consensus the copies were searched with, with
-`-3` (both strands), matching step2. (Until 2026-10-21 a bank rebuilt from the copies, `consensuses.rebuilt.fa`, was used
+`-g -3` (gap extension 3; both strands are the default), matching step2. (Until 2026-10-21 a bank rebuilt from the copies, `consensuses.rebuilt.fa`, was used
 when present; it could differ from the searched one: rsi r1_r2_r3_r3_C11 rebuilt 889 bp against 608, so its copies showed
 23 % divergence instead of 6 %. `rebuild_consensus_bank.py` is no longer run; the consensus audit checks the consensus.)
 

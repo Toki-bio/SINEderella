@@ -1,7 +1,7 @@
 # Oma consensus-bank repair plan
 
 Three workflow bugs block clean SINE10 discussion. Fixes land in SINEderella
-`main` (canonicalize + rebuild + step4 `-3`). **Oma run on DRAGEN is not
+`main` (canonicalize + rebuild + step4 `-g -3`). **Oma run on DRAGEN is not
 repaired until the steps below are executed there.**
 
 ## Root cause (confirmed)
@@ -9,7 +9,7 @@ repaired until the steps below are executed there.**
 | Bug | Symptom | Fix |
 |---|---|---|
 | ± seeds kept as separate subfamilies | 6 names, 3 biology | `canonicalize_consensus_bank.py` before step1 |
-| step4 pctid without `-3` | Divergence curves disagree for ± pairs | `step4_plots.sh` now uses `-g -3` (matches step2) |
+| step4 pctid without `-g -3` | Divergence curves disagree for ± pairs | `step4_plots.sh` now uses `-g -3` (matches step2). This sets the gap extension to 3; both strands were searched before and after, so it is not a strand fix |
 | step4 uses AnnoSINE seeds | Ns in consensus; pctid vs wrong reference | `rebuild_consensus_bank.py` before step4 → `consensuses.rebuilt.fa` |
 
 ## Phase A — Audit current oma run (DRAGEN, read-only)
