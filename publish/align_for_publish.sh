@@ -146,6 +146,10 @@ fi
 # consensuses of subfamilies whose flanks were shown unique (flank_verdict.tsv: interspersed). MAFFT L-INS-i with
 # --threadit 0 (same input -> same alignment). Written after the DISC tools above, which must not touch them.
 CONS_BANK="$RUN_ROOT/consensuses.clean.fa"
+# an earlier publish's files go first: the SINE one is written only with >= 2 interspersed subfamilies, and a stale one was
+# copied into the HTML tree again (GLM audit 2026-11-08, finding D17)
+rm -f "$STEP8_OUT/${SPECIES}_consensuses.aln.fa" "$STEP8_OUT/${SPECIES}_consensuses_sine.aln.fa" \
+      "$OUT_DIR/${SPECIES}_consensuses.aln.fa" "$OUT_DIR/${SPECIES}_consensuses_sine.aln.fa"
 if [[ -s "$CONS_BANK" ]]; then
   log "consensus alignments"
   mafft --quiet --localpair --maxiterate 1000 --threadit 0 --thread "${THREADS:-4}" "$CONS_BANK" \

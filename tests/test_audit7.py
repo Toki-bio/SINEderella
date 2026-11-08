@@ -339,3 +339,31 @@ def test_38_publish_picks_highest_step2_run_number(tmp_path):
     r = _bash(tmp_path / "s.sh", tmp_path)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip().endswith("/step2_output_run11"), r.stdout
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# D17: publish/align_for_publish.sh: a stale consensus alignment of an earlier publish was copied into the HTML tree again
+# ---------------------------------------------------------------------------------------------------------------------
+@need_bash
+@pytest.mark.skipif(shutil.which("awk") is None, reason="needs awk")
+def test_D17_republish_drops_stale_sine_consensus_alignment(tmp_path):
+    b = tmp_path / "bin"
+    _stub(b, "mafft", 'for a in "$@"; do f="$a"; done; cat "$f"')          # "aligns" by printing the input
+    run = tmp_path / "run"
+    _w(run / "consensuses.clean.fa", ">A\nACGT\n>B\nACGA\n>C\nTTTT\n")
+    # this publish: only one subfamily is interspersed -> no SINE consensus alignment is written
+    _w(run / "step2/step2_output/flank_verdict.tsv", "subfamily\tverdict\nA\tinterspersed\nB\tnot_interspersed\nC\tuntested\n")
+    s8, od = tmp_path / "s8", tmp_path / "html"
+    for d in (s8, od):
+        _w(d / "SP_consensuses_sine.aln.fa", ">A\nACGT\n>OLD\nACGT\n")       # left by an earlier publish
+    # the consensus-alignment block of the script as it is, from CONS_BANK= to the final log line
+    lines = (SRC / "publish/align_for_publish.sh").read_text(encoding="utf-8").splitlines()
+    i = next(k for k, l in enumerate(lines) if l.startswith('CONS_BANK="$RUN_ROOT/consensuses.clean.fa"'))
+    j = next(k for k in range(i, len(lines)) if lines[k].startswith('log "Done: $STEP8_OUT"'))
+    blk = "\n".join(lines[i:j]) + "\n"
+    (tmp_path / "s.sh").write_text("set -euo pipefail\nlog(){ echo \"$*\" >&2; }\nRUN_ROOT=%s\nSTEP8_OUT=%s\nOUT_DIR=%s\nSPECIES=SP\n%s"
+                                   % (run.as_posix(), s8.as_posix(), od.as_posix(), blk), encoding="utf-8", newline="\n")
+    r = _bash(tmp_path / "s.sh", tmp_path, b)
+    assert r.returncode == 0, r.stderr
+    assert (od / "SP_consensuses.aln.fa").exists()
+    assert not (od / "SP_consensuses_sine.aln.fa").exists(), "the earlier publish's SINE consensus alignment is published again"
