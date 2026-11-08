@@ -119,3 +119,38 @@ def test_20_canonicalizer_crash_stops_run(tmp_path):
                    encoding="utf-8", newline="\n")
     r = _bash(drv, tmp_path, b)
     assert "CONTINUED" not in r.stdout and r.returncode != 0, r.stderr
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 53: tools/rollup_families.py --votes: a family with no subfamily threshold got threshold 0, every 10-vote copy assigned
+# ---------------------------------------------------------------------------------------------------------------------
+def _w(p, text):
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8", newline="\n")
+
+
+def test_53_rollup_family_without_threshold_not_assigned(tmp_path):
+    sys.path.insert(0, str(SRC / "tools"))
+    import importlib
+    import rollup_families as rf
+    rf = importlib.reload(rf)
+    assert Path(rf.__file__).resolve().parent == (SRC / "tools").resolve()
+    run = tmp_path / "run"
+    _w(run / "step2/step2_output/assignment_full.tsv",
+       "Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold\tRunnerInfo\n"
+       "a1\tA1\t300\t10\tassigned\t100\tNA\n"            # family A has a threshold (100)
+       "a2\tA2\t200\t6\tno_unanimous\t100\tNA\n"         # A1/A2 split, score 1900 >= 100 -> family-firm
+       "c1\tC1\t40\t5\tno_unanimous\tNA\tNA\n"           # family C: no subfamily ever got a threshold
+       )
+    _w(run / "genome.clean_step1/extracted.fasta", ">a1\nACGT\n")
+    _w(run / "genome.clean_step1/searches/all_hits.labeled.bed", "chr1\t0\t100\tA1\t1\t+\n")
+    _w(run / "fam.tsv", "subfamily\tfamily\tparent_source\nA1\tA\tderived\nA2\tA\tderived\nC1\tC\tderived\nC2\tC\tderived\n")
+    _w(run / "fam.fa", ">A\nACGT\n>C\nTTTT\n")
+    _w(run / "votes.tsv", "a2\tA1\t4\t800\t0\tNA\na2\tA2\t6\t1100\t0\tNA\nc1\tC1\t5\t40\t0\tNA\nc1\tC2\t5\t38\t0\tNA\n")
+    out = tmp_path / "fv"
+    rf.rollup(str(run), str(run / "fam.tsv"), str(run / "fam.fa"), str(out), str(run / "votes.tsv"))
+    rows = [l.split("\t") for l in (out / "step2/step2_output/assignment_full.tsv").read_text(encoding="utf-8").splitlines()]
+    t = {r[0]: r for r in rows[1:]}
+    assert t["a2"][4] == "assigned"                               # the tested family still promotes
+    assert t["c1"][4] != "assigned", t["c1"]                      # untested: not a family-firm copy
+    assert t["c1"][1] == "C"
