@@ -202,3 +202,29 @@ def test_16_trf_verify_failed_search_stops(tmp_path, monkeypatch, rc, err):
     recs = [("c1", 0, 300, 100, 3.0, 90, 200, "ACGT" * 25)]
     with pytest.raises(SystemExit):
         V.verify(recs, str(tmp_path / "in.fa"), "ssearch36", str(tmp_path), 1)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 50: tools/kindB_flank_check.sh: the piece-median loop was bounded by the count of flank-eligible hits, not by the stretches
+# ---------------------------------------------------------------------------------------------------------------------
+def _shell_block(script, first_marker, last_marker):
+    """Lines of a shell script from the line before `first_marker` (the command start) to the line holding `last_marker`."""
+    lines = Path(script).read_text(encoding="utf-8").splitlines()
+    i = next(k for k, l in enumerate(lines) if first_marker in l)
+    j = next(k for k in range(i, len(lines)) if last_marker in lines[k])
+    return "\n".join(lines[i - 1:j + 1]) + "\n"
+
+
+@need_bash
+@pytest.mark.skipif(shutil.which("gawk") is None, reason="needs gawk")
+def test_50_kindB_piece_median_reads_every_stretch(tmp_path):
+    # Fable's toy t50: run r, 4 hits (stretches 0..2), 3 flank-eligible hits, the only piece at stretch 2 scores 95
+    for f, t in (("border.ids", "r\n"), ("pnames.txt", "r_2_P\n"), ("piece_scores.tsv", "r\t2\t95\n"),
+                 ("verdicts.flank.tsv", "r\t3\t60.0\t0.33\tBORDER\tflank\n"), ("nhits.tsv", "r\t4\n")):
+        _w(tmp_path / f, t)
+    blk = _shell_block(SRC / "tools/kindB_flank_check.sh", 'FILENAME == "pnames.txt" { split($0, a, "_"); if (a[3] == "P")',
+                       "> piece_median.tsv")
+    (tmp_path / "blk.sh").write_text("set -euo pipefail\n" + blk, encoding="utf-8", newline="\n")
+    r = _bash(tmp_path / "blk.sh", tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert (tmp_path / "piece_median.tsv").read_text().split() == ["r", "95", "1"]
