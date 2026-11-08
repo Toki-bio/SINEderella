@@ -90,3 +90,32 @@ def test_72_step2_tier1_id_with_colon_in_contig(tmp_path):
     rows = [l.split("\t") for l in r.stdout.splitlines()]
     assert rows[0][:3] == ["ctg1:apple", "99", "200"], rows
     assert rows[1][:3] == ["chr2", "4", "50"], rows
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 20: SINEderella canonicalize_consensus_bank(): a crash of canonicalize_consensus_bank.py was a WARNING, the run went on
+# ---------------------------------------------------------------------------------------------------------------------
+def _bash_function(script, name):
+    """The text of one bash function `name(){ ... }` of a script, from its first line to the first line that is '}'."""
+    lines = Path(script).read_text(encoding="utf-8").splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith(name + "(){") or l.startswith(name + "() {"))
+    end = next(i for i in range(start + 1, len(lines)) if lines[i] == "}")
+    return "\n".join(lines[start:end + 1]) + "\n"
+
+
+@need_bash
+def test_20_canonicalizer_crash_stops_run(tmp_path):
+    b = tmp_path / "bin"
+    _stub(b, "python3", "echo 'Traceback: boom' >&2; exit 1")
+    sd = tmp_path / "sd"
+    sd.mkdir()
+    (sd / "canonicalize_consensus_bank.py").write_text("", encoding="utf-8")
+    (tmp_path / "bank.fa").write_text(">a\nACGT\n", encoding="utf-8", newline="\n")
+    drv = tmp_path / "drv.sh"
+    drv.write_text("set -euo pipefail\nlog(){ echo \"$*\" >&2; }\ndie(){ echo \"ERROR: $*\" >&2; exit 1; }\n"
+                   "SCRIPT_DIR=%s\n" % sd.as_posix()
+                   + _bash_function(SRC / "SINEderella", "canonicalize_consensus_bank")
+                   + "canonicalize_consensus_bank %s\necho CONTINUED\n" % (tmp_path / "bank.fa").as_posix(),
+                   encoding="utf-8", newline="\n")
+    r = _bash(drv, tmp_path, b)
+    assert "CONTINUED" not in r.stdout and r.returncode != 0, r.stderr
