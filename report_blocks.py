@@ -34,7 +34,8 @@ def _bank(run_root):
 
 
 WORDS = {"TWO_VERSIONS": "two separate SINEs", "UNLINKED_ENDS": "one SINE, variable end", "SINGLE_MODE": "one length",
-         "UNRESOLVED": "not decided", "NOT_TESTED": "not tested (too few copies)"}
+         "UNRESOLVED": "not decided", "NOT_TESTED": "not tested (too few copies)",
+         "UNTESTED": "not tested (too few copies per mode for the linkage test)"}
 
 
 def _length_versions(run_root):

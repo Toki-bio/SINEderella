@@ -27,6 +27,7 @@ Verdict (thresholds below, all adjustable):
   UNLINKED_ENDS     >= 2 modes but the internal bases do not follow the length (a variable end, one monomer)
   SINGLE_MODE       one mode: no second version; the tail is decay / a variable end
   UNRESOLVED        too few copies, or the evidence disagrees (the report lists which test failed)
+  UNTESTED          >= 2 modes but no column of the linkage test had 50 copies in both modes: nothing was measured
 It never merges anything: it is a decision input.
 
 Usage:
@@ -194,10 +195,12 @@ def linkage(copies_by_mode, cons, shared_hi):
     sh, lg = copies_by_mode[0], copies_by_mode[-1]
     a_s, a_l = column_alleles(sh, cons, 1, shared_hi), column_alleles(lg, cons, 1, shared_hi)
     diag = {}
+    tested = 0              # columns with >= 50 copies in both modes: only these were measured
     for col in range(1, shared_hi + 1):
         ns, nl = sum(a_s[col].values()), sum(a_l[col].values())
         if ns < 50 or nl < 50:
             continue
+        tested += 1
         # the base whose frequency is highest in the short mode relative to the long mode; a mode may be a mixture
         # (rle MEG-RS mode: 41 % G at column 25 against 6 % in the long mode), so a difference in frequency counts, not a fixed one
         bs = max("ACGT-", key=lambda b: a_s[col][b] / float(ns) - a_l[col][b] / float(nl))
@@ -221,9 +224,11 @@ def linkage(copies_by_mode, cons, shared_hi):
     pl = kl["S"] / float(kl["S"] + kl["L"]) if kl["S"] + kl["L"] else None
     idx = (ps - pl) if ps is not None and pl is not None else None
     if not diag:
-        idx = 0.0       # no column differs between the modes: nothing follows the length
+        # no column differs between the modes: nothing follows the length. Only when columns were measured: with none
+        # (a mode under 50 copies) the index is unknown, not 0 (GLM audit 2026-11-08, finding 224)
+        idx = 0.0 if tested else None
     return {"diag_columns": diag, "short_mode_short_allele": ps, "long_mode_short_allele": pl, "index": idx,
-            "n_short_informative": ks["S"] + ks["L"], "n_long_informative": kl["S"] + kl["L"]}
+            "n_short_informative": ks["S"] + ks["L"], "n_long_informative": kl["S"] + kl["L"], "n_tested_columns": tested}
 
 
 # --- C: TSD ----------------------------------------------------------------------------------------------
@@ -308,7 +313,10 @@ def analyse(copies, cons, seed=7):
     lk = linkage(by, cons, shared_hi)
     rep["tests"]["linkage"] = lk
     linked = lk["index"] is not None and lk["index"] >= LINK_MIN
-    if not linked:
+    if not lk["n_tested_columns"]:
+        rep["why"].append("linkage not tested: no column of the shared region is covered by >= 50 copies of both modes (mode sizes %s)"
+                          % rep["mode_sizes"])
+    elif not linked:
         rep["why"].append("internal bases do not follow the length (index %s, %d diagnostic columns)" % (
             "n/a" if lk["index"] is None else "%.2f" % lk["index"], len(lk["diag_columns"])))
     tsd = []
@@ -323,6 +331,8 @@ def analyse(copies, cons, seed=7):
     rep["tests"]["residual_short_mode"] = residual(by[0], cons, modes[0]["peak"], rng)
     if ok and linked and tsd_ok:
         rep["verdict"] = "TWO_VERSIONS"
+    elif not lk["n_tested_columns"]:
+        rep["verdict"] = "UNTESTED"       # the linkage test, needed for either answer, measured nothing
     elif ok and not linked and lk["index"] is not None:
         rep["verdict"] = "UNLINKED_ENDS"
     else:

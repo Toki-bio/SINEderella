@@ -251,3 +251,53 @@ def test_D16_fs9_rerun_failed_family_leaves_no_stale_status(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "F failed" in r.stderr
     assert not stale.exists(), "the failed family's old copy_status.tsv is still read as this run's result"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 224: tools/length_variants.py: with a mode under 50 copies no linkage column is tested, yet index 0.0 gave UNLINKED_ENDS
+# ---------------------------------------------------------------------------------------------------------------------
+def _lv():
+    sys.path.insert(0, str(SRC / "tools"))
+    import importlib
+    import length_variants as lv
+    lv = importlib.reload(lv)
+    assert Path(lv.__file__).resolve().parent == (SRC / "tools").resolve()
+    return lv
+
+
+def _lv_copies(lv, n_short, n_long):
+    import random
+    rng = random.Random(1)
+    rseq = lambda n: "".join(rng.choice("ACGT") for _ in range(n))
+    cons = rseq(200)
+    # ends spread over 7 bp around 100 and 190: two modes with an empty valley between them
+    cs = [lv.Copy(1, 97 + i % 7, {}, rseq(30), rseq(120), "S") for i in range(n_short)]
+    cs += [lv.Copy(1, 187 + i % 7, {}, rseq(30), rseq(120), "L") for i in range(n_long)]
+    return cs, cons
+
+
+def test_224_length_variants_no_tested_column_is_untested():
+    # as Fable's toy: 40 short-mode copies, 160 long, no base differences -> every column skipped (short mode < 50)
+    lv = _lv()
+    cs, cons = _lv_copies(lv, 40, 160)
+    rep = lv.analyse(cs, cons)
+    assert rep["verdict"] != "UNLINKED_ENDS", rep["why"]
+    assert rep["verdict"] == "UNTESTED", rep["verdict"]
+    assert rep["tests"]["linkage"]["index"] is None
+
+
+def test_224_length_variants_measured_columns_keep_unlinked_ends():
+    # control: 60 short copies, columns are measured and none differs -> UNLINKED_ENDS stays
+    lv = _lv()
+    cs, cons = _lv_copies(lv, 60, 160)
+    rep = lv.analyse(cs, cons)
+    assert rep["verdict"] == "UNLINKED_ENDS" and rep["tests"]["linkage"]["index"] == 0.0
+
+
+def test_224_report_words_untested():
+    sys.path.insert(0, str(SRC))
+    import importlib
+    import report_blocks as rb
+    rb = importlib.reload(rb)
+    assert "UNTESTED" in rb.WORDS and "not tested" in rb.WORDS["UNTESTED"]
+
