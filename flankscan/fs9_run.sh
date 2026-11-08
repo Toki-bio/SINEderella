@@ -24,6 +24,10 @@ export FS9_THREADS=${FS9_THREADS:-$T}               # workers of fs9_seeds.py an
 G="$RUN/genome.clean.fa"; AF="$RUN/results/assignment_full.tsv"; OUT="$RUN/results/flank_twins"
 [[ -s "$G" && -s "$AF" ]] || { echo "fs9_run: need $G and $AF" >&2; exit 1; }
 [[ -s "$G.fai" ]] || samtools faidx "$G"
+# results of an earlier stage-9 run in this run dir go first: a family that fails now (or a stage skipped for want of
+# jellyfish) kept its old copy_status.tsv / flank_groups.tsv, read by flank_verdict.py and step8a as this run's result; with
+# none, its copies are grey (GLM audit 2026-11-08, finding D16)
+rm -rf "$OUT" "$OUT.tsv"
 mkdir -p "$OUT"
 export LC_ALL=C
 

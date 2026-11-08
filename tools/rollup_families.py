@@ -19,7 +19,8 @@ Status of a copy in the family view
     * subfamily-firm in the run (status = assigned)  -> assigned to its family (the vote and score as they were);
     * otherwise, WHEN a vote table is given (--votes; step 2 writes vote_summary.tsv.gz): the family votes of its ten cycles are summed;
       ten of ten in one family and a score at or above the lowest threshold of that family's subfamilies  -> assigned to the family with
-      `layer2=unresolved` in the runner tag (family-firm, subfamily between its members);
+      `layer2=unresolved` in the runner tag (family-firm, subfamily between its members); a family none of whose subfamilies
+      has a threshold cannot be tested, and its copies keep their status;
     * all other copies keep their status; their label becomes the family of their best vote.
     A runner-up that belongs to the copy's own family is dropped from the runner tag (a LEAK inside a family is expected; across families
     it stays the alarm).
@@ -322,8 +323,12 @@ def rollup(run, fam_map_path, fam_cons, out, votes_path=None, bank=None, near_ti
             F = best
             new_nv = str(fv[best])
             new_bs = str(int(fb[best] + 0.5))
-            lowest = min(fam_thr[best]) if fam_thr.get(best) else 0
-            if fv[best] == 10 and fb[best] >= lowest:
+            # a family none of whose subfamilies has a step-2 threshold cannot be score-tested: its copies keep their status
+            # (the threshold was 0 and every 10-vote copy was assigned untested; GLM audit 2026-11-08, finding 53)
+            lowest = min(fam_thr[best]) if fam_thr.get(best) else None
+            if lowest is None:
+                pass
+            elif fv[best] == 10 and fb[best] >= lowest:
                 new_status = "assigned"
                 new_th = str(int(lowest))
                 layer2 = ";layer2=unresolved"

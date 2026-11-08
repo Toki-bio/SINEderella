@@ -19,7 +19,9 @@ Every copy of both families is cut from the genome with 100 bp of flank, aligned
 | D | similarity of the flank past the short mode's end to the long consensus' extension, real against shuffled | none (identity at chance, 0 of n ≥ 0.75) | a decayed extension leaves residual similarity |
 
 Verdicts: `TWO_VERSIONS` (A, B and C all hold), `UNLINKED_ENDS` (modes but no linkage: one monomer with a variable end),
-`SINGLE_MODE` (no second mode), `UNRESOLVED` (too few copies, or the evidence disagrees; the report names the failed test).
+`SINGLE_MODE` (no second mode), `UNRESOLVED` (too few copies, or the evidence disagrees; the report names the failed test),
+`UNTESTED` (two modes, but no column of B had 50 copies in both modes, so the linkage was not measured; until 2026-11-08 this
+read as index 0 and gave `UNLINKED_ENDS`).
 D is reported, not part of the rule. A short mode can be a mixture (decayed long copies inside it): that lowers the linkage index but a
 clear difference still counts, which is why B uses frequency differences and not fixed ones.
 

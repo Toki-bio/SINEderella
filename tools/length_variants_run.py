@@ -4,7 +4,7 @@
 Candidate pairs: the shorter consensus of the bank is the 5' part of a longer one (consensus_bank_lib.find_length_variant_pairs,
 >= 85 % identity along the shorter, the longer 10-120 bp longer). For each pair whose two families both have >= MIN_ASSIGNED assigned
 copies the copies of both are pooled, aligned to the longer consensus, and length_variants.analyse decides
-TWO_VERSIONS / UNLINKED_ENDS / SINGLE_MODE / UNRESOLVED. Nothing is merged or renamed: results/length_variants/summary.tsv is a decision input.
+TWO_VERSIONS / UNLINKED_ENDS / SINGLE_MODE / UNRESOLVED / UNTESTED. Nothing is merged or renamed: results/length_variants/summary.tsv is a decision input.
 
 Usage: length_variants_run.py RUN_DIR [--threads 16] [--max-pairs 12] [--bank FILE]
 RUN_DIR needs genome.clean.fa, results/assignment_full.tsv, results/assignment_stats.tsv and the bank (consensuses.clean.fa).

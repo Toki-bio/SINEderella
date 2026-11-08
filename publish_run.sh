@@ -48,9 +48,10 @@ else
   DISC=""
 fi
 
-# Locate step2 output
-S2="$(find "$RUN_ROOT/step2" -maxdepth 1 -type d -name 'step2_output*' 2>/dev/null \
-      | sort | tail -1)"
+# Locate step2 output: the newest by modification time, the rule of every other step (SINEderella, step4_plots.sh,
+# align_for_publish.sh, verdict_chain.sh, flank_verdict.py, rollup_families.py). A name sort picked step2_output_run9
+# over _run10 (GLM audit 2026-11-08, finding 38)
+S2="$(ls -dt "$RUN_ROOT"/step2/step2_output* 2>/dev/null | head -n1 || true)"
 [[ -n "$S2" && -d "$S2" ]] || die "No step2_output under $RUN_ROOT"
 
 # ── 1. Step4 plots (pctid TSVs + PNGs) ─────────────────────────────────────

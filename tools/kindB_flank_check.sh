@@ -127,15 +127,18 @@ if [[ -s border.ids ]]; then
             END { for (key in best) { split(key, z, SUBSEP); print z[1], z[2], best[key] } }' > piece_scores.tsv || true
     fi
     : >> piece_scores.tsv; : >> pnames.txt
+    # pieces are cut per stretch k = 0 .. hits-2 (hits per run from nhits.tsv, capped as above); the loop ran to the count of
+    # flank-eligible hits instead, so the last stretch was never read and a run whose first hits were not eligible had no piece
+    # test at all (BORDER -> COPIES; GLM audit 2026-11-08, finding 50)
     gawk -F'\t' -v OFS='\t' '
         FILENAME == "pnames.txt" { split($0, a, "_"); if (a[3] == "P") has[a[1], a[2]] = 1; next }
-        FILENAME == "verdicts.flank.tsv" { nn[$1] = $2; next }
+        FILENAME == "nhits.tsv" { nh[$1] = $2; next }
         { sc[$1, $2] = $3 }
         END { while ((getline r < "border.ids") > 0) { n = 0
-                for (k = 0; k <= nn[r] - 2; k++) if ((r, k) in has) v[++n] = ((r, k) in sc) ? sc[r, k] : 0
+                for (k = 0; k <= nh[r] - 2; k++) if ((r, k) in has) v[++n] = ((r, k) in sc) ? sc[r, k] : 0
                 if (n == 0) { print r, 0, 0; continue }
                 c = asort(v, w); med = (c % 2) ? w[(c + 1) / 2] : (w[c / 2] + w[c / 2 + 1]) / 2
-                print r, med, n; delete v; delete w } }' pnames.txt verdicts.flank.tsv piece_scores.tsv > piece_median.tsv
+                print r, med, n; delete v; delete w } }' pnames.txt nhits.tsv piece_scores.tsv > piece_median.tsv
 fi
 : >> piece_median.tsv
 gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" '

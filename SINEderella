@@ -404,8 +404,10 @@ canonicalize_consensus_bank(){
     mv -f "$tmp" "$fa"
     [[ -s "$aliases" ]] && log "Wrote alias map: $aliases"
   else
-    log "WARNING: canonicalize_consensus_bank.py failed — using unmerged seeds"
+    # a crash stops the run: going on with the unmerged bank left RC / duplicate seeds as separate subfamilies that split one
+    # family's votes (GLM audit 2026-11-08, finding 20); SKIP_CANONICALIZE=1 is the way to run without the merge
     rm -f "$tmp"
+    die "canonicalize_consensus_bank.py failed on $fa (set SKIP_CANONICALIZE=1 to run without the RC merge)"
   fi
 }
 
@@ -1476,6 +1478,10 @@ mode_resume(){
 
   if [[ -n "$existing_s2out" && -s "$existing_s2out/summary.by_subfam.tsv" ]]; then
     log "Step2+3 — already complete ($existing_s2out), skipping"
+
+    # the family roll-up, as after step 3 in a fresh run (run_step2_step3); this branch never ran it, so a --resume with
+    # --families left families/ and family_view/ missing or stale (GLM audit 2026-11-08, finding 9)
+    families_step "$(pwd -P)"
 
     # ── Step 4 ──────────────────────────────────────────────────────────────
     local plots_done=0

@@ -442,10 +442,12 @@ while IFS=$'\t' read -r subfam count; do
 
     # -- top100: 100 highest-bitscore members --
     # Sort by bitscore descending -> temp file, then head (avoids SIGPIPE)
-    sort -t$'\t' -k2,2nr "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/sorted_${idx}.tsv"
+    # ties: byte order and an explicit key (contig, start, end), so plate membership at equal bitscores does not depend on the
+    # locale (GLM audit 2026-11-08, finding L94)
+    LC_ALL=C sort -t$'\t' -k2,2nr -k3,3 -k4,4n -k5,5n "$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/sorted_${idx}.tsv"
     awk -F'\t' -v sf="$subfam" '$1==sf' "$BASE_TMP/soft.tsv" > "$TMPDIR/soft_${idx}.tsv"
     if (( count < PLATE_N )) && [[ -s "$TMPDIR/soft_${idx}.tsv" ]]; then
-        sort -t$'\t' -k2,2nr "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"
+        LC_ALL=C sort -t$'\t' -k2,2nr -k3,3 -k4,4n -k5,5n "$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"
         echo "  $subfam: $count firm copies; top100/rand100 topped up (soft copies marked [soft], grey-zone copies [grey])" >&2
     fi
     # independent loci first: one copy per tandem cluster and per twin group before any second one (tools/array_order.py;
