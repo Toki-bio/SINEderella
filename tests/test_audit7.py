@@ -228,3 +228,26 @@ def test_50_kindB_piece_median_reads_every_stretch(tmp_path):
     r = _bash(tmp_path / "blk.sh", tmp_path)
     assert r.returncode == 0, r.stderr
     assert (tmp_path / "piece_median.tsv").read_text().split() == ["r", "95", "1"]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# D16: flankscan/fs9_run.sh: a family that fails in a rerun inside the same run dir kept its old copy_status.tsv
+# ---------------------------------------------------------------------------------------------------------------------
+@need_bash
+@pytest.mark.skipif(shutil.which("gawk") is None, reason="needs gawk")
+def test_D16_fs9_rerun_failed_family_leaves_no_stale_status(tmp_path):
+    fs = tmp_path / "flankscan"
+    fs.mkdir()
+    shutil.copy(SRC / "flankscan/fs9_run.sh", fs / "fs9_run.sh")
+    _w(fs / "fs9_twins.sh", "echo 'fs9_twins: boom' >&2; exit 1\n")          # this run: the family fails
+    run = tmp_path / "run"
+    _w(run / "genome.clean.fa", ">c1\n" + "A" * 1000 + "\n")
+    _w(run / "genome.clean.fa.fai", "c1\t1000\t4\t1000\t1001\n")
+    _w(run / "results/assignment_full.tsv", "Sequence\tSubfamily\tBitscore\tVotes\tStatus\tThreshold\tRunnerInfo\n"
+       "c1:100-200(+)\tF\t300\t10\tassigned\t100\tNA\nc1:500-600(-)\tF\t300\t10\tassigned\t100\tNA\n")
+    stale = run / "results/flank_twins/F/copy_status.tsv"                      # the earlier run's result
+    _w(stale, "copy\tstatus\nc1:100-200(+)\tunique\nc1:500-600(-)\tunique\n")
+    r = _bash(fs / "fs9_run.sh", tmp_path, args=(run.as_posix(), "1"))
+    assert r.returncode == 0, r.stderr
+    assert "F failed" in r.stderr
+    assert not stale.exists(), "the failed family's old copy_status.tsv is still read as this run's result"
