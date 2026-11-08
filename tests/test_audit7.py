@@ -65,3 +65,28 @@ def test_41_sear_minimap2_no_hits_still_ok(tmp_path):
     r, w = _sear_minimap2(tmp_path, "cat >/dev/null; exit 0")
     assert r.returncode == 0, r.stdout[-500:] + r.stderr[-500:]
     assert (w / "gen-q.bed").exists() and (w / "gen-q.bed").stat().st_size == 0
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 72: step2 --add, tier-1 id -> BED: the contig was cut at the FIRST ':' ("ctg1:apple:100-200(+)" -> ctg1 0 200)
+# ---------------------------------------------------------------------------------------------------------------------
+def _awk_block(script, end_marker):
+    """The awk program of step2's tier-1 id -> BED conversion, cut from the script as it is."""
+    lines = Path(script).read_text(encoding="utf-8").splitlines()
+    end = next(i for i, l in enumerate(lines) if end_marker in l)
+    start = max(i for i in range(end) if lines[i].strip() == "awk '{")
+    prog = "\n".join(lines[start:end + 1])
+    prog = prog[prog.index("'") + 1:]
+    return prog[:prog.index("}' ") + 1]
+
+
+@pytest.mark.skipif(shutil.which("gawk") is None and shutil.which("awk") is None, reason="needs awk")
+def test_72_step2_tier1_id_with_colon_in_contig(tmp_path):
+    prog = _awk_block(SRC / "step2_asSINEment.sh", '"$TMPDIR/tier1_present.ids" | sort -k1,1 -k2,2n')
+    ids = tmp_path / "ids"
+    ids.write_text("ctg1:apple:100-200(+)\nchr2:5-50(-)\n", encoding="utf-8", newline="\n")
+    r = subprocess.run([shutil.which("gawk") or shutil.which("awk"), prog, str(ids)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    rows = [l.split("\t") for l in r.stdout.splitlines()]
+    assert rows[0][:3] == ["ctg1:apple", "99", "200"], rows
+    assert rows[1][:3] == ["chr2", "4", "50"], rows

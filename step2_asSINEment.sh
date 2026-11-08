@@ -600,9 +600,14 @@ run_incremental_assignment(){
     > "$TMPDIR/tier1_present.ids"
 
   # Convert Tier 1 IDs to BED for overlap check (ID format: chr:start-end(strand))
+  # the contig is everything before the LAST ':' ahead of start-end(strand): contig names may hold ':' (header cleaning keeps
+  # it), and cutting at the first ':' gave contig "ctg1", start 0 for "ctg1:apple:100-200(+)" (GLM audit 2026-11-08, finding 72)
   awk '{
-    id=$1; chr=id; sub(/:.*/,"",chr)
-    rng=id; sub(/^[^:]+:/,"",rng); sub(/\([+-]\).*/,"",rng)
+    id=$1
+    if(!match(id,/^.*:[0-9]+-[0-9]+\([+-]\)/)){ print "step2: cannot read locus id " id > "/dev/stderr"; exit 1 }
+    pre=substr(id,1,RLENGTH); k=0
+    for(i=length(pre);i>0;i--) if(substr(pre,i,1)==":"){ k=i; break }
+    chr=substr(pre,1,k-1); rng=substr(pre,k+1); sub(/\([+-]\)$/,"",rng)
     split(rng,xy,"-"); s=xy[1]+0-1; e=xy[2]+0
     if(s<0) s=0
     print chr"\t"s"\t"e"\t"id
