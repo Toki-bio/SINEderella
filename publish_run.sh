@@ -48,12 +48,10 @@ else
   DISC=""
 fi
 
-# Locate step2 output: the newest is the highest run number (step2_output_runN, as an integer; no number = 0), the rule of
-# step4_diagnostic.py. A name sort picked step2_output_run9 over _run10 (GLM audit 2026-11-08, finding 38)
-S2="$(find "$RUN_ROOT/step2" -maxdepth 1 -type d -name 'step2_output*' 2>/dev/null \
-      | LC_ALL=C sort | awk '{ n = 0; if (match($0, /_run[0-9]+$/)) n = substr($0, RSTART + 4) + 0
-                                if (!seen || n >= best) { best = n; d = $0; seen = 1 } }
-                              END { if (seen) print d }')"
+# Locate step2 output: the newest by modification time, the rule of every other step (SINEderella, step4_plots.sh,
+# align_for_publish.sh, verdict_chain.sh, flank_verdict.py, rollup_families.py). A name sort picked step2_output_run9
+# over _run10 (GLM audit 2026-11-08, finding 38)
+S2="$(ls -dt "$RUN_ROOT"/step2/step2_output* 2>/dev/null | head -n1 || true)"
 [[ -n "$S2" && -d "$S2" ]] || die "No step2_output under $RUN_ROOT"
 
 # ── 1. Step4 plots (pctid TSVs + PNGs) ─────────────────────────────────────

@@ -327,13 +327,15 @@ def test_L94_step8a_top100_sort_ties_fixed_order(tmp_path):
 # 38: publish_run.sh picked the step-2 output by name order (step2_output_run9 over _run10)
 # ---------------------------------------------------------------------------------------------------------------------
 @need_bash
-def test_38_publish_picks_highest_step2_run_number(tmp_path):
-    # Fable's toy t38: six step-2 output dirs
+def test_38_publish_picks_newest_step2_output(tmp_path):
+    # Fable's toy t38: six step-2 output dirs, made in run order; the newest (by time, as every other step) is run11
+    import os, time
     run = tmp_path / "run"
-    for d in ("step2_output", "step2_output_run1", "step2_output_run10", "step2_output_run11", "step2_output_run2",
-              "step2_output_run9"):
+    for i, d in enumerate(("step2_output", "step2_output_run1", "step2_output_run2", "step2_output_run9",
+                           "step2_output_run10", "step2_output_run11")):
         (run / "step2" / d).mkdir(parents=True)
-    blk = _shell_block(SRC / "publish_run.sh", """-maxdepth 1 -type d -name 'step2_output*'""", 'die "No step2_output under')
+        os.utime(run / "step2" / d, (time.time() - 1000 + 10 * i, time.time() - 1000 + 10 * i))
+    blk = _shell_block(SRC / "publish_run.sh", "step2/step2_output* 2>/dev/null", 'die "No step2_output under')
     (tmp_path / "s.sh").write_text("set -euo pipefail\ndie(){ echo \"$*\" >&2; exit 1; }\nRUN_ROOT=%s\n%s\necho \"$S2\"\n"
                                    % (run.as_posix(), blk.split("\n", 1)[1]), encoding="utf-8", newline="\n")
     r = _bash(tmp_path / "s.sh", tmp_path)
