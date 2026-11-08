@@ -223,14 +223,16 @@ def verify(recs, cons, ssearch, workdir, threads):
     # in the Sicista runs (2026-10-06). The consensus is copied next to the units and both are given by bare name inside workdir.
     shutil.copyfile(cons, os.path.join(workdir, "cons.fa"))
     cmd = [ssearch, "-g", "-3", "-m", "8", "-E", str(MAX_E), "-z", "11", "-T", str(threads), "units2.fa", "cons.fa"]
+    failed = lambda r: r.returncode != 0 or "***" in r.stderr      # ssearch36 can exit 0 with a '***' error on stderr
     r = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
-    if r.returncode != 0:
+    if failed(r):
         # a failed call used to read as "no SINE-derived locus" (Sicista 2026-10-06: 0 loci in every consensus); run it once more,
-        # and if it fails again say so instead of returning an empty answer silently
+        # and if it fails again stop: an empty .loci.tsv was read by satellite_stage.py as "no tandem loci" (GLM audit
+        # 2026-11-08, finding 16)
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
-        if r.returncode != 0:
-            print("satellite_trf_verify: WARNING: ssearch36 exited with %d twice; the TRF units of this consensus are untested: %s"
-                  % (r.returncode, " ".join(r.stderr.split())[:300]), file=sys.stderr)
+        if failed(r):
+            raise SystemExit("satellite_trf_verify: ssearch36 failed twice (exit %d); the TRF units of this consensus are untested: %s"
+                             % (r.returncode, " ".join(r.stderr.split())[:300]))
     res = r.stdout
     best = {}
     for line in res.splitlines():

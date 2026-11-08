@@ -184,3 +184,21 @@ def test_9_resume_runs_families_step(tmp_path):
     assert "report_step" in done and "run_step2_step3" not in done          # the "step 2+3 already complete" branch
     assert "families_step" in done, done
     assert done.index("families_step") < done.index("report_step")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 16: tools/satellite_trf_verify.py: a kind-A ssearch36 that failed twice (or exited 0 with '***' on stderr) gave an empty
+# result, read by satellite_stage.py as "no SINE-derived tandem loci"
+# ---------------------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("rc,err", [(1, "error"), (0, " *** cannot open library units2.fa\n")])
+def test_16_trf_verify_failed_search_stops(tmp_path, monkeypatch, rc, err):
+    sys.path.insert(0, str(SRC / "tools"))
+    import importlib
+    import satellite_trf_verify as V
+    V = importlib.reload(V)
+    assert Path(V.__file__).resolve().parent == (SRC / "tools").resolve()
+    (tmp_path / "in.fa").write_text(">c\nACGT\n", encoding="utf-8")
+    monkeypatch.setattr(V.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], rc, "", err))
+    recs = [("c1", 0, 300, 100, 3.0, 90, 200, "ACGT" * 25)]
+    with pytest.raises(SystemExit):
+        V.verify(recs, str(tmp_path / "in.fa"), "ssearch36", str(tmp_path), 1)
