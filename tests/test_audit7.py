@@ -154,3 +154,33 @@ def test_53_rollup_family_without_threshold_not_assigned(tmp_path):
     assert t["a2"][4] == "assigned"                               # the tested family still promotes
     assert t["c1"][4] != "assigned", t["c1"]                      # untested: not a family-firm copy
     assert t["c1"][1] == "C"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 9: SINEderella --resume of a run whose step 2+3 is done never ran families_step (family roll-up missing or stale)
+# ---------------------------------------------------------------------------------------------------------------------
+@need_bash
+def test_9_resume_runs_families_step(tmp_path):
+    run = tmp_path / "run"
+    for f in ("genome.clean.fa", "consensuses.clean.fa", "genome.clean_step1/extracted.fasta",
+              "genome.clean_step1/.step1_complete", "step2/step2_output/summary.by_subfam.tsv"):
+        _w(run / f, ">x\nACGT\n")
+    sd = tmp_path / "sd"
+    for f in ("s1", "s2", "s3"):
+        _w(sd / f, "")
+    calls = tmp_path / "calls.txt"
+    stubs = "".join("%s(){ echo %s >> %s; }\n" % (n, n, calls.as_posix()) for n in (
+        "families_step", "build_results_links", "array_flag_step", "flank_twins_step", "verdict_step",
+        "length_variants_step", "consensus_audit_step", "continuation_step", "report_step", "run_step2_step3"))
+    drv = tmp_path / "drv.sh"
+    drv.write_text("set -euo pipefail\nlog(){ echo \"$*\" >&2; }\ndie(){ echo \"ERROR: $*\" >&2; exit 1; }\n" + stubs
+                   + "SCRIPT_DIR=%s\nSTEP1_SRC=%s/s1\nASSIGN_SRC=%s/s2\nPOST_SRC=%s/s3\nTHREADS=1\nEXISTING_RUN=%s\n"
+                   % ((sd.as_posix(),) * 4 + (run.as_posix(),))
+                   + _bash_function(SRC / "SINEderella", "mode_resume") + "mode_resume\n",
+                   encoding="utf-8", newline="\n")
+    r = _bash(drv, tmp_path)
+    assert r.returncode == 0, r.stderr[-1500:]
+    done = calls.read_text().split()
+    assert "report_step" in done and "run_step2_step3" not in done          # the "step 2+3 already complete" branch
+    assert "families_step" in done, done
+    assert done.index("families_step") < done.index("report_step")
