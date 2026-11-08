@@ -301,3 +301,23 @@ def test_224_report_words_untested():
     rb = importlib.reload(rb)
     assert "UNTESTED" in rb.WORDS and "not tested" in rb.WORDS["UNTESTED"]
 
+
+# ---------------------------------------------------------------------------------------------------------------------
+# L94: step8a top-100 sort: no LC_ALL and no tie key, so plate membership at equal bitscores depended on the locale
+# ---------------------------------------------------------------------------------------------------------------------
+@need_bash
+def test_L94_step8a_top100_sort_ties_fixed_order(tmp_path):
+    lines = (SRC / "step8a_extract_alignments.sh").read_text(encoding="utf-8").splitlines()
+    srt = [l for l in lines if '"$TMPDIR/loci_${idx}.tsv" > "$TMPDIR/sorted_${idx}.tsv"' in l or
+           '"$TMPDIR/soft_${idx}.tsv" >> "$TMPDIR/sorted_${idx}.tsv"' in l]
+    assert len(srt) == 2
+    for l in srt:
+        assert "LC_ALL=C" in l, l
+    # equal bitscores: the explicit key orders them by contig, then start as a number (99 before 100); the whole-line fallback
+    # put "100" before "99"
+    _w(tmp_path / "loci_1.tsv", "SF\t500\tc2\t100\t300\t+\nSF\t500\tc2\t99\t300\t+\nSF\t900\tc9\t5\t200\t-\n")
+    (tmp_path / "s.sh").write_text("TMPDIR=%s\nidx=1\n%s\n" % (tmp_path.as_posix(), srt[0].strip()), encoding="utf-8", newline="\n")
+    r = _bash(tmp_path / "s.sh", tmp_path, env_extra={"LC_ALL": "en_US.UTF-8"})
+    assert r.returncode == 0, r.stderr
+    got = [l.split("\t")[2:4] for l in (tmp_path / "sorted_1.tsv").read_text().splitlines()]
+    assert got == [["c9", "5"], ["c2", "99"], ["c2", "100"]], got
