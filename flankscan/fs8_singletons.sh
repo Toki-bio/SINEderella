@@ -88,14 +88,20 @@ ssearch36 -g -3 -m 8 -E 1 -Z 1 -z 11 -T "$T" cons.masked.fa "$D/flanks.fa" 2> /d
 
 # per group: align, ends from conservation, one TSD search per copy
 # exactly one bank record named FAM; until 2026-10-19 a missing one gave an empty reference row without a word (GLM audit 2026-10-19)
-REF=$(seqkit grep -p "$FAM" cons.masked.fa | seqkit seq -s -w 0 | tr -d 'N')
-[[ -n "$REF" && $(seqkit grep -p "$FAM" cons.masked.fa | grep -c '^>') -eq 1 ]] || { echo "fs8: not exactly one record $FAM in $OUT/cons.masked.fa" >&2; exit 1; }
+[[ $(seqkit grep -p "$FAM" cons.masked.fa | grep -c '^>') -eq 1 ]] || { echo "fs8: not exactly one record $FAM in $OUT/cons.masked.fa" >&2; exit 1; }
+# the reference row: the consensus as given to stage 3 (lib.in.fa), up to where its A tail starts (cons.tsv column 3). Until
+# 2026-11-10 it was the MASKED consensus with every N deleted, so a dust-masked stretch inside the consensus was missing too.
+[[ -s lib.in.fa ]] || { echo "fs8: no $OUT/lib.in.fa (stage 3)" >&2; exit 1; }
+REF=$(seqkit seq -w 0 lib.in.fa | gawk -v F="$FAM" 'FILENAME == ARGV[1] { if ($1 == F) t = $3; next }
+          /^>/ { n = substr($1, 2); next } n == F && t > 0 { print toupper(substr($0, 1, t - 1)); exit }' cons.tsv -)
+[[ -n "$REF" ]] || { echo "fs8: $FAM not in $OUT/cons.tsv or $OUT/lib.in.fa" >&2; exit 1; }
 : > "$D/ends.tsv"; : > "$D/tsd.tsv"; : > "$D/tsd_calibration.tsv"
 for G in S B A; do
     grep -q "^$G	" "$D/unit.tsv" || continue
     FLC=$FL
     while :; do                              # extend the flank while an end sits close to the flank end
         rm -f "$D/$G".*.tmp "$D/$G.plate.aln.fa" "$D/$G.proposed.fa"
+        : > "$D/$G.cal.tmp"       # written only once the ends are found; without it the cat below stopped stage 8 (audit 2026-11-10)
         { printf ">REF_%s\n%s\n" "$FAM" "$REF"; extract "$G" "$FLC"; } > "$D/$G.in.fa"
         extract "$G" "$FULLFL" | seqkit seq -w 0 > "$D/$G.full.fa"       # the same copies with long raw flanks (not aligned)
         mafft --localpair --maxiterate 1000 --ep 0.123 --nuc --preservecase --quiet --thread "$T" --threadit 0 "$D/$G.in.fa" 2> /dev/null \
@@ -134,7 +140,8 @@ for G in S B A; do
                 thr = (nc < 8) ? 0.68 : 0.58; left = 0; right = 0
                 for (st = 1; st + W - 1 <= L && !left; st++) { m = 0; for (x = st; x < st + W; x++) m += sc[x]; if (m / W >= thr) left = st }
                 for (st = L - W + 1; st >= 1 && !right; st--) { m = 0; for (x = st; x < st + W; x++) m += sc[x]; if (m / W >= thr) right = st + W - 1 }
-                if (!left || right < left) { print G, nc, L, "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", FLC >> ENDS; exit }
+                if (!left || right < left) { print G, nc, L, "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", FLC >> ENDS
+                    print "fs8: group " G ": no conserved window in the alignment of " nc " copies, no ends - its copies are not in copies.tsv / summary.tsv (ends.tsv has the row)" > "/dev/stderr"; exit }
                 for (kk = 0; kk < W - 1 && left < right && sc[left] < thr; kk++) left++
                 for (kk = 0; kk < W - 1 && right > left && sc[right] < thr; kk++) right--
                 # per copy: 30 bases before the 5 end, 56 from the 3 end + 1; bp between each end and the unit
