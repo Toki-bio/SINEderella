@@ -53,7 +53,8 @@ FS9_AWK=${FS9_AWK:-0}; FS9_THREADS=${FS9_THREADS:-${BODYCHECK_THREADS:-1}}
 HERE9="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 case $SOFTMASK in both|0|1) ;; *) echo "fs9: SOFTMASK must be both, 0 or 1" >&2; exit 1 ;; esac
 mkdir -p "$OUT"; G=$(readlink -f "$G"); B=$(readlink -f "$B"); cd "$OUT"
-[[ -s "$G.fai" ]] || samtools faidx "$G"
+# an index older than the genome is made again (as fs1_extract.sh since 2026-10-19; here any non-empty one was used until 2026-11-10)
+[[ -s "$G.fai" && ! "$G.fai" -ot "$G" ]] || samtools faidx "$G"
 export LC_ALL=C
 RC='function rc(s,   r, i, c) { r = ""; for (i = length(s); i >= 1; i--) { c = substr(s, i, 1); r = r (c == "A" ? "T" : c == "C" ? "G" : c == "G" ? "C" : c == "T" ? "A" : "N") } return r }'
 # 5' flanks are stored reversed (outward from the junction, step 1): the repeat filter takes their 20-mers in genome orientation
