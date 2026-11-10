@@ -81,7 +81,7 @@ did not re-test these.
 - `seqkit`
 - `cons` and `seqret` (EMBOSS; only the old `tools/vendor/SubFam.old.sh` needs them, SubFam 1.2+ does not)
 - `trf` (Tandem Repeats Finder; the satellite stage is skipped with a log line without it), `gawk` (consensus audit, flankscan), `dustmasker` (flankscan)
-- `jellyfish` (conda `kmer-jellyfish`): 20-mer counts for the flank-twin check on genomes over 300 Mb; without it that check is skipped with a log line on large genomes
+- `jellyfish` (conda `kmer-jellyfish`): 20-mer counts for the flank-twin check, made once per genome; without it genomes up to 300 Mb fall back to a slow awk count per family (about 0.3 GB of memory per Mb), and on larger genomes that check is skipped with a log line
 - Python 3 with numpy and matplotlib (plots, report panels, consensus blocks)
 - Tests: `python -m pytest` from the repo root (`pytest.ini`; the end-to-end tests need mafft, gawk, samtools and are skipped without them)
 

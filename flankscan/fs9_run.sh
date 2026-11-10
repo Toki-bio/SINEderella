@@ -12,7 +12,7 @@
 # Out: RUN_DIR/results/flank_twins/<family>/copy_status.tsv, flank_groups.tsv (fs9_twins.sh output)
 #      RUN_DIR/results/flank_twins.tsv   family copies twin1 twin2 array masked untestable unique pct_twin
 #      RUN_DIR/genome.clean.fa.k20gt20.tsv  canonical 20-mers seen more than 20 times (jellyfish; kept, it is the repeat mask of
-#                                           every stage-9 run on this genome; genomes <= 300 Mb are counted by fs9_twins itself)
+#                                           every stage-9 run on this genome; made again when older than the genome)
 # The run's genome has no soft-masking (the header cleaning writes upper case), so the k-mer mask is the only repeat filter here.
 # Env: FS9_SKIP=1 skips; MIN_COPIES; anything fs9_twins.sh reads (W, MINLEN, ID1, ...).
 set -euo pipefail
@@ -31,16 +31,28 @@ rm -rf "$OUT" "$OUT.tsv"
 mkdir -p "$OUT"
 export LC_ALL=C
 
-# repeat mask: canonical 20-mers above 20 copies; jellyfish for genomes over 300 Mb (fs9_twins counts smaller ones in awk)
+# repeat mask: canonical 20-mers above 20 copies, counted ONCE per genome with jellyfish and passed to every family (KCOUNT).
+# Until 2026-11-10 only genomes over 300 Mb were counted here; for a smaller one each family's fs9_twins.sh counted the whole
+# genome again in awk: 6.7 s and 0.31 GB of memory per Mb (2 and 4 Mb measured), i.e. about 31 GB per family at 100 Mb.
+# Without jellyfish: genomes up to 300 Mb fall back to that awk count (a warning says so), larger ones skip stage 9 as before.
 SZ=$(gawk '{ s += $2 } END { print s + 0 }' "$G.fai")
-KC="$G.k20gt20.tsv"
-if (( SZ > 300000000 )) && [[ ! -s "$KC" ]]; then
-    command -v jellyfish > /dev/null || { echo "fs9_run: genome > 300 Mb and no jellyfish on PATH: the 20-mer count cannot be made, stage 9 skipped" >&2; exit 0; }
-    echo "fs9_run: counting canonical 20-mers of $(( SZ / 1000000 )) Mb with jellyfish ($T threads)"
-    jellyfish count -m 20 -s 4G -t "$T" -C -o "$G.k20.jf" "$G"
-    jellyfish dump -c -L 21 "$G.k20.jf" > "$KC"
-    rm -f "$G.k20.jf"
-    echo "fs9_run: $(wc -l < "$KC") 20-mers above 20 copies -> $KC"
+KC="$G.k20gt20.tsv"; USEKC=1
+if [[ ! -s "$KC" || "$KC" -ot "$G" ]]; then
+    if command -v jellyfish > /dev/null; then
+        echo "fs9_run: counting canonical 20-mers of $(( SZ / 1000000 )) Mb with jellyfish ($T threads)"
+        JS=4G; (( SZ > 300000000 )) || JS=$(( SZ > 1000000 ? SZ : 1000000 ))      # hash size: as before for large genomes
+        jellyfish count -m 20 -s "$JS" -t "$T" -C -o "$G.k20.jf" "$G"
+        jellyfish dump -c -L 21 "$G.k20.jf" > "$KC.tmp"
+        # a genome with no 20-mer above 20 copies gives an empty dump; fs9_twins.sh needs a KCOUNT with a line in it
+        [[ -s "$KC.tmp" ]] || echo "NNNNNNNNNNNNNNNNNNNN 0" > "$KC.tmp"
+        mv "$KC.tmp" "$KC"; rm -f "$G.k20.jf"
+        echo "fs9_run: $(wc -l < "$KC") 20-mers above 20 copies -> $KC"
+    elif (( SZ > 300000000 )); then
+        echo "fs9_run: genome > 300 Mb and no jellyfish on PATH: the 20-mer count cannot be made, stage 9 skipped" >&2; exit 0
+    else
+        echo "fs9_run: no jellyfish on PATH: every family counts the genome's 20-mers in awk (about 0.3 GB of memory and 7 s per Mb)" >&2
+        USEKC=0
+    fi
 fi
 
 printf "family\tcopies\ttwin1\ttwin2\tarray\tmasked\tuntestable\tunique\tpct_twin\n" > "$OUT.tsv"
@@ -48,7 +60,7 @@ gawk -F'\t' 'NR > 1 && $5 == "assigned" { print $2 }' "$AF" | sort | uniq -c | g
     D="$OUT/$FAM"; mkdir -p "$D"
     gawk -F'\t' -v OFS='\t' -v F="$FAM" 'NR > 1 && $2 == F && $5 == "assigned" {
         if (match($1, /^(.+):([0-9]+)-([0-9]+)\(([+-])\)$/, m)) print m[1], m[2], m[3], $1, 0, m[4] }' "$AF" | sort -k1,1 -k2,2n > "$D/copies.bed"
-    if (( SZ > 300000000 )); then KCOUNT="$KC" bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || { echo "fs9_run: $FAM failed, see $D/fs9.log" >&2; continue; }
+    if (( USEKC )); then KCOUNT="$KC" bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || { echo "fs9_run: $FAM failed, see $D/fs9.log" >&2; continue; }
     else bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || { echo "fs9_run: $FAM failed, see $D/fs9.log" >&2; continue; }
     fi
     gawk -F'\t' -v OFS='\t' -v F="$FAM" '{ n[$2]++; t++ }
