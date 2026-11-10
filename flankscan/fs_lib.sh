@@ -111,6 +111,9 @@ fs_build_cons() {
 # exist for each; STATUS (out): name TAB kept | same_as:ROOT
 # Rules: (1) same element = the alignment of the two consensuses covers >= 90 % of BOTH, identity >= 90 %; a shorter
 # candidate contained in a longer one is a different element (r3 with its internal repeat inside r1 + 39 bp + r3).
+# The ALIGNED columns ($4 of -m 8, gap positions not counted) must reach 90 % of both as well: with gap cost 12 + 3k one
+# alignment runs across a long gap, so the span alone covered 100 % of a 381 bp composite and of a 233 bp piecewise
+# candidate that lacks 148 bp of it (233 aligned columns, 148 gap positions) and the two were folded (audit 2026-11-10).
 # (2) the part of one candidate that the other does not cover (>= XMIN = 40 bp) must not be a known unit: when it hits
 # the bank (cons.masked.fa, >= 40 bp, E <= 1e-3) the candidates differ (the four-unit rsi chain, 632 bp, carries a
 # 49 bp repeat of r3 that the three-unit chain, 583 bp, lacks; routes that differ only in flank-extended ends fold).
@@ -129,7 +132,7 @@ fs_fold() {
     # pairs that pass rules 1 and 3, with the uncovered stretches (name start end) of both candidates
     gawk -F'\t' -v OFS='\t' -v XMIN=$XMIN '
         FILENAME == ARGV[1] { L[$1] = $2; K[$1] = $3; next }
-        $1 != $2 && K[$1] == K[$2] && $3 >= 90 && $9 < $10 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2] {
+        $1 != $2 && K[$1] == K[$2] && $3 >= 90 && $9 < $10 && $8 - $7 + 1 >= 0.9 * L[$1] && $10 - $9 + 1 >= 0.9 * L[$2] && $4 >= 0.9 * L[$1] && $4 >= 0.9 * L[$2] {
             print $1, $2, $3, ($7 - 1 >= XMIN ? $1 ":1-" $7 - 1 : "-"), (L[$1] - $8 >= XMIN ? $1 ":" $8 + 1 "-" L[$1] : "-"),
                   ($9 - 1 >= XMIN ? $2 ":1-" $9 - 1 : "-"), (L[$2] - $10 >= XMIN ? $2 ":" $10 + 1 "-" L[$2] : "-") }' "$LIST" cand/self.m8 > cand/fold.pairs
     # rule 2: an uncovered stretch that is a known unit separates the candidates
