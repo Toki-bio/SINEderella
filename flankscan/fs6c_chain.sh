@@ -29,6 +29,11 @@ OUT=${1:?OUT_DIR}; RUN=$(readlink -f "${2:?RUN_DIR}"); T=${3:-8}; MINK=${4:-25};
 FL=100; SHARE=0.6; SKIP=0.3; EFL=250
 cd "$OUT"
 [[ -s ends.tsv ]] || { echo "fs6c: no ends.tsv - run fs6b first" >&2; exit 1; }
+# a second run on the same directory would empty chains.tsv and cand_families.tsv (below) while candidates.tsv keeps the
+# chain rows of the first run: stage 7 then has no parts for them and stage 6 re-assigns fewer families (audit 2026-11-10)
+if gawk -F'\t' 'NR > 1 && ($3 == "chain" || $14 ~ /^extended:/) { f = 1 } END { exit !f }' candidates.tsv; then
+    echo "fs6c: candidates.tsv already holds chains (stage 6c ran here): run again from stage 5 (fs5_build.sh, fs6b_ends.sh), then this stage" >&2; exit 1
+fi
 printf "name\tparent\tpeak\tside5_unit\ts5_qs\ts5_qe\ts5_gap\tside3_unit\ts3_qs\ts3_qe\ts3_gap\tcopies\n" > chains.tsv
 : > chains.skip
 : > cand_families.tsv      # chain TAB comma-separated families of ALL its units (stage 6 re-assigns their copies)

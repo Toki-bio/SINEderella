@@ -34,7 +34,7 @@ OUT=$(readlink -f "${1:?OUT_DIR}"); RUN=$(readlink -f "${2:?RUN_DIR}"); T=${3:-8
 RE="$OUT/reassign"; rm -rf "$RE"; mkdir -p "$RE"
 cd "$OUT"
 if [[ ! -s candidates.fa ]]; then
-    printf "name\tpeak_elements\tnow_main\tfull\tpct_full\tverdict\tfrom\n" > reassign.tsv
+    printf "name\tpeak_elements\tnow_main\tfull\tpct_full\tverdict\tfrom_full\tfrom_part\n" > reassign.tsv
     printf "old_family\tnew_main\telements\tfull\tin_peak\n" > reassign_moves.tsv
     echo "fs6: no candidates" >&2; exit 0
 fi

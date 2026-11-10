@@ -23,7 +23,8 @@ export BODYCHECK_THREADS=${BODYCHECK_THREADS:-$T}   # parallel ssearch36 calls i
 export FS9_THREADS=${FS9_THREADS:-$T}               # workers of fs9_seeds.py and of the confirmation awks
 G="$RUN/genome.clean.fa"; AF="$RUN/results/assignment_full.tsv"; OUT="$RUN/results/flank_twins"
 [[ -s "$G" && -s "$AF" ]] || { echo "fs9_run: need $G and $AF" >&2; exit 1; }
-[[ -s "$G.fai" ]] || samtools faidx "$G"
+# an index older than the genome is made again (as fs1_extract.sh since 2026-10-19; here any non-empty one was used until 2026-11-10)
+[[ -s "$G.fai" && ! "$G.fai" -ot "$G" ]] || samtools faidx "$G"
 # results of an earlier stage-9 run in this run dir go first: a family that fails now (or a stage skipped for want of
 # jellyfish) kept its old copy_status.tsv / flank_groups.tsv, read by flank_verdict.py and step8a as this run's result; with
 # none, its copies are grey (GLM audit 2026-11-08, finding D16)
@@ -59,7 +60,9 @@ printf "family\tcopies\ttwin1\ttwin2\tarray\tmasked\tuntestable\tunique\tpct_twi
 gawk -F'\t' 'NR > 1 && $5 == "assigned" { print $2 }' "$AF" | sort | uniq -c | gawk -v M="$MINC" '$1 >= M { print $2 }' | while read -r FAM; do
     D="$OUT/$FAM"; mkdir -p "$D"
     gawk -F'\t' -v OFS='\t' -v F="$FAM" 'NR > 1 && $2 == F && $5 == "assigned" {
-        if (match($1, /^(.+):([0-9]+)-([0-9]+)\(([+-])\)$/, m)) print m[1], m[2], m[3], $1, 0, m[4] }' "$AF" | sort -k1,1 -k2,2n > "$D/copies.bed"
+        # a "+,-" locus (runs with MERGE_STRAND_AWARE=0) was extracted as + by SINEderella: taken as +, as in fs1_extract.sh
+        # (until 2026-11-10 such loci were counted in the family and left without a stage-9 status)
+        if (match($1, /^(.+):([0-9]+)-([0-9]+)\(([^)]*)\)$/, m)) print m[1], m[2], m[3], $1, 0, (m[4] == "-" ? "-" : "+") }' "$AF" | sort -k1,1 -k2,2n > "$D/copies.bed"
     if (( USEKC )); then KCOUNT="$KC" bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || { echo "fs9_run: $FAM failed, see $D/fs9.log" >&2; continue; }
     else bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || { echo "fs9_run: $FAM failed, see $D/fs9.log" >&2; continue; }
     fi

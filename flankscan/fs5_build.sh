@@ -106,11 +106,15 @@ FILENAME == ARGV[5] { if ($4 in want) { ctg[$4] = $1; ws[$4] = $2; we[$4] = $3; 
 : > cand/built.tsv
 while IFS=$'\t' read -r P TY U D NP MIR; do
     NAME="${U}__${D}_${P}"
-    # overlapping spans = one element (seen from both of its units); the best-scoring one is kept
-    gawk -F'\t' -v OFS='\t' -v P="$P" -v NB=$NBEST '
+    # overlapping spans = one element (seen from both of its units); the best-scoring one is kept.
+    # A span is compared only with the kept spans in the 1 kb bins it touches: the same rows as comparing it with every
+    # kept span (until 2026-11-10: 36 s for 20,000 elements of one peak, time x 4 for every doubling).
+    gawk -F'\t' -v OFS='\t' -v P="$P" -v NB=$NBEST -v BIN=1000 '
         $1 != P { next }
-        { for (i = 1; i <= nk; i++) if (c[i] == $3 && $4 < e[i] && $5 > s[i]) next
-          nk++; c[nk] = $3; s[nk] = $4; e[nk] = $5
+        { b1 = int($4 / BIN); b2 = int(($5 - 1) / BIN); if (b2 < b1) b2 = b1
+          for (b = b1; b <= b2; b++) { m = nb[$3, b]; for (j = 1; j <= m; j++) { i = bk[$3, b, j]; if ($4 < e[i] && $5 > s[i]) next } }
+          nk++; s[nk] = $4; e[nk] = $5
+          for (b = b1; b <= b2; b++) bk[$3, b, ++nb[$3, b]] = nk
           if (nk <= NB) print $3, $4, $5, $6, $2, $7 }
         END { print nk + 0 > "cand/n.tmp" }' cand/spans.tsv > "cand/$NAME.bed"
     NEL=$(cat cand/n.tmp)

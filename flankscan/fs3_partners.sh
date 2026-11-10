@@ -64,6 +64,8 @@ OUT=${1:?OUT_DIR}; CONS=$(readlink -f "${2:?CONSENSUSES.fa}"); T=${3:-8}; PART=$
 MIN_ALN=40; EVAL=1e-5; GAPSEQ=300; CHUNK=20000; SPLIT=40
 [[ -n "$PART" ]] && PART=$(readlink -f "$PART")
 cd "$OUT"
+# without this the dustmasker pipe below ends the script with no message at all (its stderr is discarded; audit 2026-11-10)
+for X in dustmasker ssearch36 seqkit; do command -v $X > /dev/null || { echo "fs3: $X not found on PATH" >&2; exit 1; }; done
 cat "$CONS" ${PART:+"$PART"} > lib.in.fa                  # the family consensuses (+ partner library)
 
 # 1) mask consensus A tails and low complexity; record where each tail starts
