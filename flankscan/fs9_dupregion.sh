@@ -17,7 +17,8 @@ set -euo pipefail
 G=${1:?GENOME.fa}; B=${2:?COPIES.bed}; OUT=${3:?OUT_DIR}; T=${4:-8}
 W2=${W2:-200}; MINAL=${MINAL:-100}; IDR=${IDR:-85}; ARRKB=${ARRKB:-2000}
 mkdir -p "$OUT"; G=$(readlink -f "$G"); B=$(readlink -f "$B"); cd "$OUT"
-[[ -s "$G.fai" ]] || samtools faidx "$G"
+# an index older than the genome is made again (as fs1_extract.sh since 2026-10-19; here any non-empty one was used until 2026-11-10)
+[[ -s "$G.fai" && ! "$G.fai" -ot "$G" ]] || samtools faidx "$G"
 export LC_ALL=C
 bedtools flank -i "$B" -g "$G.fai" -l $W2 -r 0 -s | gawk -F'\t' -v OFS='\t' '{ $4 = $4 "|5"; print }' > fl5.bed
 bedtools flank -i "$B" -g "$G.fai" -l 0 -r $W2 -s | gawk -F'\t' -v OFS='\t' '{ $4 = $4 "|3"; print }' > fl3.bed
@@ -27,7 +28,10 @@ bedtools getfasta -fi "$G" -bed fl.bed -s -nameOnly 2> /dev/null | seqkit seq -w
 gawk -v M=$MINAL '/^>/ { n = substr($0, 2); next } { s = $0; i = 1; L = length(s)
     while (i <= L) { c = substr(s, i, 1); if (c ~ /[ACGT]/) { j = i; while (j <= L && substr(s, j, 1) ~ /[ACGT]/) j++; if (j - i >= M) print ">" n "@" i "\n" substr(s, i, j - i); i = j } else i++ } }' fl.fa > q.fa
 [[ -s q.fa ]] || { : > dupregion.tsv; : > dupregion.copies; echo "fs9b: no unmasked flank stretches"; exit 0; }
-minimap2 -x asm20 -k12 -w4 -N 10 -p 0.2 --secondary=yes -t "$T" "$G" q.fa 2> /dev/null > q.paf || true
+# a missing or failed minimap2 is an error: until 2026-11-10 (`|| true`) it gave an empty q.paf and "0 copies duplicated"
+command -v minimap2 > /dev/null || { echo "fs9b: minimap2 not found on PATH" >&2; exit 1; }
+minimap2 -x asm20 -k12 -w4 -N 10 -p 0.2 --secondary=yes -t "$T" "$G" q.fa 2> q.paf.err > q.paf || { echo "fs9b: minimap2 failed: $(tail -2 q.paf.err)" >&2; exit 1; }
+rm -f q.paf.err
 # own coordinates of every flank (bed) to exclude self and neighbours
 gawk -F'\t' -v OFS='\t' -v M=$MINAL -v IDR=$IDR -v KB=$ARRKB '
     FILENAME == ARGV[1] { fc[$4] = $1; fs[$4] = $2; fe[$4] = $3; next }
