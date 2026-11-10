@@ -31,10 +31,12 @@ cd "$OUT"
 # TRF is single-threaded: split the windows into T parts and run them side by side; the -ngs output
 # ("@window" line, then its repeats) of the parts simply concatenates
 rm -rf trf_parts; seqkit split2 -p "$T" -O trf_parts windows.fa 2> /dev/null
-# trf's exit code is not an error code (it is non-zero on success), but a missing trf (127) or a crash (signal, >= 128) is:
-# until 2026-10-19 both gave an empty trf.raw and "no repeats" (GLM audit)
+# trf's exit code is not an error code: it is non-zero on success, and TRF 4.09.1 ends every good -ngs run with 253
+# (1 to 300 windows tried, audit 2026-11-10). Until then every code >= 127 was read as a crash, so with that TRF stage 2
+# always stopped. What is an error: no trf on PATH, not found / not executable (126, 127), killed by a signal (129-192),
+# or no output file. Before 2026-10-19 none of these was checked and they gave an empty trf.raw, "no repeats".
 command -v trf > /dev/null || { echo "fs2: trf not found on PATH" >&2; exit 1; }
-ls trf_parts/*.fa* | xargs -P "$T" -I{} sh -c 'trf "$1" 2 5 7 80 10 20 2000 -h -ngs > "$1.trf" 2> "$1.trf.err"; rc=$?; [ "$rc" -lt 127 ] || { echo "fs2: trf failed on $1 (exit $rc)" >&2; exit 255; }' _ {}
+ls trf_parts/*.fa* | xargs -P "$T" -I{} sh -c 'trf "$1" 2 5 7 80 10 20 2000 -h -ngs > "$1.trf" 2> "$1.trf.err"; rc=$?; { [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ] && { [ "$rc" -lt 129 ] || [ "$rc" -gt 192 ]; }; } || { echo "fs2: trf failed on $1 (exit $rc)" >&2; exit 255; }' _ {}
 cat trf_parts/*.trf > trf.raw; rm -rf trf_parts
 
 gawk -F'\t' -v OFS='\t' '
