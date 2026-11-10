@@ -14,7 +14,7 @@
 #      the 3' end, stops once the A share falls below 50 %;
 #    - low complexity (dustmasker).
 #    Otherwise every copy would "match" every other copy's A tail.
-# 2) ssearch36 -m 8 -E 1e-5 -Z 20000 -z 11 in chunks of 20 000 windows (see step 2 below), every
+# 2) ssearch36 -g -3 -m 8CC -E 1e-5 -Z 20000 -z 11 in chunks of 20 000 windows (see step 2 below), every
 #    masked consensus vs every masked window, both strands
 #    (-z 11 because the library is all homologs; default statistics return nothing). ssearch36
 #    reports several alignments of one consensus in one window (a split or repeated partner).
@@ -37,7 +37,7 @@
 #    facing end (how far its alignment overran into the main unit).
 #
 # Out: OUT/cons.masked.fa, OUT/cons.tsv (name length tail_start dust_bp; tail_start = length+1 if none)
-#      OUT/hits.m8      raw ssearch36 hits
+#      OUT/hits.m8      raw ssearch36 hits (column 13 = CIGAR); OUT/hits.split.m8 the same cut at gaps >= 40 bp (step 2b)
 #      OUT/units.tsv    every kept unit: wid family k role unit strand cons_s cons_e tag win_s win_e bits pid
 #                       role main / up / down (window orientation); tag h = starts <= 15 bp from its
 #                       consensus 5' end, e = ends <= 15 bp before its A tail, mid = neither
@@ -61,7 +61,7 @@
 #      neither element explains (a linker, target site, or an extra A run).
 set -euo pipefail
 OUT=${1:?OUT_DIR}; CONS=$(readlink -f "${2:?CONSENSUSES.fa}"); T=${3:-8}; PART=${4:-}
-MIN_ALN=40; EVAL=1e-5; GAPSEQ=300; CHUNK=20000
+MIN_ALN=40; EVAL=1e-5; GAPSEQ=300; CHUNK=20000; SPLIT=40
 [[ -n "$PART" ]] && PART=$(readlink -f "$PART")
 cd "$OUT"
 cat "$CONS" ${PART:+"$PART"} > lib.in.fa                  # the family consensuses (+ partner library)
@@ -90,15 +90,52 @@ dustmasker -in lib.in.fa -outfmt fasta 2> /dev/null | seqkit seq -w 0 \
 #    (tbr: 621 k VES windows -> 257 of 3 000 sampled VES copies had a core hit; the same windows
 #    searched in a 20 000 chunk: 19 984 of 19 984). A fixed -Z also makes the threshold mean the same
 #    in every genome, whatever its copy number.
+#    -m 8CC: column 13 is the CIGAR of the alignment (M = aligned columns, I = window bases the consensus lacks,
+#    D = consensus bases the window lacks), read in step 2b.
 rm -rf ss_parts; seqkit split2 -s $CHUNK -O ss_parts windows.masked.fa 2> /dev/null
 for f in ss_parts/*; do
-    ssearch36 -g -3 -m 8 -E $EVAL -Z $CHUNK -z 11 -T "$T" cons.masked.fa "$f" 2> /dev/null
-done > hits.m8
+    ssearch36 -g -3 -m 8CC -E $EVAL -Z $CHUNK -z 11 -T "$T" cons.masked.fa "$f" 2> /dev/null
+done | gawk '!/^#/' > hits.m8
 rm -rf ss_parts
+
+# 2b) a hit that runs across a long gap is cut there -> hits.split.m8 (12 columns, read by step 3).
+#    With gap cost 12 + 3k (-g -3, every ssearch36 call since 2026-11-07) one alignment bridges a whole inserted copy:
+#    a host with a 212 bp copy inside came back as ONE hit, 150M212I146M. Step 3 places consensus coordinates linearly
+#    along a hit (cpos), so the host's ends facing the copy read 88 and 213 instead of 150 and 151, and stage 4 called
+#    3 of 30 planted nested copies nested (21 piecewise, 6 composite; audit 2026-11-10). The same holds for a window
+#    that lacks a long stretch of the consensus (D). Every I or D run of >= SPLIT bp ends a piece; each piece gets its
+#    own exact coordinates on both sequences, the hit's identity and E-value, and its share of the bitscore (aligned
+#    columns of the piece / of the hit). A hit with no such gap is passed on unchanged, and so is one whose CIGAR does
+#    not add up to its coordinates.
+gawk -F'\t' -v OFS='\t' -v SPLIT=$SPLIT '
+function pass() { print $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12 }
+{
+    rest = $13; n = 0; tm = 0; tq = 0; ts = 0
+    while (match(rest, /^[0-9]+[MID]/)) {
+        n++; LN[n] = substr(rest, 1, RLENGTH - 1) + 0; OP[n] = substr(rest, RLENGTH, 1); rest = substr(rest, RLENGTH + 1)
+        if (OP[n] == "M") { tm += LN[n]; tq += LN[n]; ts += LN[n] } else if (OP[n] == "I") ts += LN[n]; else tq += LN[n]
+    }
+    qd = ($8 >= $7) ? 1 : -1; sd = ($10 >= $9) ? 1 : -1
+    if (n == 0 || rest != "" || tm == 0 || tq != qd * ($8 - $7) + 1 || ts != sd * ($10 - $9) + 1) { pass(); next }
+    big = 0; for (i = 1; i <= n; i++) if (OP[i] != "M" && LN[i] >= SPLIT) big = 1
+    if (!big) { pass(); next }
+    q = $7; s = $9; open = 0
+    for (i = 1; i <= n + 1; i++) {
+        if (i > n || (OP[i] != "M" && LN[i] >= SPLIT)) {             # the piece ends here
+            if (open) print $1, $2, $3, pm, $5, $6, q1, q2, s1, s2, $11, sprintf("%.1f", $12 * pm / tm)
+            open = 0
+        }
+        if (i > n) break
+        if (OP[i] == "M") { if (!open) { open = 1; q1 = q; s1 = s; pm = 0 }
+                            q += qd * LN[i]; s += sd * LN[i]; q2 = q - qd; s2 = s - sd; pm += LN[i] }
+        else if (OP[i] == "I") s += sd * LN[i]
+        else                   q += qd * LN[i]
+    }
+}' hits.m8 > hits.split.m8
 
 # 3) + 4) units and junctions
 # per window: family hits first (best bitscore first), partner-library hits ("x.") after them
-gawk -F'\t' -v OFS='\t' '{ print $0, ($1 ~ /^x\./) }' hits.m8 | sort -t$'\t' -k2,2V -k13,13n -k12,12gr \
+gawk -F'\t' -v OFS='\t' '{ print $0, ($1 ~ /^x\./) }' hits.split.m8 | sort -t$'\t' -k2,2V -k13,13n -k12,12gr \
 | gawk -F'\t' -v OFS='\t' -v MIN_ALN=$MIN_ALN -v GAPSEQ=$GAPSEQ '
 function min(x, y) { return x < y ? x : y }
 function max(x, y) { return x > y ? x : y }
