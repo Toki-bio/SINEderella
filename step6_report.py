@@ -2514,12 +2514,21 @@ def build_html(run_root: Path,
         srcdoc = (sineplot_html.replace("&", "&amp;")
                                 .replace('"', "&quot;"))
         sineplot_section = (
+            "<section class='card' id='sineplot'>"
+            "<h2>SINEplot &mdash; bitscore PCA</h2>"
+            "<p class='intro'>Consensuses and sampled copies of each "
+            "subfamily, all-vs-all "
+            "<code>ssearch36</code> bit scores, laid out by "
+            "<a href='https://github.com/Toki-bio/SINEplot'>SINEplot</a>.</p>"
             f"<iframe class='embed' srcdoc=\"{srcdoc}\" "
             "sandbox='allow-scripts allow-same-origin allow-popups' "
             "title='SINEplot PCA'></iframe>"
+            "</section>"
         )
     elif sineplot:
         sineplot_section = (
+            "<section class='card' id='sineplot'>"
+            "<h2>SINEplot &mdash; bitscore PCA</h2>"
             "<div class='skip-note'>"
             "<b>SINEplot PCA skipped.</b><br>"
             "Could not locate <code>SINEplot.py</code> "
@@ -2531,12 +2540,11 @@ def build_html(run_root: Path,
             "  $SCRIPT_DIR/SINEplot\n"
             "pip install pandas numpy plotly scikit-learn</code></pre>"
             "Then re-run <code>step6_report.sh</code>.</div>"
+            "</section>"
         )
     else:
-        sineplot_section = (
-            "<p class='small muted'>SINEplot panel disabled "
-            "(<code>--no-sineplot</code>).</p>"
-        )
+        # --no-sineplot: no card and no nav entry, like the other optional sections
+        sineplot_section = ""
 
     gallery_html = ""
     if image_blocks:
@@ -2632,6 +2640,7 @@ def build_html(run_root: Path,
     <a href="#composition">Composition</a>
     <a href="#divergence">Divergence&thinsp;/&thinsp;Similarity</a>
     <a href="#pca">PCA</a>
+    {'<a href="#sineplot">SINEplot</a>' if sineplot_section else ''}
     {'<a href="#gallery">Gallery</a>' if image_blocks else ''}
     <span style="opacity:.45">&bull;</span>
     <a href="#run" style="opacity:.7">Run info</a>
@@ -2674,6 +2683,8 @@ def build_html(run_root: Path,
     <h2>PCA &mdash; mutation landscape</h2>
     {pca_section_html}
   </section>
+
+  {sineplot_section}
 
   {gallery_html}
 
