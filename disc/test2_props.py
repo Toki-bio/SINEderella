@@ -244,7 +244,7 @@ def main():
             "dip_depth", "dip_width"]
     print("alignments: %d   new measurements: %d" % (len(out), len(keys)))
     print()
-    print("%-24s %3s " % ("what you said", "n") + " ".join("%>10s" % s for s in show).replace(">", ""))
+    print("%-24s %3s " % ("what you said", "n") + " ".join("%10s" % s for s in show))
     for c in sorted(g, key=lambda c: -len(g[c])):
         vals = []
         for k in show:

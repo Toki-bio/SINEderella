@@ -112,7 +112,7 @@ def main():
         for i, f in enumerate(loci):
             fh.write("%s\t%s\t%s\t%d\t0\t%s\n" % (f[0], f[1], f[2], i, f[5]))
     lab = {}
-    p = subprocess.run("bedtools intersect -s -wa -wb -a %s/loci.bed -b %s" % (tmp, a.labeled), shell=True, check=True,
+    p = subprocess.run(["bedtools", "intersect", "-s", "-wa", "-wb", "-a", tmp + "/loci.bed", "-b", a.labeled], check=True,
                        stdout=subprocess.PIPE, universal_newlines=True)
     for l in p.stdout.splitlines():
         f = l.split("\t")
@@ -138,7 +138,7 @@ def main():
                 fh.write("%s\t%d\t%d\t%d_3\t0\t%s\n" % (c, e if st == "+" else s - r3, e + r3 if st == "+" else s, i, st))
             if r5 > 0:
                 fh.write("%s\t%d\t%d\t%d_5\t0\t%s\n" % (c, s - r5 if st == "+" else e, s if st == "+" else e + r5, i, st))
-    p = subprocess.run("bedtools getfasta -s -tab -nameOnly -fi %s -bed %s/win.bed" % (a.genome, tmp), shell=True, check=True,
+    p = subprocess.run(["bedtools", "getfasta", "-s", "-tab", "-nameOnly", "-fi", a.genome, "-bed", tmp + "/win.bed"], check=True,
                        stdout=subprocess.PIPE, universal_newlines=True)
     win = {}
     for l in p.stdout.splitlines():
