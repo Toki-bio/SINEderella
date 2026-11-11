@@ -1010,12 +1010,33 @@ def _write_fasta(records: List[Tuple[str, str]], path: Path) -> None:
                 fh.write(s[i:i + 60] + "\n")
 
 
+def read_sine_loci(s2_out: Path) -> Optional[set]:
+    """Copy names with verdict SINE in step2_output/loci_verdict.tsv (tools/flank_verdict.py), or None when the run
+    has no such file. The plots draw only these copies: grey and not_SINE copies are not SINE loci (docs/AIM.md)."""
+    hdr, rows = read_tsv(s2_out / "loci_verdict.tsv")
+    if not hdr or "copy" not in hdr or "verdict" not in hdr:
+        return None
+    ic, iv = hdr.index("copy"), hdr.index("verdict")
+    return {r[ic] for r in rows if len(r) > max(ic, iv) and r[iv] == "SINE"}
+
+
+def sine_loci_note(keep: Optional[set]) -> str:
+    """One line under a plot saying which copies it draws."""
+    if keep is None:
+        return ("<p class='small muted'>This run has no <code>loci_verdict.tsv</code>: all assigned copies are drawn, "
+                "including copies that may not be SINE loci.</p>")
+    return (f"<p class='small muted'>Only copies with verdict SINE in <code>loci_verdict.tsv</code> are drawn "
+            f"({len(keep):,} SINE loci); grey and not_SINE copies are left out.</p>")
+
+
 def build_sineplot_iframe(s2_out: Path,
                           script_dir: Optional[Path],
                           max_copies_per_sf: int,
-                          threads: int) -> Optional[str]:
+                          threads: int,
+                          keep: Optional[set] = None) -> Optional[str]:
     """Run SINEplot, return its HTML content for <iframe srcdoc>.
 
+    keep: copy names to draw (read_sine_loci); None draws every assigned copy.
     Returns None (and logs the reason) if SINEplot or its inputs are missing.
     """
     sp = find_sineplot(script_dir)
@@ -1027,8 +1048,8 @@ def build_sineplot_iframe(s2_out: Path,
         return None
     cons = s2_out.parent.parent / "consensuses.clean.fa"
     subfam_dir = s2_out / "subfamilies"
-    if not cons.is_file() or not subfam_dir.is_dir():
-        LOG.info("No consensus / subfamily fastas; skipping SINEplot")
+    if not cons.is_file():
+        LOG.info("No consensuses.clean.fa; skipping SINEplot")
         return None
 
     LOG.info("Running SINEplot (%s, max %d copies/sf)",
@@ -1041,8 +1062,10 @@ def build_sineplot_iframe(s2_out: Path,
         # Try per-subfamily fastas first; fall back to assigned.fasta when
         # those are empty (some pipeline versions only populate assigned.fasta).
         sf_buckets: Dict[str, List[Tuple[str, str]]] = {}
-        for fa in sorted(subfam_dir.glob("*.fasta")):
+        for fa in (sorted(subfam_dir.glob("*.fasta")) if subfam_dir.is_dir() else []):
             sf_records = _read_fasta(fa)
+            if keep is not None:
+                sf_records = [r for r in sf_records if r[0].split("|")[0] in keep]
             if sf_records:
                 sf_buckets[fa.stem] = sf_records
         if not sf_buckets:
@@ -1053,8 +1076,13 @@ def build_sineplot_iframe(s2_out: Path,
                     parts = n.split("|")
                     if len(parts) < 2:
                         continue
+                    if keep is not None and parts[0] not in keep:
+                        continue
                     sf = parts[1]
                     sf_buckets.setdefault(sf, []).append((parts[0], s))
+        if not sf_buckets:
+            LOG.info("No copies to draw (no SINE loci / no assigned copies); skipping SINEplot")
+            return None
         for sf, sf_records in sorted(sf_buckets.items()):
             if len(sf_records) > max_copies_per_sf:
                 sf_records = rng.sample(sf_records, max_copies_per_sf)
@@ -1086,7 +1114,10 @@ def build_sineplot_iframe(s2_out: Path,
                 [sys.executable, str(sp), str(scores),
                  "-o", str(out_html),
                  "-t", "SINEplot PCA -- bitscore-based subfamily layout",
-                 "--max-points", str(sineplot_max_display)],
+                 "--max-points", str(sineplot_max_display),
+                 # the consensus names are the subfamilies (without it SINEplot
+                 # takes query names shorter than 15 characters)
+                 "--consensuses", str(cons)],
                 capture_output=True, check=False, timeout=1800)
         except subprocess.TimeoutExpired:
             LOG.warning("SINEplot.py timed out (>1800s); skipping PCA panel")
@@ -1106,7 +1137,8 @@ def build_sineplot_iframe(s2_out: Path,
 
 def build_pca_fig(run_root: Path, s2_out: Path,
                   n_per_sf: int = 200,
-                  threads: int = 8) -> Optional[dict]:
+                  threads: int = 8,
+                  keep: Optional[set] = None) -> Optional[dict]:
     """Mutation-space PCA of assigned SINE copies.
 
     Each copy is represented as a binary vector: 1 at alignment positions
@@ -1151,6 +1183,11 @@ def build_pca_fig(run_root: Path, s2_out: Path,
     # Subfamily parsed from assigned.fasta header: >id|sf|score
     LOG.info("PCA: reading assigned.fasta for stratified sample ...")
     all_copies = _read_fasta(assigned)
+    if keep is not None:   # only SINE loci (read_sine_loci)
+        all_copies = [r for r in all_copies if r[0].split("|")[0] in keep]
+    if not all_copies:
+        LOG.warning("No copies to draw (no SINE loci / no assigned copies); PCA skipped")
+        return None
     seq_to_sf: Dict[str, str] = {}
     by_sf: Dict[str, list] = {}
     for rec in all_copies:
@@ -2306,16 +2343,19 @@ def build_html(run_root: Path,
             block.append("</div>")
             image_blocks.append("".join(block))
 
+    # copies the plots draw: SINE loci only, when the run has loci_verdict.tsv
+    sine_loci = read_sine_loci(s2)
+
     # SINEplot iframe
     sineplot_html = None
     if sineplot:
         sd = manifest.get("SCRIPT_DIR", "")
         script_dir = Path(sd) if sd else None
         sineplot_html = build_sineplot_iframe(
-            s2, script_dir, sineplot_max, threads)
+            s2, script_dir, sineplot_max, threads, keep=sine_loci)
 
     # Built-in PCA (mutation-space: mafft alignment columns)
-    pca_fig = build_pca_fig(run_root, s2, n_per_sf=200, threads=threads)
+    pca_fig = build_pca_fig(run_root, s2, n_per_sf=200, threads=threads, keep=sine_loci)
     if pca_fig:
         # strip the internal _meta key before JSON serialisation
         pca_fig["layout"].pop("_meta", None)
@@ -2330,6 +2370,7 @@ def build_html(run_root: Path,
         "subfamily clouds are expected when subfamilies have different "
         "characteristic mutations.</p>"
         "<div class='plot' id='plot_pca'></div>"
+        + sine_loci_note(sine_loci) +
         "<p class='small muted'>Method: <code>mafft --add --keeplength</code> "
         "adds sampled copies into the consensus alignment (up to 200 per "
         "subfamily). Binary mutation matrix &rarr; SVD. "
@@ -2515,7 +2556,7 @@ def build_html(run_root: Path,
                                 .replace('"', "&quot;"))
         sineplot_section = (
             "<section class='card' id='sineplot'>"
-            "<h2>SINEplot &mdash; bitscore PCA</h2>"
+            "<h2>SINEplot &mdash; bitscore layout</h2>"
             "<p class='intro'>Consensuses and sampled copies of each "
             "subfamily, all-vs-all "
             "<code>ssearch36</code> bit scores, laid out by "
@@ -2523,12 +2564,13 @@ def build_html(run_root: Path,
             f"<iframe class='embed' srcdoc=\"{srcdoc}\" "
             "sandbox='allow-scripts allow-same-origin allow-popups' "
             "title='SINEplot PCA'></iframe>"
+            + sine_loci_note(sine_loci) +
             "</section>"
         )
     elif sineplot:
         sineplot_section = (
             "<section class='card' id='sineplot'>"
-            "<h2>SINEplot &mdash; bitscore PCA</h2>"
+            "<h2>SINEplot &mdash; bitscore layout</h2>"
             "<div class='skip-note'>"
             "<b>SINEplot PCA skipped.</b><br>"
             "Could not locate <code>SINEplot.py</code> "
