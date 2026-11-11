@@ -2,8 +2,13 @@
 Needs bedtools on PATH."""
 import os
 import random
+import shutil
 import subprocess
 import sys
+
+import pytest
+
+pytestmark = pytest.mark.skipif(shutil.which("bedtools") is None, reason="needs bedtools")
 
 TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "extend_ends.py")
 
