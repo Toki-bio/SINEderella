@@ -102,7 +102,7 @@ python3 "$SINEDERELLA_BIN/tools/composite_units.py" "$RUN_ROOT" "${THREADS:-4}" 
 bash "$SINEDERELLA_BIN/tools/trna_heads.sh" "$RUN_ROOT" "${THREADS:-4}" \
   || log "WARNING: tools/trna_heads.sh failed; the report has no tRNA section"
 
-STEP6_ARGS=( "$RUN_ROOT" "--out" "$OUT_HTML" "--no-sineplot" )
+STEP6_ARGS=( "$RUN_ROOT" "--out" "$OUT_HTML" )   # SINEplot card on (SINE loci only; 2026-11-11)
 [[ -n "${RAW_ALN_BASE:-}" ]] && \
   STEP6_ARGS+=( "--aln-base" "$RAW_ALN_BASE" )
 [[ -n "$SPECIES" ]] && \
