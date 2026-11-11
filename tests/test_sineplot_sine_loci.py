@@ -54,6 +54,8 @@ def _sineplot(R, monkeypatch, s2):
     def fake_run(cmd, **kw):
         if cmd[0] == "ssearch36":
             seen["names"] = [l[1:].strip() for l in open(cmd[-1]) if l.startswith(">")]
+            seen["queries"] = [l[1:].strip() for l in open(cmd[-2]) if l.startswith(">")]
+            seen["ssearch"] = cmd
         else:
             seen["argv"] = cmd
             Path(cmd[cmd.index("-o") + 1]).write_text("<html>plot</html>")
@@ -63,19 +65,22 @@ def _sineplot(R, monkeypatch, s2):
     kw = {"keep": R.read_sine_loci(s2)} if hasattr(R, "read_sine_loci") else {}
     out = R.build_sineplot_iframe(s2, None, 400, 1, **kw)
     assert out == "<html>plot</html>", "SINEplot was not run (no subfamilies/ folder must fall back to assigned.fasta)"
-    return seen["names"], seen["argv"]
+    return seen["names"], seen["argv"], seen["queries"], seen["ssearch"]
 
 
 def test_sineplot_draws_only_sine_loci(R, tmp_path, monkeypatch):
     run, s2 = _run(tmp_path)
-    names, argv = _sineplot(R, monkeypatch, s2)
+    names, argv, queries, ss = _sineplot(R, monkeypatch, s2)
+    assert queries == CONS          # only consensus rows are read by SINEplot: no all-vs-all
+    # fixed statistics and a line for every sequence: a consensus is never dropped by a per-query fit
+    assert ss[ss.index("-z") + 1] == "3" and ss[ss.index("-b") + 1] == "=%d" % len(names)
     assert sorted(names) == sorted(CONS + ["chr1:100-300(+)", "chr2:100-300(+)"])
     assert argv[argv.index("--consensuses") + 1] == str(run / "consensuses.clean.fa")
 
 
 def test_sineplot_without_verdicts_draws_all_assigned(R, tmp_path, monkeypatch):
     run, s2 = _run(tmp_path, verdicts=False)
-    names, _ = _sineplot(R, monkeypatch, s2)
+    names, _, _, _ = _sineplot(R, monkeypatch, s2)
     assert sorted(names) == sorted(CONS + [c for c, _, _ in COPIES])
 
 

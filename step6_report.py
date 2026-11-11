@@ -1089,13 +1089,22 @@ def build_sineplot_iframe(s2_out: Path,
             sf_records = [(r[0].split("|")[0], r[1]) for r in sf_records]
             records.extend(sf_records)
         _write_fasta(records, all_fa)
+        # SINEplot reads only the rows whose query is a consensus, so the consensuses are the queries and every
+        # sequence is the library (was all-vs-all: 5,642 x 5,642 for rsi, 2.3 GB of scores after 23 min, unfinished)
+        cons_fa = work / "cons.fa"
+        _write_fasta(_read_fasta(cons), cons_fa)
 
+        # -z 3: fixed statistics parameters. The default (-z 1) fits them per query on this library, which is nearly
+        # all SINE copies; for rsi 3 of 21 consensuses then had no reportable hit and vanished from the plot, and the
+        # bit-score scale differed between queries. With -z 3 all 21 are scored (2.30-2.33 bits per nt of self score),
+        # the same in two runs except one 29-bit hit at the cutoff. -b =N: a line for every sequence, not an E cut.
         scores = work / "scores.txt"
-        LOG.info("  ssearch36 all-vs-all on %d sequences", len(records))
+        LOG.info("  ssearch36: consensuses against %d sequences", len(records))
         with scores.open("w") as fh:
             r = subprocess.run(
                 ["ssearch36", "-g", "-3", "-m", "8", "-T", str(threads),
-                 str(all_fa), str(all_fa)],
+                 "-z", "3", "-b", "=%d" % len(records),
+                 str(cons_fa), str(all_fa)],
                 stdout=fh, stderr=subprocess.PIPE, check=False)
         if r.returncode != 0:
             LOG.warning("ssearch36 failed (rc=%d): %s",
@@ -1113,7 +1122,7 @@ def build_sineplot_iframe(s2_out: Path,
             r2 = subprocess.run(
                 [sys.executable, str(sp), str(scores),
                  "-o", str(out_html),
-                 "-t", "SINEplot PCA -- bitscore-based subfamily layout",
+                 "-t", "SINE loci, bit scores",   # short: SINEplot's right panel is 350 px
                  "--max-points", str(sineplot_max_display),
                  # the consensus names are the subfamilies (without it SINEplot
                  # takes query names shorter than 15 characters)
@@ -1593,6 +1602,9 @@ iframe.embed { width: 100%; height: 800px; border: 1px solid var(--border);
 .subfam-block { min-width: 0; }      /* a grid item grew to its widest child: the scrolled profile widened the page */
 .subfam-block img { max-width: 100%; height: auto; }
 .nucfreq-scroll { overflow-x: auto; max-width: 100%; }
+/* SINEplot draws a fixed 1500 x 1000 px figure with its legend and mode buttons on the right: full size, scrolled sideways */
+.sineplot-scroll { overflow-x: auto; max-width: 100%; }
+.sineplot-scroll iframe.embed { width: 1530px; height: 1030px; }
 .nucfreq-scroll img { height: 260px; max-width: none; width: auto; }
 /* phone width (audit 2026-10-14: the page was 1,006 px wide at 400 px; tables ran out of their cards) */
 @media (max-width: 700px) {
@@ -2557,13 +2569,15 @@ def build_html(run_root: Path,
         sineplot_section = (
             "<section class='card' id='sineplot'>"
             "<h2>SINEplot &mdash; bitscore layout</h2>"
-            "<p class='intro'>Consensuses and sampled copies of each "
-            "subfamily, all-vs-all "
-            "<code>ssearch36</code> bit scores, laid out by "
-            "<a href='https://github.com/Toki-bio/SINEplot'>SINEplot</a>.</p>"
+            "<p class='intro'>Sampled copies of each subfamily placed by their "
+            "<code>ssearch36</code> bit scores against every consensus, laid out by "
+            "<a href='https://github.com/Toki-bio/SINEplot'>SINEplot</a> "
+            "(legend and colour modes on the right; scroll sideways).</p>"
+            "<div class='sineplot-scroll'>"
             f"<iframe class='embed' srcdoc=\"{srcdoc}\" "
             "sandbox='allow-scripts allow-same-origin allow-popups' "
             "title='SINEplot PCA'></iframe>"
+            "</div>"
             + sine_loci_note(sine_loci) +
             "</section>"
         )
