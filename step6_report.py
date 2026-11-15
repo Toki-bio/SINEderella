@@ -1152,7 +1152,8 @@ def build_pca_fig(run_root: Path, s2_out: Path,
 
     Each copy is represented as a binary vector: 1 at alignment positions
     where it differs from its assigned-subfamily consensus, 0 elsewhere.
-    mafft --add adds copies into the consensus alignment (keeplength),
+    mafft --add adds copies into the consensus alignment (keeplength;
+    --threadit 0 in both MAFFT calls, or threaded runs give different alignments),
     then SVD gives PC1/PC2.  Returns a Plotly figure dict + metadata dict,
     or None if prerequisites are missing.
     """
@@ -1238,7 +1239,7 @@ def build_pca_fig(run_root: Path, s2_out: Path,
         LOG.info("PCA: mafft aligning %d consensuses ...", len(cons_records))
         r1 = subprocess.run(
             ["mafft", "--auto", "--quiet",
-             "--thread", str(threads), "--nuc", str(cons_tmp)],
+             "--thread", str(threads), "--threadit", "0", "--nuc", str(cons_tmp)],
             capture_output=True, check=False, timeout=120)
         if r1.returncode != 0:
             LOG.warning("mafft (consensus) failed: %s",
@@ -1251,7 +1252,7 @@ def build_pca_fig(run_root: Path, s2_out: Path,
         r2 = subprocess.run(
             ["mafft", "--add", str(copies_fa),
              "--keeplength", "--quiet",
-             "--thread", str(threads), "--nuc", str(cons_aln)],
+             "--thread", str(threads), "--threadit", "0", "--nuc", str(cons_aln)],
             capture_output=True, check=False, timeout=900)
         if r2.returncode != 0:
             LOG.warning("mafft --add failed: %s",
@@ -1303,6 +1304,10 @@ def build_pca_fig(run_root: Path, s2_out: Path,
         # SVD
         X_c = (X - X.mean(axis=0)).astype(_np.float64)
         U, S, Vt = _np.linalg.svd(X_c, full_matrices=False)
+        # An SVD axis has no sign of its own; fix it (largest loading positive) so rebuilds draw the same plot.
+        for k in range(min(2, Vt.shape[0])):
+            if Vt[k][_np.argmax(_np.abs(Vt[k]))] < 0:
+                Vt[k] = -Vt[k]
         pc1 = (X_c @ Vt[0]).tolist()
         pc2 = (X_c @ Vt[1]).tolist()
         var_total = float((S ** 2).sum()) or 1.0
