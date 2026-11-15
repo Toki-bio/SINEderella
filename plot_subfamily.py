@@ -70,18 +70,33 @@ def read_msa(path):
 # Plot 1: Divergence histogram
 # ---------------------------------------------------------------------------
 
-def plot_divergence(pctid_values, subfamily, outdir):
+def divergence_bins(divergence, cons_len=None):
+    """Bin edges for the divergence histogram.
+
+    One mismatch in a copy aligned over L bp moves divergence by 100/L %, so the values are quantised in steps
+    of ~100/cons_len. Bins narrower than one step (the old fixed 50 bins) catch one step or none and draw a
+    comb (rfe r9_15seqs, 105 bp: 53 % of copies at exactly k/105). Bins here hold a whole number k of steps
+    (k = 1/step rounded, so width k*step is ~1 %), edges halfway between steps. Without a consensus length: 1 % bins on integer edges.
+    """
+    dmin, dmax = float(np.min(divergence)), float(np.max(divergence))
+    if not cons_len:
+        lo = max(0.0, np.floor(dmin) - 1)
+        hi = min(100.0, np.ceil(dmax) + 1)
+        return np.arange(lo, hi + 1.0, 1.0)
+    step = 100.0 / cons_len
+    k = max(1, int(round(1.0 / step)))
+    q0 = (int(np.floor(dmin / step)) // k) * k
+    q1 = int(np.ceil(dmax / step)) + k
+    return (np.arange(q0, q1 + 1, k) - 0.5) * step
+
+
+def plot_divergence(pctid_values, subfamily, outdir, cons_len=None):
     """Histogram of % divergence = 100 − %identity."""
     divergence = 100.0 - pctid_values
 
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    # Determine bin range
-    lo = max(0, np.floor(divergence.min()) - 1)
-    hi = min(100, np.ceil(divergence.max()) + 1)
-    nbins = min(50, max(10, int((hi - lo) / 0.5)))
-
-    ax.hist(divergence, bins=nbins, range=(lo, hi),
+    ax.hist(divergence, bins=divergence_bins(divergence, cons_len),
             color="#4C72B0", edgecolor="white", linewidth=0.5, alpha=0.85)
 
     mean_div = np.mean(divergence)
@@ -260,17 +275,23 @@ def main():
 
     os.makedirs(args.outdir, exist_ok=True)
 
+    msa_records = read_msa(args.msa)
+    cons_len = None
+    for name, seq in msa_records:
+        if name == args.consensus_name:
+            cons_len = sum(1 for c in seq if c not in "-. ") or None
+            break
+
     # Plot 1: Divergence histogram
     pctid_vals = read_pctid(args.pctid)
     if len(pctid_vals) > 0:
-        plot_divergence(pctid_vals, args.subfamily, args.outdir)
+        plot_divergence(pctid_vals, args.subfamily, args.outdir, cons_len)
         print(f"  [OK] {args.subfamily}_divergence.png/pdf "
               f"({len(pctid_vals)} copies)")
     else:
         print(f"  [SKIP] {args.subfamily}: no %identity data", file=sys.stderr)
 
     # Plot 2: Nucleotide frequency
-    msa_records = read_msa(args.msa)
     if len(msa_records) >= 2:
         plot_nucfreq(msa_records, args.consensus_name,
                      args.subfamily, args.outdir)
