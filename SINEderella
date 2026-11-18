@@ -902,7 +902,8 @@ mode_full(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
-  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py \
+                report_trna.py report_verdict.py report_flank_uniqueness.py report_profile.py report_annotate.py edge_profile.py; do   # every root module step6_report.py imports (tests/test_run_tools_copy.py checks it)
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
   for _tool in orient_consensus_bank.py orient_publish_aln.py \
@@ -1074,7 +1075,8 @@ mode_add(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
-  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py \
+                report_trna.py report_verdict.py report_flank_uniqueness.py report_profile.py report_annotate.py edge_profile.py; do   # every root module step6_report.py imports (tests/test_run_tools_copy.py checks it)
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
   for _tool in orient_consensus_bank.py orient_publish_aln.py \
@@ -1269,7 +1271,8 @@ mode_exclude(){
   cp -f "$POST_SRC"   "$RUN/step3_postprocess.sh"
   [[ -z "${PLOT_SRC:-}" ]] || cp -f "$PLOT_SRC" "$RUN/step4_plots.sh"
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC" "$RUN/plot_subfamily.py"
-  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py \
+                report_trna.py report_verdict.py report_flank_uniqueness.py report_profile.py report_annotate.py edge_profile.py; do   # every root module step6_report.py imports (tests/test_run_tools_copy.py checks it)
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" "$RUN/"
   done
   for _tool in orient_consensus_bank.py orient_publish_aln.py \
@@ -1408,7 +1411,8 @@ mode_resume(){
   cp -f "$POST_SRC"   ./step3_postprocess.sh
   [[ -z "${PLOT_SRC:-}"    ]] || cp -f "$PLOT_SRC"     ./step4_plots.sh
   [[ -z "${PLOT_PY_SRC:-}" ]] || cp -f "$PLOT_PY_SRC"  ./plot_subfamily.py
-  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py; do
+  for _extra in canonicalize_consensus_bank.py consensus_bank_lib.py rebuild_consensus_bank.py report_blocks.py report_hierarchy.py \
+                report_trna.py report_verdict.py report_flank_uniqueness.py report_profile.py report_annotate.py edge_profile.py; do   # every root module step6_report.py imports (tests/test_run_tools_copy.py checks it)
     [[ -f "$SCRIPT_DIR/$_extra" ]] && cp -f "$SCRIPT_DIR/$_extra" ./
   done
   for _tool in orient_consensus_bank.py orient_publish_aln.py \
