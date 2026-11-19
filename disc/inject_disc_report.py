@@ -374,6 +374,16 @@ def build_section(species: str, subfams, aln_dir: Path,
             k = (aln_dir / fn).read_text(encoding="utf-8", errors="replace").count(">")
             href = msa_href(raw_base, fn, f"{species} {lab}") if raw_base else fn
             cl.append(f"<a class='aln-link' href='{href}' target='_blank'>{lab} ({k})</a>")
+    # all-seed SubFam alignment (publish/align_for_publish.sh, mandatory since 2026-11-19): chunk consensuses of a random
+    # sample of the merged loci of all seeds, aligned with every seed
+    fn = f"{species}_allseeds_chunks.aln.fa"
+    if (aln_dir / fn).is_file():
+        heads = [l for l in (aln_dir / fn).read_text(encoding="utf-8", errors="replace").splitlines() if l.startswith(">")]
+        nch = sum(1 for h in heads if h.startswith(">input_"))
+        lab = (f"All seeds together: {nch} SubFam chunk consensuses (50 loci each, from a random sample of the merged "
+               f"loci of all seeds) and {len(heads) - nch} seeds")
+        href = msa_href(raw_base, fn, f"{species} all seeds, SubFam chunks") if raw_base else fn
+        cl.insert(0, f"<a class='aln-link' href='{href}' target='_blank'>{html.escape(lab)}</a>")
     cons_links = ("<p><strong>Consensus alignments:</strong> " + " &nbsp; ".join(cl) + "</p>") if cl else ""
     intro = (
         "<p class='intro'>One row per subfamily. "

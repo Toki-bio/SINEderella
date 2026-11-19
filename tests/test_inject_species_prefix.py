@@ -50,3 +50,22 @@ def test_old_single_prefix_plates_still_found(tmp_path):
     page = _run(tmp_path, "ccr", ["ccr_y"], ["ccr_y_top100.aln.fa"])
     assert _rows(page) == ["ccr_y"]
     assert "ccr_y_top100" in page
+
+
+def test_allseeds_alignment_linked_and_not_a_row(tmp_path):
+    """The all-seed SubFam alignment (mandatory output, 2026-11-19) is linked above the table and never becomes a row."""
+    aln = tmp_path / "aln"
+    aln.mkdir()
+    (aln / "abr_abr_seed1_top100.aln.fa").write_text(ALN)
+    (aln / "abr_allseeds_chunks.aln.fa").write_text(">input_001\nACGT\n>input_002\nACGT\n>abr_seed1\nACGT\n")
+    v = tmp_path / "flank_verdict.tsv"
+    v.write_text("subfamily\tverdict\tassigned_copies\tsine\tgrey\tnot_sine\treason\nabr_seed1\tinterspersed\t10\t8\t1\t1\tok\n")
+    rep = tmp_path / "report.html"
+    rep.write_text("<html><head><style></style></head><body><section class='card' id='alignments'></section></body></html>")
+    subprocess.run([sys.executable, TOOL, str(rep), str(aln), "abr", "--raw-base", "https://x/aln/",
+                    "--verdict-tsv", str(v)], check=True, capture_output=True, text=True,
+                   env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    page = rep.read_text()
+    assert _rows(page) == ["abr_seed1"]
+    assert "abr_allseeds_chunks.aln.fa" in page
+    assert "2 SubFam chunk consensuses" in page and "and 1 seeds" in page

@@ -169,4 +169,17 @@ if [[ -s "$CONS_BANK" ]]; then
   fi
 fi
 
+# All-seed SubFam alignment, a mandatory output (owner 2026-11-19): step1 samples the merged loci of ALL seeds (30,000 by
+# default), SubFam turns them into chunk consensuses (input_NNN, 50 loci each) and MAFFT aligns those together with every
+# seed (genome.clean_step1/subfam_input/input.clw.al, --reorder). It is the one alignment where seeds that describe the
+# same family sit next to each other among the same chunks. Step1 built it on every run but nothing published it.
+# The name must not end in _top100/_rand100/_subfam: those globs feed add_seed_row and the per-subfamily rows.
+ALLSEEDS_SRC="$RUN_ROOT/genome.clean_step1/subfam_input/input.clw.al"
+ALLSEEDS="${SPECIES}_allseeds_chunks.aln.fa"
+rm -f "$STEP8_OUT/$ALLSEEDS" "$OUT_DIR/$ALLSEEDS"
+[[ -s "$ALLSEEDS_SRC" ]] || { log "ERROR: step1 all-seed SubFam alignment missing: $ALLSEEDS_SRC"; exit 1; }
+cp -f "$ALLSEEDS_SRC" "$STEP8_OUT/$ALLSEEDS"
+[[ "$OUT_DIR" != "$STEP8_OUT" ]] && cp -f "$STEP8_OUT/$ALLSEEDS" "$OUT_DIR/"
+log "all-seed SubFam alignment: $ALLSEEDS ($(grep -c '^>' "$STEP8_OUT/$ALLSEEDS") rows)"
+
 log "Done: $STEP8_OUT"
