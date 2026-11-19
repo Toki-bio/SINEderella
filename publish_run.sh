@@ -79,6 +79,19 @@ else
   log "publish alignments skipped (SKIP_ALIGN=1)"
 fi
 
+# All-seed SubFam alignment, a mandatory output (owner 2026-11-19): step1 samples the merged loci of ALL seeds (30,000 by
+# default), SubFam turns them into chunk consensuses (input_NNN, 50 loci each) and MAFFT aligns those together with every
+# seed (genome.clean_step1/subfam_input/input.clw.al, --reorder). It is the one alignment where seeds that describe the
+# same family sit next to each other among the same chunks. Step1 built it on every run but nothing published it.
+# Here, not in align_for_publish.sh, so that SKIP_ALIGN=1 publishes it too. The name must not end in
+# _top100/_rand100/_subfam: those globs feed add_seed_row and the per-subfamily rows.
+ALLSEEDS_SRC="$RUN_ROOT/genome.clean_step1/subfam_input/input.clw.al"
+ALLSEEDS="$RUN_ROOT/results/alignments/${SPECIES}_allseeds_chunks.aln.fa"
+[[ -s "$ALLSEEDS_SRC" ]] || die "step1 all-seed SubFam alignment missing: $ALLSEEDS_SRC"
+mkdir -p "$RUN_ROOT/results/alignments"
+cp -f "$ALLSEEDS_SRC" "$ALLSEEDS"
+log "all-seed SubFam alignment: $(basename "$ALLSEEDS") ($(grep -c '^>' "$ALLSEEDS") rows)"
+
 # ── 3. Step6 HTML report ───────────────────────────────────────────────────
 # Always the installed step6: publishing is presentation, and a copy frozen in the run dir kept old
 # page bugs alive (the "Genome: ?" header fix and the seed label never reached the 25 bat runs,
