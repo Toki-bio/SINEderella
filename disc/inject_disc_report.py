@@ -151,10 +151,18 @@ def msa_href(raw_base: str, filename: str, title: str) -> str:
     )
 
 
-def aln_name(species: str, sf: str, kind: str) -> str:
-    """step8a naming: {species}_{subfam}_{kind}.aln.fa"""
-    prefix = f"{species}_" if not sf.startswith(f"{species}_") else ""
-    return f"{prefix}{sf}_{kind}.aln.fa"
+def aln_name(species: str, sf: str, kind: str, aln_dir: Path = None) -> str:
+    """step8a naming: always {species}_{subfam}_{kind}.aln.fa (step8a_extract_alignments.sh), also when the subfamily
+    name itself begins with the species code (abr_seed1 -> abr_abr_seed1_top100.aln.fa). Skipping the prefix for such
+    names pointed every link of the brittle star runs at files that do not exist (2026-11-19). {subfam}_{kind}.aln.fa,
+    the name the old rule produced, is kept as a fallback for plates published that way; with aln_dir the first name
+    that exists is returned."""
+    names = [f"{species}_{sf}_{kind}.aln.fa", f"{sf}_{kind}.aln.fa"]
+    if aln_dir is not None:
+        for n in names:
+            if (aln_dir / n).is_file():
+                return n
+    return names[0]
 
 
 def load_copy_counts(summary_tsv: Path) -> dict:
@@ -189,7 +197,7 @@ def discover_subfams(aln_dir: Path, species: str) -> list:
 
 
 def score_top100(aln_dir: Path, species: str, sf: str):
-    for fn in (aln_name(species, sf, "top100"), f"{sf}_top100.aln.fa"):
+    for fn in (aln_name(species, sf, "top100", aln_dir),):
         path = aln_dir / fn
         if path.is_file():
             try:
@@ -201,7 +209,7 @@ def score_top100(aln_dir: Path, species: str, sf: str):
 
 def scan_flanks(aln_dir: Path, species: str, sf: str, tier: str):
     kind = "top100" if tier == "top100" else "rand100"
-    for fn in (aln_name(species, sf, kind), f"{sf}_{kind}.aln.fa"):
+    for fn in (aln_name(species, sf, kind, aln_dir),):
         path = aln_dir / fn
         if path.is_file():
             try:
@@ -273,9 +281,9 @@ def build_section(species: str, subfams, aln_dir: Path,
     ncols = 13 if fverdict else 10
     fam_seen = None
     for sf in order:
-        t100 = aln_name(species, sf, "top100")
-        r100 = aln_name(species, sf, "rand100")
-        sub = aln_name(species, sf, "subfam")
+        t100 = aln_name(species, sf, "top100", aln_dir)
+        r100 = aln_name(species, sf, "rand100", aln_dir)
+        sub = aln_name(species, sf, "subfam", aln_dir)
         fv = fverdict.get(sf) or fverdict.get(f"{species}_{sf}")
         if families and fam_of(sf) != fam_seen:
             # a family header row with the family's totals (the run's family table, families/families.clean.tsv)
@@ -455,9 +463,17 @@ def main() -> None:
     args = ap.parse_args()
 
     fverdict = load_flank_verdicts(args.verdict_tsv) if args.verdict_tsv else {}
-    subfams = sorted(set(discover_subfams(args.aln_dir, args.species))
-                     | {sf[len(args.species) + 1:] if sf.startswith(args.species + "_") else sf
-                        for sf, r in fverdict.items() if (r.get("assigned_copies") or "0") != "0"})
+    # subfamily names as the run has them (flank_verdict.tsv); a plate name is mapped to a run name, never the run
+    # name cut down: cutting the species code off abr_seed1 gave a second row "seed1" for every subfamily (2026-11-19)
+    run_names = {sf for sf, r in fverdict.items() if (r.get("assigned_copies") or "0") != "0"}
+    subfams = set(run_names)
+    for d in discover_subfams(args.aln_dir, args.species):
+        if d in run_names:
+            continue
+        if f"{args.species}_{d}" in run_names and not (fverdict.get(d)):
+            continue  # plate published under the old single-prefix name of run name {species}_{d}
+        subfams.add(d)
+    subfams = sorted(subfams)
     if not subfams:
         sys.exit("no *_top100.aln.fa in %s" % args.aln_dir)
 
