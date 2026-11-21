@@ -27,7 +27,7 @@ From: mambaorg/micromamba:2.3.0-debian12-slim
     micromamba clean --all --yes
     rm -rf /opt/conda/pkgs      # where hard links are not possible the package cache is a second copy of everything
     # SINEplot (github.com/Toki-bio/SINEplot, fixed commit): the bit-score layout panel of the report; step6 finds it on PATH
-    python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/Toki-bio/SINEplot/23234c4f3523d415e8616242f91d0d3b265aeec9/SINEplot.py', '/opt/conda/bin/SINEplot.py')"
+    /opt/conda/bin/python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/Toki-bio/SINEplot/23234c4f3523d415e8616242f91d0d3b265aeec9/SINEplot.py', '/opt/conda/bin/SINEplot.py')"
     echo "fafe3e1cee97870dcb21c68fec4c15c4d0976017df210e74be7cbda8bb325958  /opt/conda/bin/SINEplot.py" | sha256sum -c -
     chmod 755 /opt/conda/bin/SINEplot.py
     rm -rf /opt/SINEderella/.git
