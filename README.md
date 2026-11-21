@@ -85,12 +85,13 @@ did not re-test these.
 - Python 3 with numpy and matplotlib (plots, report panels, consensus blocks)
 - Tests: `python -m pytest` from the repo root (`pytest.ini`; the end-to-end tests need mafft, gawk, samtools and are skipped without them)
 - `bc` (the consensus builder `sine_consensus.sh`: consensus audit, border loop); `minimap2` (`sear`, only for queries of 1000 bp or longer; without it `sear` falls back to ssearch36 with a warning); a C compiler (`cc`/`gcc`) is used by SubFam for its k-mer ordering program when present, otherwise the Python version gives the same order
+- Optional: [SINEplot](https://github.com/Toki-bio/SINEplot) (`SINEplot.py` on `PATH`, or `SINEPLOT_PY`; needs pandas, plotly, scikit-learn): the bit-score layout panel of the report, left out with a log line without it; scipy for `tools/separation_test.py`
 
 All of these with the versions of the current server environment are in [environment.yml](environment.yml) (conda-forge + bioconda): `mamba env create -f environment.yml`.
 
 ## Run with a container
 
-The image holds the tools of `environment.yml` and this repository in `/opt/SINEderella`; nothing has to be installed on the host.
+The image holds the tools of `environment.yml`, SINEplot at a fixed commit, and this repository in `/opt/SINEderella`; nothing has to be installed on the host.
 
 ```bash
 # Apptainer (HPC, no root). Build from the repository root:

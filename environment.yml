@@ -24,3 +24,8 @@ dependencies:
   - kmer-jellyfish=2.3.1
   - minimap2=2.31          # sear: queries >= 1000 bp
   - bc=1.07.1              # sine_consensus.sh (consensus audit, border loop)
+  # SINEplot.py (github.com/Toki-bio/SINEplot; put it on PATH or set SINEPLOT_PY): the bit-score layout panel of the report
+  - pandas=3.0.5
+  - scikit-learn=1.9.1
+  - plotly=7.1.0
+  - scipy=1.17.1           # also tools/separation_test.py

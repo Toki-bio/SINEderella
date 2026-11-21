@@ -16,6 +16,11 @@ RUN micromamba install -y -n base -f /opt/SINEderella/environment.yml gcc util-l
  && micromamba clean --all --yes \
  && rm -rf /opt/conda/pkgs
 
+# SINEplot (github.com/Toki-bio/SINEplot, fixed commit): the bit-score layout panel of the report; step6 finds it on PATH
+RUN /opt/conda/bin/python3 -c "import urllib.request as u; u.urlretrieve('https://raw.githubusercontent.com/Toki-bio/SINEplot/23234c4f3523d415e8616242f91d0d3b265aeec9/SINEplot.py', '/opt/conda/bin/SINEplot.py')" \
+ && echo "fafe3e1cee97870dcb21c68fec4c15c4d0976017df210e74be7cbda8bb325958  /opt/conda/bin/SINEplot.py" | sha256sum -c - \
+ && chmod 755 /opt/conda/bin/SINEplot.py
+
 # .dockerignore keeps .git and caches out
 COPY --chown=$MAMBA_USER:$MAMBA_USER . /opt/SINEderella
 # SINEderella writes this into every run's manifest.txt (there is no git inside the image)
