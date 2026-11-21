@@ -25,6 +25,7 @@ From: mambaorg/micromamba:2.3.0-debian12-slim
     # util-linux: column (SINEderella_multi summary table)
     micromamba install -y -n base -f /opt/SINEderella/environment.yml gcc util-linux
     micromamba clean --all --yes
+    rm -rf /opt/conda/pkgs      # where hard links are not possible the package cache is a second copy of everything
     rm -rf /opt/SINEderella/.git
     find /opt/SINEderella -name __pycache__ -type d -prune -exec rm -rf {} +
     # SINEderella writes this into every run's manifest.txt (there is no git inside the image)
@@ -49,8 +50,8 @@ From: mambaorg/micromamba:2.3.0-debian12-slim
     python3 -c "import numpy, matplotlib, pytest"
 
 %labels
-    org.opencontainers.image.source https://github.com/Toki-bio/SINEderella
-    org.opencontainers.image.title SINEderella
+    sinederella.repository https://github.com/Toki-bio/SINEderella
+    sinederella.commit {{ PIPELINE_COMMIT }}
 
 %help
     SINEderella: genome-wide identification and classification of SINEs.

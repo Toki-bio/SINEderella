@@ -13,7 +13,8 @@ ARG PIPELINE_COMMIT=unknown
 # util-linux: column (SINEderella_multi summary table)
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /opt/SINEderella/environment.yml
 RUN micromamba install -y -n base -f /opt/SINEderella/environment.yml gcc util-linux \
- && micromamba clean --all --yes
+ && micromamba clean --all --yes \
+ && rm -rf /opt/conda/pkgs
 
 # .dockerignore keeps .git and caches out
 COPY --chown=$MAMBA_USER:$MAMBA_USER . /opt/SINEderella
@@ -24,11 +25,13 @@ RUN echo "${PIPELINE_COMMIT}" > /opt/SINEderella/PIPELINE_COMMIT \
 ENV PATH=/opt/SINEderella:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 \
     PYTHONNOUSERSITE=1 \
-    SINEDERELLA_TOOLCHAIN=
+    SINEDERELLA_TOOLCHAIN= \
+    MPLCONFIGDIR=/tmp/matplotlib
 
-LABEL org.opencontainers.image.source="https://github.com/Toki-bio/SINEderella" \
-      org.opencontainers.image.title="SINEderella"
+LABEL sinederella.repository="https://github.com/Toki-bio/SINEderella" \
+      sinederella.commit="${PIPELINE_COMMIT}"
 
+# MPLCONFIGDIR: with -u <uid> there is no writable home for matplotlib's cache
 # no activation script is needed: the tools are found through PATH
 ENTRYPOINT []
 CMD ["SINEderella"]
