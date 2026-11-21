@@ -7,7 +7,7 @@ A reproducible Bash pipeline for genome-wide identification, classification, and
 | Step | Script | Purpose |
 |------|--------|---------|
 | 1 | `step1_search_extract.sh` | Search genome for SINE hits (≥0.9 length, ≥0.65 similarity), merge overlaps, extract per-family FASTA/BED |
-| 2 | `step2_asSINEment.sh` | Assign sequences to known subfamily consensuses via repeated ssearch36 cycles with stability rule |
+| 2 | `step2_asSINEment.sh` | Assign sequences to known subfamily consensuses: one ssearch36 search with fixed statistics, a clear-winner rule and a bitscore threshold |
 | 3 | `step3_postprocess.sh` | Postprocess assignments: compute per-subfamily statistics, generate summary tables |
 | 4 | `step4_plots.sh` | Generate divergence plots and conservation statistics per subfamily |
 | 5 | `step5_align_subfamilies.sh` | Cross-species subfamily alignment against consensus bank |
@@ -88,6 +88,7 @@ did not re-test these.
 ## Documentation
 
 - [MANUAL.md](MANUAL.md) — Full user manual
+- [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) — the same input gives the same output: why it did not (ssearch36 shuffle statistics), the fix (fixed statistics, a clear-winner rule) and the test
 - [docs/AIM.md](docs/AIM.md) — what the workflow is for; [docs/VERDICTS.md](docs/VERDICTS.md) — the verdict of every copy (SINE / grey zone / not SINE), `loci_verdict.tsv`, and how plates and page use it
 - [docs/CONTINUATION.md](docs/CONTINUATION.md) — copies that continue past their ends into another consensus (a missing composite, or a copy labelled with a shorter consensus), checked in every run
 - [disc/README.md](disc/README.md) — the SINE-discriminator modules the publish chain runs (kept in this repository since 2026-10-21)

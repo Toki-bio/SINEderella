@@ -2,7 +2,7 @@
 # ==========================================================
 # step2_assign.sh - Assign SINE sequences to consensus subfamilies
 # ==========================================================
-# Strict assignment based on 10-cycle voting + bitscore thresholds
+# Strict assignment: a clear winner among the consensuses (one ssearch36 search, fixed statistics) + bitscore thresholds
 # No alignment steps - fast assignment only
 set -euo pipefail
 
@@ -39,6 +39,40 @@ unit_table(){   # BANK.fa OUT.tsv: composite_units.py --bank, or an empty table 
   python3 "$STEP2_TOOLS/composite_units.py" --bank "$1" "$2" "$THREADS" >&2 \
     || die "tools/composite_units.py --bank failed (UNIT_RULE=0 votes without the unit/composite rule)"
 }
+# Reproducible votes (2026-11-21, docs/REPRODUCIBILITY.md). Until then: 10 cycles of ssearch36 -z 11, whose bit scores came
+# from shuffles seeded by the clock (the same call differed by up to 40 bits on 1,042 copies), a copy kept only when the
+# same consensus won all 10. Two runs on one input gave other votes, other summed scores, other thresholds.
+# Now: ONE search with fixed statistics (-z 3: the bit score is a fixed linear function of the Smith-Waterman score, the
+# same in every run and with any number of threads), and the stability the 10 cycles tested is asked directly: the best
+# consensus must be ahead of the runner-up by at least WIN_MARGIN (0.05) of its score (not asked where the unit/composite
+# rule chose between the two: that rule gave its winner all 10 votes before). On the rsi test genome the copies
+# that failed the 10 votes sit at a margin of 0.021-0.023 and the copies that passed at a median of 0.17; the two rules
+# agree on 96 % of the copies.
+# The files keep their layout: a clear winner is written as 10 votes for it (Votes 10, Bitscore = 10 x bit score); a copy
+# without a clear winner as 5 votes for the best and 5 for the runner-up (Votes 5, status no_unanimous, as before).
+# -E 1e-7 is about where E <= 2 lay under the shuffles for this search (consensuses against copies).
+WIN_MARGIN="${WIN_MARGIN:-0.05}"; STEP2_EVALUE="${STEP2_EVALUE:-1e-7}"
+run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit_rule_swaps.tsv)
+  local part
+  : > "$TMPDIR/raw_1.unsorted.m8"
+  for part in "$TMPDIR"/splits/*.fasta; do
+    ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -E "$STEP2_EVALUE" -w 95 -W 70 -m 8 \
+      "$TMPDIR/consensus_clean.fa" "$part" \
+      >> "$TMPDIR/raw_1.unsorted.m8" 2>>"$OUTDIR/ssearch.log" \
+      || die "ssearch36 failed (${part##*/}); see $OUTDIR/ssearch.log"
+  done
+  # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
+  ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
+  # with several threads ssearch36 writes the same lines in another order: sorted, so that nothing depends on it
+  LC_ALL=C sort "$TMPDIR/raw_1.unsorted.m8" > "$TMPDIR/raw_1.m8"; rm -f "$TMPDIR/raw_1.unsorted.m8"
+  cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_1.m8" | LC_ALL=C sort > "$TMPDIR/best_1.tsv"
+  awk -F'\t' -v OFS='\t' -v M="$WIN_MARGIN" '
+    { row = $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9
+      # clear winner: no runner-up, or ahead by the margin, or the unit/composite rule chose between the two (column 10)
+      if ($4 == "NA" || $10 == 1 || $3 - $5 >= M * $3) { for (i = 1; i <= 10; i++) print row }
+      else { for (i = 1; i <= 5; i++) print row; for (i = 1; i <= 5; i++) print $1, $4, $5, $2, $3, $8, $9, $6, $7 } }' \
+    "$TMPDIR/best_1.tsv" > "$TMPDIR/votes.tsv"
+}
 cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per copy in one cycle, unit/composite rule applied
   awk -v F="$UNIT_COVER_OTHER" -v SW="$TMPDIR/unit_rule_swaps.tsv" 'BEGIN{FS="\t"}
     FILENAME == ARGV[1] {
@@ -50,7 +84,7 @@ cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per co
       key=seq SUBSEP cons
       # pair_sp: where the best HSP of the pair lies on the consensus (m8 columns 7-8, the query is the consensus); read by
       # tools/rollup_families.py to find copies that cover only a part of their consensuses (partial copies)
-      if(!(key in pair_bs) || bs > pair_bs[key]){ pair_bs[key]=bs; pair_sp[key]=$7 "\t" $8 } }
+      if(!(key in pair_bs) || bs > pair_bs[key]){ pair_bs[key]=bs; pair_sp[key]=$7 "\t" $8 } }   # run_votes sorts the lines
     # a copy is the composite only if its alignment to it covers >= F of the composite outside the unit AND >= F of the
     # unit stretches themselves: a real composite copy spans both parts, a standalone copy only one. The second condition
     # matters when the unit resembles the other part of the composite (rsi r5 vs r5_r5_P48 = r5 + r6, r5 97 percent like
@@ -66,18 +100,20 @@ cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per co
     END{
       for(key in pair_bs){
         split(key, a, SUBSEP); seq=a[1]; cons=a[2]; bs=pair_bs[key]
-        if(!(seq in best_bs) || bs > best_bs[seq]){
+        # equal scores: the consensus whose name sorts first (until 2026-11-21 whichever the awk array listed first)
+        if(!(seq in best_bs) || bs > best_bs[seq] || (bs == best_bs[seq] && cons < best_cons[seq])){
           if(seq in best_bs){ runner_bs[seq]=best_bs[seq]; runner_cons[seq]=best_cons[seq]; runner_sp[seq]=best_sp[seq] }
           best_bs[seq]=bs; best_cons[seq]=cons; best_sp[seq]=pair_sp[key]
-        } else if(!(seq in runner_bs) || bs > runner_bs[seq]){
+        } else if(!(seq in runner_bs) || bs > runner_bs[seq] || (bs == runner_bs[seq] && cons < runner_cons[seq])){
           runner_bs[seq]=bs; runner_cons[seq]=cons; runner_sp[seq]=pair_sp[key]
         }
       }
       for(seq in best_cons){
         if (seq in runner_cons) {
-          b = best_cons[seq]; r = runner_cons[seq]; win = ""
+          b = best_cons[seq]; r = runner_cons[seq]; win = ""; ruled[seq] = 0
           x = other_cov(b, r, seq); if (x == 1) win = r      # best = unit, runner = composite it is in, copy reaches the rest
           y = other_cov(r, b, seq); if (y == 0) win = r      # best = composite, runner = its unit, copy does not reach the rest
+          if (x != -1 || y != -1) ruled[seq] = 1             # the rule decided between these two: no margin is asked (run_votes)
           if (win == r) {
             print seq "\t" b "\t" r >> SW
             t = best_bs[seq]; best_bs[seq] = runner_bs[seq]; runner_bs[seq] = t
@@ -87,7 +123,7 @@ cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per co
         }
         rb = (seq in runner_bs ? runner_bs[seq] : 0)
         rc = (seq in runner_cons ? runner_cons[seq] : "NA")
-        printf "%s\t%s\t%d\t%s\t%d\t%s\t%s\n", seq, best_cons[seq], int(best_bs[seq]+0.5), rc, int(rb+0.5), best_sp[seq], (seq in runner_sp ? runner_sp[seq] : "0\t0")
+        printf "%s\t%s\t%.1f\t%s\t%.1f\t%s\t%s\t%d\n", seq, best_cons[seq], best_bs[seq], rc, rb, best_sp[seq], (seq in runner_sp ? runner_sp[seq] : "0\t0"), ruled[seq] + 0
       }
     }' "$1" "$2"
 }
@@ -121,7 +157,7 @@ Output:
   assignment_full.tsv  Detailed assignment info for all sequences
 
 Assignment Rules:
-  1) 10/10 unanimous votes across ssearch36 cycles (same consensus wins all 10)
+  1) a clear winner: the best consensus is ahead of the runner-up by >= WIN_MARGIN (0.05) of its bit score (written as 10 votes)
   2) Bitscore >= threshold (calculated as MIN_REL_BITSCORE . TopN for that subfamily)
 
 Examples:
@@ -246,32 +282,13 @@ run_assignment(){
   fi
 
   unit_table "$TMPDIR/consensus_clean.fa" "$TMPDIR/units.tsv"; : > "$TMPDIR/unit_rule_swaps.tsv"
-  # Run 10 voting cycles
-  log "Running 10 ssearch36 voting cycles..."
-  : > "$TMPDIR/votes.tsv"
+  # One search, then the votes (run_votes, top of this file)
+  log "Running the ssearch36 search (fixed statistics) and the winner rule (margin $WIN_MARGIN)..."
   : > "$OUTDIR/ssearch.log"
-
-  for cycle in $(seq 1 10); do
-    printf "  Cycle %2d/10\r" "$cycle" >&2
-    : > "$TMPDIR/raw_${cycle}.m8"
-
-    for part in "$TMPDIR"/splits/*.fasta; do
-      ssearch36 -g -3 -T "$THREADS" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8 \
-        "$TMPDIR/consensus_clean.fa" "$part" \
-        >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
-        || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
-    done
-    # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
-    ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
-
-    # best hit per copy for this cycle and the best-scoring distinct runner-up (LEAK / ambiguity downstream), with the
-    # unit/composite rule (cycle_best, top of this file)
-    cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
-  done
-  echo >&2 "  Cycle 10/10 done."
-  # unit/composite rule: one row per copy and cycle where it changed the winner (copy, bitscore winner, rule winner)
+  run_votes
+  # unit/composite rule: one row per copy where it changed the winner (copy, bitscore winner, rule winner)
   cp "$TMPDIR/unit_rule_swaps.tsv" "$OUTDIR/unit_rule_swaps.tsv"; cp "$TMPDIR/units.tsv" "$OUTDIR/unit_rule_units.tsv"
-  log "Unit/composite rule: $(cut -f1 "$OUTDIR/unit_rule_swaps.tsv" | sort -u | wc -l) copies, $(wc -l < "$OUTDIR/unit_rule_swaps.tsv") cycle winners changed (unit_rule_swaps.tsv)"
+  log "Unit/composite rule: $(cut -f1 "$OUTDIR/unit_rule_swaps.tsv" | sort -u | wc -l) copies, $(wc -l < "$OUTDIR/unit_rule_swaps.tsv") winners changed (unit_rule_swaps.tsv)"
 
   # Aggregate votes
   log "Aggregating votes and calculating thresholds..."
@@ -529,7 +546,7 @@ run_assignment(){
     echo "  SINEs: $SINE_FILE ($sine_count sequences)"
     echo
     echo "Assignment Criteria:"
-    echo "  1) 10/10 unanimous votes (same consensus wins all cycles)"
+    echo "  1) clear winner: best consensus ahead of the runner-up by >= ${WIN_MARGIN} of its bit score (written as 10/10 votes)"
     echo "  2) Bitscore >= ${MIN_REL_BITSCORE} . TopN (N=min(10,count))"
     echo
     echo "Results:"
@@ -659,7 +676,7 @@ run_incremental_assignment(){
 
     local tier2_actual
     tier2_actual="$(count_fasta "$TMPDIR/tier2_sines.fa")"
-    log "Running 10 ssearch36 cycles on $tier2_actual Tier 2 sequences..."
+    log "Running the ssearch36 search on $tier2_actual Tier 2 sequences..."
 
     rm -rf "$TMPDIR/splits"; mkdir -p "$TMPDIR/splits"
     if [[ $tier2_actual -le $SPLIT_SIZE ]]; then
@@ -681,21 +698,7 @@ run_incremental_assignment(){
     fi
 
     unit_table "$TMPDIR/consensus_clean.fa" "$TMPDIR/units.tsv"; : > "$TMPDIR/unit_rule_swaps.tsv"
-    : > "$TMPDIR/votes.tsv"
-    for cycle in $(seq 1 10); do
-      printf "  Cycle %2d/10\r" "$cycle" >&2
-      : > "$TMPDIR/raw_${cycle}.m8"
-      for part in "$TMPDIR"/splits/*.fasta; do
-        ssearch36 -g -3 -T "$THREADS" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8 \
-          "$TMPDIR/consensus_clean.fa" "$part" \
-          >> "$TMPDIR/raw_${cycle}.m8" 2>>"$OUTDIR/ssearch.log" \
-          || die "ssearch36 failed (cycle $cycle, ${part##*/}); see $OUTDIR/ssearch.log"
-      done
-      # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
-      ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error in cycle $cycle: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
-      cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_${cycle}.m8" >> "$TMPDIR/votes.tsv"
-    done
-    echo >&2 "  Cycle 10/10 done."
+    run_votes
     cp "$TMPDIR/unit_rule_swaps.tsv" "$OUTDIR/unit_rule_swaps.tsv"
     log "Unit/composite rule (tier 2): $(cut -f1 "$TMPDIR/unit_rule_swaps.tsv" | sort -u | wc -l) copies changed"
 
@@ -902,7 +905,7 @@ run_incremental_assignment(){
     echo "  Overlapping old assigned:  $overlap_n"
     echo
     echo "Assignment Criteria:"
-    echo "  1) 10/10 unanimous votes (same consensus wins all cycles)"
+    echo "  1) clear winner: best consensus ahead of the runner-up by >= ${WIN_MARGIN} of its bit score (written as 10/10 votes)"
     echo "  2) Bitscore >= ${MIN_REL_BITSCORE} . TopN (N=min(10,count))"
     echo
     echo "Results:"

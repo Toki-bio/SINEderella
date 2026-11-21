@@ -56,7 +56,11 @@ with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
     with open(os.path.join(tmp, "b.fa"), "w") as fh:
         for k in order:
             fh.write(">%s\n%s\n" % (k, "".join(seq[k])))
-    out = subprocess.run(["ssearch36", "-g", "-3", "-3", "-m", "8", "-E", "1e-5", "-T", threads, "b.fa", "b.fa"], cwd=tmp,
+    # -z 3 -E 1e-17 (2026-11-21, docs/REPRODUCIBILITY.md; was default statistics, -E 1e-5): a bank holds fewer than 500
+    # sequences, so ssearch36 took its statistics from shuffles seeded by the clock and the weakest unit hits came and went
+    # (this script runs three times in one run). 1e-17 with the fixed parameters is where 1e-5 lay under the shuffles
+    # (rsi bank of 21: weakest hit always reported 5.8e-18, strongest never reported 6.4e-18).
+    out = subprocess.run(["ssearch36", "-g", "-3", "-3", "-m", "8", "-z", "3", "-E", "1e-17", "-T", threads, "b.fa", "b.fa"], cwd=tmp,
                          capture_output=True, text=True, check=True).stdout
 
 hits = {}                                      # target -> [(start, end, query, identity)]

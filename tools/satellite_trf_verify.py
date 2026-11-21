@@ -34,7 +34,7 @@ MIN_PERIOD = 55
 MAX_PERIOD = 300
 MIN_COPIES = 4.0
 MIN_ALN = 45
-MAX_E = 1e-2
+MAX_E = 1e-7     # ssearch36 -z 3 (fixed statistics, docs/REPRODUCIBILITY.md); until 2026-11-21: 1e-2 with -z 11 (shuffles, other E-values in every run)
 TRF_ARGS = ["2", "5", "7", "80", "10", "40", str(MAX_PERIOD), "-h", "-ngs"]
 
 
@@ -222,7 +222,7 @@ def verify(recs, cons, ssearch, workdir, threads):
     # ssearch36 cannot open a file whose path is longer than ~120 characters (FASTA36 file-name limit): every kind-A call failed
     # in the Sicista runs (2026-10-06). The consensus is copied next to the units and both are given by bare name inside workdir.
     shutil.copyfile(cons, os.path.join(workdir, "cons.fa"))
-    cmd = [ssearch, "-g", "-3", "-m", "8", "-E", str(MAX_E), "-z", "11", "-T", str(threads), "units2.fa", "cons.fa"]
+    cmd = [ssearch, "-g", "-3", "-m", "8", "-E", str(MAX_E), "-z", "3", "-T", str(threads), "units2.fa", "cons.fa"]
     failed = lambda r: r.returncode != 0 or "***" in r.stderr      # ssearch36 can exit 0 with a '***' error on stderr
     r = subprocess.run(cmd, capture_output=True, text=True, cwd=workdir)
     if failed(r):

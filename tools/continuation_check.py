@@ -40,6 +40,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -56,7 +57,7 @@ MIN_SHARE = 0.20    # flag when at least this share of the sampled copies contin
 MIN_N = 10          # ... and at least this many copies
 BUILD_MAX = 200     # copies per candidate build
 SUBSAMPLE = 100     # sine_consensus.sh -n
-EVALUE = "1e-5"
+EVALUE = "1e-16"   # with the fixed parameters of ssearch36 -z 3; about where 1e-5 lay under shuffle statistics (docs/REPRODUCIBILITY.md)
 UNASSIGNED = ("rejected_low_bitscore", "no_unanimous")
 LOCUS = re.compile(r"^(.+):(\d+)-(\d+)\(([+-])\)$")
 
@@ -110,12 +111,20 @@ def getfasta(genome, bed_rows, tmp):
 def ssearch(query_fa, lib_fa, threads, nbest=5):
     """ssearch36 -m 8, forward strand of the queries only; a failed call is an error, not 'no hits' (ssearch36 can exit 0
     with '***' on stderr when it cannot read a file)."""
-    out = subprocess.run(["ssearch36", "-g", "-3", "-m", "8", "-3", "-E", EVALUE, "-b", str(nbest), "-d", "0", "-T", str(threads), query_fa, lib_fa],
-                         capture_output=True, text=True)
+    # -z 3 (2026-11-21, docs/REPRODUCIBILITY.md): fixed statistics. These libraries hold fewer than 500 sequences, so ssearch36
+    # took its statistics from shuffles seeded by the clock (with 10 or more sequences; with fewer it used the fixed
+    # parameters already) and the hits that passed the E-value cut changed from run to run.
+    # Both files are copied into one directory and given by bare name: ssearch36 cannot open a file whose path is longer than
+    # ~120 characters ("cannot open library"), and a run directory deep in the file system gives such paths.
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(os.path.abspath(query_fa))) as d:
+        shutil.copyfile(query_fa, os.path.join(d, "q.fa"))
+        shutil.copyfile(lib_fa, os.path.join(d, "lib.fa"))
+        out = subprocess.run(["ssearch36", "-g", "-3", "-m", "8", "-3", "-z", "3", "-E", EVALUE, "-b", str(nbest), "-d", "0", "-T", str(threads), "q.fa", "lib.fa"],
+                             capture_output=True, text=True, cwd=d)
     if out.returncode != 0 or "***" in out.stderr:
         raise RuntimeError("ssearch36 failed: " + out.stderr.strip()[:300])
     hits = defaultdict(list)
-    for line in out.stdout.splitlines():
+    for line in sorted(out.stdout.splitlines()):          # sorted: several threads write the lines in another order
         if not line.strip() or line.startswith("#"):
             continue
         f = line.split("\t")

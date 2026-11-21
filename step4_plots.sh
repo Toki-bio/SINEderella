@@ -136,7 +136,9 @@ for sf_fasta in "${subfam_files[@]}"; do
   # Plot 1: Divergence histogram from ssearch36 %identity
   # ===================================================================
   log "  Running ssearch36 for %identity (both strands, matches step2)..."
-  ssearch36 -g -3 -Q -n -z 11 -E 100 -T "$THREADS" -m 8 \
+  # -z 3 (2026-11-21, docs/REPRODUCIBILITY.md; was -z 11): fixed statistics; the lines are sorted below because several
+  # threads write them in another order from run to run and the first of two equal-score alignments was taken
+  ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 8 \
     "$tmpdir/cons_${sf_name}.fa" "$tmpdir/copies_clean_${sf_name}.fa" \
     > "$tmpdir/sim_${sf_name}.m8" 2>"$tmpdir/ssearch_err_${sf_name}.txt" || true
 
@@ -146,7 +148,7 @@ for sf_fasta in "${subfam_files[@]}"; do
     if(!(seq in best) || bs>best[seq]){ best[seq]=bs; pid[seq]=pctid }
   } END {
     for(s in pid) printf "%s\t%.2f\n", s, pid[s]
-  }' "$tmpdir/sim_${sf_name}.m8" > "$tmpdir/pctid_${sf_name}.tsv"
+  }' <(LC_ALL=C sort "$tmpdir/sim_${sf_name}.m8") | LC_ALL=C sort > "$tmpdir/pctid_${sf_name}.tsv"
 
   cp -f "$tmpdir/pctid_${sf_name}.tsv" "$PLOTS_DIR/${sf_name}_pctid.tsv"
 

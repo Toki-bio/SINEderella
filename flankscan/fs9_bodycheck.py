@@ -98,7 +98,9 @@ def body_ids(pairs):
         # call instead of 250 ms, the same verdicts in every family tested, weak background pairs can differ, and the result no
         # longer depends on the machine's CPU count. Without -T, 32 parallel calls each started 128 workers on therioserver
         # (load ~1,400 during the 2026-10-26 runs)
-        r = subprocess.run(["ssearch36", "-g", "-3"] + (["-T", SST] if SST else []) + ["-m", "8", "-E", "100", "-b", str(len(ys) + 5), "-d", "0", q, lib],
+        # -z 3 (2026-11-21, docs/REPRODUCIBILITY.md): with fewer than 10 partners ssearch36 already used these fixed parameters;
+        # with 10 or more it took statistics from shuffles seeded by the clock, and which weak pairs passed -E 100 changed
+        r = subprocess.run(["ssearch36", "-g", "-3", "-z", "3"] + (["-T", SST] if SST else []) + ["-m", "8", "-E", "100", "-b", str(len(ys) + 5), "-d", "0", q, lib],
                            capture_output=True, text=True)
         os.remove(q); os.remove(lib)
         if r.returncode != 0: raise RuntimeError("fs9_bodycheck: ssearch36 failed: " + r.stderr[-300:])

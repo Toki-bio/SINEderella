@@ -448,7 +448,11 @@ for bank in "${WB_BASE}".2k.part_*.bnk; do
     echo "round $round"
     echo "$query $bank"
 
-    ssearch36 -g -3 -T "${THREADS:-$(nproc 2>/dev/null || echo 1)}" -Q -n -z 11 -E 2 -w 95 -W 70 -m 8C "$query" "$bank" 3 \
+    # -z 3 -E 1e-10 (2026-11-21, docs/REPRODUCIBILITY.md; was -z 11 -E 2): with -z 11 the E-values and bit scores came from
+    # shuffles seeded by the clock, so the same search reported other hits and other scores every time. -z 3 uses fixed
+    # parameters: the bit score is a fixed linear function of the Smith-Waterman score. Its E-values are much smaller
+    # for the same alignment; E <= 1e-10 is where E <= 2 lay under the shuffles (rsi test genome, 21 consensuses).
+    ssearch36 -g -3 -T "${THREADS:-$(nproc 2>/dev/null || echo 1)}" -Q -n -z 3 -E "${SEAR_EVALUE:-1e-10}" -w 95 -W 70 -m 8C "$query" "$bank" 3 \
     | awk '/^[^#]/ {
         printf($2"\t"$9-1"\t"$10"\t"$10-$9+1"\t");
         if ($8-$7>0) print $8-$7+1"\t+\t"$3"\t"$12;

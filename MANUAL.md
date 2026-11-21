@@ -533,12 +533,9 @@ step2_asSINEment.sh [options] <consensus.fa> <sines.fa> [threads] [output_dir]
 The full assignment algorithm proceeds through these stages:
 
 1. **Input preparation** — Clean headers, split large SINE files into chunks of 20,000 sequences.
-2. **10-cycle ssearch36 voting** — Run `ssearch36` (Smith-Waterman local alignment) 10 independent times. Each cycle:
-   - Aligns all consensus sequences against all SINE sequences.
-   - Records the best-hit consensus for each SINE sequence.
-   - The stochastic element of ssearch36 (Z-score normalization, shuffle seed) means each cycle may produce slightly different bitscores.
-3. **Vote aggregation** — Count how many of the 10 cycles each sequence voted for each consensus.
-4. **Unanimous filter** — Only sequences that voted for the same consensus in all 10/10 cycles pass.
+2. **One ssearch36 search with fixed statistics** (`-z 3`; since 2026-11-21, [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)) — all consensus sequences against all SINE sequences. The bit score is a fixed linear function of the Smith-Waterman score, so the same input gives the same scores in every run and with any number of threads. Until 2026-11-21 this was 10 cycles of `ssearch36 -z 11`, whose bit scores came from shuffles seeded by the clock and differed from cycle to cycle and from run to run.
+3. **Best consensus and runner-up** — for each SINE sequence the consensus with the highest bit score and the second one (equal scores: the name that sorts first), with the unit/composite rule.
+4. **Clear-winner filter** — the best consensus must be ahead of the runner-up by at least `WIN_MARGIN` (0.05) of its bit score. This asks directly what the 10 cycles tested (does the winner survive small changes of the scores). In the output files a clear winner is written as 10 votes (`Votes` 10, `Bitscore` = 10 × bit score), a sequence without a clear winner as 5 votes for each of the two (`Votes` 5, status `no_unanimous`).
 5. **Bitscore threshold** — For each consensus:
    - Sort all unanimous sequences by bitscore (descending).
    - Take TopN = bitscore of the min(10, count)-th best sequence.
