@@ -8,22 +8,18 @@ FROM mambaorg/micromamba:2.3.0-debian12-slim
 
 ARG PIPELINE_COMMIT=unknown
 
-USER root
-# gcc: SubFam compiles its k-mer ordering program at run time (python fallback gives the same order);
-# bsdextrautils: column (SINEderella_multi summary table)
-RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc libc6-dev bsdextrautils \
- && rm -rf /var/lib/apt/lists/*
-
-COPY environment.yml /opt/SINEderella/environment.yml
-RUN micromamba install -y -n base -f /opt/SINEderella/environment.yml \
+# besides environment.yml, two things a server has in its system and the base image does not:
+# gcc: SubFam compiles its k-mer ordering program at run time (the python fallback gives the same order);
+# util-linux: column (SINEderella_multi summary table)
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /opt/SINEderella/environment.yml
+RUN micromamba install -y -n base -f /opt/SINEderella/environment.yml gcc util-linux \
  && micromamba clean --all --yes
 
-# .dockerignore keeps .git, caches and run directories out
-COPY . /opt/SINEderella
+# .dockerignore keeps .git and caches out
+COPY --chown=$MAMBA_USER:$MAMBA_USER . /opt/SINEderella
 # SINEderella writes this into every run's manifest.txt (there is no git inside the image)
 RUN echo "${PIPELINE_COMMIT}" > /opt/SINEderella/PIPELINE_COMMIT \
- && chmod -R a+rX /opt/SINEderella /opt/conda
+ && chmod -R a+rX /opt/SINEderella
 
 ENV PATH=/opt/SINEderella:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     LANG=C.UTF-8 \

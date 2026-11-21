@@ -94,7 +94,9 @@ The image holds the tools of `environment.yml` and this repository in `/opt/SINE
 
 ```bash
 # Apptainer (HPC, no root). Build from the repository root:
-apptainer build --fakeroot --build-arg PIPELINE_COMMIT=$(git describe --always --dirty) sinederella.sif containers/sinederella.def
+apptainer build --build-arg PIPELINE_COMMIT=$(git describe --always --dirty) sinederella.sif containers/sinederella.def
+# (the build needs no real root: no apt-get, all tools come from conda. On a host that lists the user in /etc/subuid
+#  but has no newuidmap, as therioserver, add --ignore-subuid --ignore-fakeroot-command)
 apptainer run  sinederella.sif genome.fa consensuses.fa            # = SINEderella genome.fa consensuses.fa
 apptainer exec sinederella.sif publish_run.sh run_20260101_120000 mysp
 apptainer exec --pwd /opt/SINEderella sinederella.sif python -m pytest -p no:cacheprovider   # the unit tests inside the image
