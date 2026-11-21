@@ -297,3 +297,102 @@ assignment.
 
 Also: the scripts outside the full run (section 3, last paragraph) still use `-z 11`; 40 loci of section 6 (30 of them the new loci)
 are not traced to a cause one by one.
+
+## 9. Full genome: *R. sinicus* (2026-11-21)
+
+Branch at d86b145, one run, 32 threads, no publish, the inputs and options of the latest complete run of main
+(`/home/toki/rhin/rsi_final_20261102/run_20261101_235602`, main f2457a8: `rsi.fna`, `bank21_nor1.fa`, `--families
+rsi_families_nor1.tsv`). New run: therioserver `/home/toki/tmp/repro/rsi_full/A/run_20261121_211005`. Only one old run
+exists for this input, so how many loci would have differed between two old runs is not known here. A second copy for
+byte identity was not run: the server was at a load of 80 of 128 before the start.
+
+**Time.** 1 h 16 min 23 s, old 1 h 31 min 48 s. Step-1 searches 23 min 41 s (old 24 min 26 s). The shuffle searches
+are a small part of that: 2 s for the shuffle of 2,000 windows and 15 s for 21 bank queries (measured apart, 32 threads),
+so about half a minute for the 39 queries. Step 2: 1.6 min (old 9.3 min), of which shuffle and its search 4 s.
+
+**Totals.**
+
+| | old | new |
+|---|---|---|
+| loci | 68,580 | 68,191 |
+| same locus name in both | 66,818 | |
+| loci with no overlapping locus in the other run | 625 (lost) | 236 (new) |
+| intervals removed as satellite regions | 196 | 181 |
+| assigned | 64,697 | 61,081 |
+| no_unanimous | 1,123 | 4,877 |
+| rejected_low_bitscore | 2,760 | 2,233 |
+| verdict SINE | 50,790 | 48,512 |
+| verdict grey | 12,404 | 11,845 |
+| verdict not_SINE | 5,386 | 7,834 |
+
+8,065 loci differ in subfamily, status or verdict or are in one run only; the verdict differs in 6,173.
+
+**Assigned copies and SINE verdicts per subfamily (old -> new).**
+
+| subfamily | assigned | SINE | subfamily | assigned | SINE |
+|---|---|---|---|---|---|
+| r1_r3_P1 | 14,464 -> 13,830 | 11,183 -> 10,704 | r5_r3_P34 | 1,576 -> 1,531 | 1,207 -> 1,178 |
+| r6_210seqs | 7,442 -> 7,388 | 5,934 -> 5,897 | MEG-RS | 729 -> 16 | 0 -> 13 |
+| r1_r3_P2 | 6,940 -> 6,059 | 5,596 -> 4,899 | r10_r8_P18del | 505 -> 722 | 419 -> 590 |
+| r9_15seqs | 6,937 -> 6,758 | 5,617 -> 5,467 | r5_r5_P48 | 464 -> 361 | 369 -> 290 |
+| r7_133seqs | 6,862 -> 6,671 | 5,720 -> 5,556 | r10_19seqs | 351 -> 91 | 270 -> 65 |
+| r5_r6_P26 | 5,677 -> 5,527 | 4,372 -> 4,258 | MEG-T2 | 103 -> 12 | 94 -> 10 |
+| r10_r8_P18 | 4,308 -> 4,273 | 3,404 -> 3,378 | r3_58seqs | 40 -> 14 | 30 -> 9 |
+| r8_83seqs | 3,385 -> 3,060 | 2,759 -> 2,495 | r2_3seqs | 29 -> 17 | 24 -> 16 |
+| r1_r2_r3_r3_C11 | 2,866 -> 2,823 | 2,169 -> 2,136 | MEG-TR | 18 -> 11 | 16 -> 9 |
+| r5_27seqs | 1,981 -> 1,897 | 1,589 -> 1,526 | r4_32seqs, MEG-RL | 12 -> 16, 8 -> 4 | 11 -> 16, 7 -> 0 |
+
+**Causes, largest first.**
+
+1. **The margin rule is stricter than the 10 votes were on a full genome: 3,415 copies.** Of the 63,861 copies that were
+   assigned before and exist in both runs, 3,415 have no clear winner at `WIN_MARGIN` 0.05 (the 3,038 loci "assigned ->
+   no_unanimous, same subfamily" of the comparison are among them: 1,835 SINE, 447 grey, 756 not_SINE before; all
+   not_SINE now). Their margins: median 0.023, 10 % below 0.009, 90 % below 0.045; their old runner-up ratio had a median
+   of 0.96. By subfamily: r1_r3_P2 748 (and 96 more now best on r1_r3_P1), MEG-RS 726, r1_r3_P1 625, r8_83seqs 190,
+   r7_133seqs 175, r9_15seqs 154, r5_r5_P48 135, r5_r6_P26 131.
+   The reason is the size of the library. The 10 votes failed when the shuffle noise exceeded the margin, and the noise
+   of a fit to 20,000 copies is far smaller than of a fit to the 1,042 copies of `mini`, where the margin was set.
+   On this genome no margin separates the two old groups (copies in both runs):
+
+   | margin | old 10/10 and clear now | old 10/10, not clear now | old no_unanimous, clear now | neither | agreement |
+   |---|---|---|---|---|---|
+   | any difference (> 0) | 65,685 | 101 | 1,002 | 30 | 98.4 % |
+   | 0.005 | 65,498 | 288 | 873 | 159 | 98.3 % |
+   | 0.01 | 65,284 | 502 | 745 | 287 | 98.1 % |
+   | 0.02 | 64,660 | 1,126 | 524 | 508 | 97.5 % |
+   | 0.03 | 63,387 | 2,399 | 392 | 640 | 95.8 % |
+   | 0.05 (now) | 62,021 | 3,765 | 266 | 766 | 94.0 % |
+
+   Where both rules name a winner it is the same consensus in 60,050 of 60,446 copies.
+2. **Winner by raw score: a few hundred copies change subfamily.** r10_19seqs -> r10_r8_P18del 143 (SINE in both),
+   r10_r8_P18del -> r10_r8_P18 87 (assigned SINE -> rejected_low_bitscore), r1_r3_P2 -> r1_r3_P1 75, r8_83seqs ->
+   r5_r5_P48 50. Not traced further.
+3. **Loci lost: 625 with no overlapping locus in the new run.** 373 r10_r8_P18 and 25 r10_r8_P18del, all
+   rejected_low_bitscore; 91 MEG-T2 (84 SINE, 4 grey, 3 not_SINE); about 70 rejected_low_bitscore loci and about 30 loci without a winner of other
+   consensuses; about 30 assigned loci (8 r2_3seqs, 7 MEG-TR, 6 r1_r3_P1, 3 r1_r2_r3_r3_C11, 2 r8_83seqs, all SINE; 3 grey).
+   18 of the 625 lie in satellite regions of the new run. The cause for the first two groups is the cut: `r10_r8_P18`
+   has the highest cut of the bank (86.8 bits against 60-70 for most) and `MEG-T2` the third highest (75.8), and here they
+   are higher than what the old shuffles asked for, the opposite of `mini`. `MEG-T2` had 115 hits and 1,074 raw hits
+   in the old run and has 15 and 268 now.
+4. **Loci new: 236.** about 120 rejected_low_bitscore (44 r10_r8_P18del), about 80 without a winner (46 MEG-RS), about 25 assigned
+   (6 r4_32seqs, 4 MEG-RS, 4 r1_r3_P1, 2 r9_15seqs SINE; 7 grey). 64 lie in satellite regions of the old run.
+5. **Other loci** (about 1,100 names in one run only that overlap a locus of the other run): the same copy with other
+   ends, from a few more or fewer weak hits merged in. Hit counts per query agree within 0.1 % for most consensuses
+   (r10_19seqs 65,812 -> 65,847, r1_r3_P1 22,476 -> 22,477); the short pieces gain more (`r1_r3_P1` piece 1-80:
+   82,707 -> 86,943).
+
+**Consensuses that score high against random sequence** exist on the full genome as on `mini`, and the cut finds the
+same ones: `r10_r8_P18` 86.8, its piece 156-289 78.6, `MEG-T2` 75.8, `r1_r2_r3_r3_C11` 75.2, `r10_r8_P18del` 74.2,
+`r5_r3_P34` 74.1, `r1_r3_P1` 73.5; the others 56-71 (the shortest piece, 50 bp, 48.4). Step 2 (2,000 shuffled copies): 50.7-69.9, the
+same order.
+
+**For the owner, from this run.**
+
+1. `WIN_MARGIN`: 0.05 removes 5.3 % of the assigned copies of a full genome and nearly all of MEG-RS (729 -> 16). The 10
+   votes behaved like a margin of about 0.02 on 1,042 copies and like "any difference" on 68,000. A smaller margin
+   (0.01: 502 of the old 10/10 copies not clear, 745 formerly split copies clear) is closer to what full-genome runs did;
+   no value reproduces both.
+2. The cuts of `r10_r8_P18` and `MEG-T2` are higher than the old ones on a full genome (the fit through the 80 % and
+   95 % points is extrapolated far into the tail when a part holds tens of thousands of windows). 84 MEG-T2 loci with the verdict SINE are gone. Whether these
+   were real copies has to be looked at in their alignments.
+3. Two runs of the full genome were not compared byte for byte.
