@@ -102,7 +102,7 @@ apptainer run  sinederella.sif genome.fa consensuses.fa            # = SINEderel
 apptainer exec sinederella.sif publish_run.sh run_20260101_120000 mysp
 apptainer exec --pwd /opt/SINEderella sinederella.sif python -m pytest -p no:cacheprovider   # the unit tests inside the image
 
-# Docker: the same image
+# Docker: the same recipe (containers/Dockerfile; written next to the Apptainer definition, not yet built with Docker)
 docker build -f containers/Dockerfile --build-arg PIPELINE_COMMIT=$(git describe --always --dirty) -t sinederella .
 docker run --rm -u $(id -u):$(id -g) -v "$PWD":/work -w /work sinederella SINEderella genome.fa consensuses.fa
 ```
