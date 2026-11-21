@@ -10,6 +10,12 @@ SubFam text eol=lf
 # Python scripts: LF
 *.py text eol=lf
 
+# Container recipes and the conda environment: LF (built on Linux)
+*.def text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+*.yml text eol=lf
+
 # Docs: auto
 *.md text eol=auto
 *.txt text eol=auto

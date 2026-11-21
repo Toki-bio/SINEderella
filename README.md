@@ -84,6 +84,40 @@ did not re-test these.
 - `jellyfish` (conda `kmer-jellyfish`): 20-mer counts for the flank-twin check, made once per genome; without it genomes up to 300 Mb fall back to a slow awk count per family (about 0.3 GB of memory per Mb), and on larger genomes that check is skipped with a log line
 - Python 3 with numpy and matplotlib (plots, report panels, consensus blocks)
 - Tests: `python -m pytest` from the repo root (`pytest.ini`; the end-to-end tests need mafft, gawk, samtools and are skipped without them)
+- `bc` (the consensus builder `sine_consensus.sh`: consensus audit, border loop); `minimap2` (`sear`, only for queries of 1000 bp or longer; without it `sear` falls back to ssearch36 with a warning); a C compiler (`cc`/`gcc`) is used by SubFam for its k-mer ordering program when present, otherwise the Python version gives the same order
+
+All of these with the versions of the current server environment are in [environment.yml](environment.yml) (conda-forge + bioconda): `mamba env create -f environment.yml`.
+
+## Run with a container
+
+The image holds the tools of `environment.yml` and this repository in `/opt/SINEderella`; nothing has to be installed on the host.
+
+```bash
+# Apptainer (HPC, no root). Build from the repository root:
+apptainer build --fakeroot --build-arg PIPELINE_COMMIT=$(git describe --always --dirty) sinederella.sif containers/sinederella.def
+apptainer run  sinederella.sif genome.fa consensuses.fa            # = SINEderella genome.fa consensuses.fa
+apptainer exec sinederella.sif publish_run.sh run_20260101_120000 mysp
+apptainer exec --pwd /opt/SINEderella sinederella.sif python -m pytest -p no:cacheprovider   # the unit tests inside the image
+
+# Docker: the same image
+docker build -f containers/Dockerfile --build-arg PIPELINE_COMMIT=$(git describe --always --dirty) -t sinederella .
+docker run --rm -u $(id -u):$(id -g) -v "$PWD":/work -w /work sinederella SINEderella genome.fa consensuses.fa
+```
+
+The run directory `run_<date>_<time>` is written to the working directory, as in a native run. Environment variables (`THREADS`, `SPECIES_CODE`, `PUBLISH`, `SKIP_*`, `TMPDIR`, ...) are read from the host shell by Apptainer; with Docker pass each with `-e`. Apptainer binds the home and the working directory; a genome elsewhere needs `--bind /data` (Docker: another `-v`). `PIPELINE_COMMIT` goes into `manifest.txt` of every run (there is no git in the image).
+
+## Host-specific paths
+
+No path of a particular server is needed. The ones that remain are defaults that are used only where they exist:
+
+| Variable | Default | Used by | Meaning |
+|---|---|---|---|
+| `SINEDERELLA_TOOLCHAIN` | `/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin` (DRAGEN) | `publish/align_for_publish.sh`, `publish/verdict_chain.sh`, `publish/flank_border_iterate.py` | bin directories put first on `PATH` when the first one exists; set to an empty string to leave `PATH` alone (the container images do) |
+| `DISC` (or `SINE_DISC`) | `disc/` of this repository; after it `/staging/tmp/sinedisc`, `$HOME/SINE_discriminator/site`, `$HOME/SINE_discriminator` | `publish_run.sh`, `publish/align_for_publish.sh` | SINE-discriminator modules; the later candidates are reached only if `disc/` is missing |
+| `SINE_CONSENSUS_SH` | `/staging/tmp/SINEderella/sine_consensus.sh` | `publish/border_loop_subfam.py` run by hand (`--sine-script` overrides it; `verdict_chain.sh` always passes the repository's `sine_consensus.sh`) | consensus builder for the border loop |
+| `PIPELINE_COMMIT` file | — | `SINEderella`, `publish/verdict_chain.sh` | read from the script directory for the manifest when `git describe` does not work there |
+
+Scripts outside the main chain (`run_subfam_per_sf.sh`, `flank_border_consensus_test.sh/.py`, `tools/coseg_compare/`, `tests/bench/`, `tests/toy/run_toy.sh`) still carry the paths of the servers they were run on.
 
 ## Documentation
 

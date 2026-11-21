@@ -38,8 +38,11 @@ export DISC
 # DRAGEN toolchain only where it exists. On other hosts (therioserver) the unconditional
 # prepend put /usr/bin ahead of the active conda env: /usr/bin/python3 has no numpy, so the
 # border scan failed with a WARN and every subfamily was reported "none flagged".
-[[ -d /staging/conda/envs/bioinfo/bin ]] && \
-  export PATH="/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin:/usr/bin:$PATH"
+# SINEDERELLA_TOOLCHAIN: colon-separated bin directories to put first (default: the DRAGEN ones). Set it to an
+# empty string to keep the PATH as it is; the container does (a bound /staging must not replace the image's tools).
+_tc="${SINEDERELLA_TOOLCHAIN-/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin}"
+if [[ -n "$_tc" && -d "${_tc%%:*}" ]]; then export PATH="$_tc:/usr/bin:$PATH"; fi
+unset _tc
 log(){ printf '[%s] %s\n' "$(date '+%F %T')" "$*" >&2; }
 
 # The verdict chain (step 7 -> border loop -> flank verdicts; docs/VERDICTS.md) runs in every run since 2026-10-21

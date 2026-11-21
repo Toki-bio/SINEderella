@@ -264,7 +264,8 @@ def main():
     ap.add_argument("subfam")
     ap.add_argument("--peel-aln", default="", help="peel loci alignment for conse")
     ap.add_argument("--sine-script",
-                    default="/staging/tmp/SINEderella/sine_consensus.sh")
+                    default=os.environ.get("SINE_CONSENSUS_SH", "/staging/tmp/SINEderella/sine_consensus.sh"),
+                    help="consensus builder; verdict_chain.sh passes the repository's sine_consensus.sh")
     args = ap.parse_args()
     run_root = args.run_root.rstrip("/")
     sf = args.subfam

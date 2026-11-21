@@ -1,0 +1,26 @@
+# SINEderella tool environment (README "Dependencies").
+#   conda:      mamba env create -f environment.yml && conda activate sinederella
+#   containers: containers/sinederella.def (Apptainer) and containers/Dockerfile install this file
+# Versions are those of the "sinederella" environment on therioserver (conda list, 2026-11-21),
+# the environment the current runs were made with.
+name: sinederella
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11.16
+  - numpy=2.4.6
+  - matplotlib-base=3.11.2
+  - pytest=9.1.1
+  - fasta3=36.3.8          # ssearch36
+  - mafft=7.526
+  - bedtools=2.31.1
+  - samtools=1.24
+  - seqkit=2.13.0
+  - emboss=6.6.0           # cons, seqret (tools/vendor/SubFam.old.sh only)
+  - trf=4.10.0rc2
+  - gawk=5.4.1             # real gawk (consensus audit, flankscan)
+  - blast=2.17.0           # dustmasker (on therioserver it comes from rmblast 2.17.0)
+  - kmer-jellyfish=2.3.1
+  - minimap2=2.31          # sear: queries >= 1000 bp
+  - bc=1.07.1              # sine_consensus.sh (consensus audit, border loop)
