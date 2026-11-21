@@ -1,0 +1,58 @@
+# SINEderella container (Apptainer / Singularity).
+# Build from the repository root (the whole checkout is copied into the image):
+#   apptainer build --fakeroot --build-arg PIPELINE_COMMIT=$(git describe --always --dirty) \
+#       sinederella.sif containers/sinederella.def
+# Run:
+#   apptainer run  sinederella.sif genome.fa consensuses.fa        # = SINEderella genome.fa consensuses.fa
+#   apptainer exec sinederella.sif publish_run.sh <RUN_DIR> <SPECIES_CODE>
+# The same image as containers/Dockerfile: micromamba base, environment.yml, the repository in /opt/SINEderella.
+Bootstrap: docker
+From: mambaorg/micromamba:2.3.0-debian12-slim
+
+%arguments
+    PIPELINE_COMMIT=unknown
+
+%files
+    . /opt/SINEderella
+
+%post
+    set -eu
+    export DEBIAN_FRONTEND=noninteractive MAMBA_ROOT_PREFIX=/opt/conda
+    # gcc: SubFam compiles its k-mer ordering program at run time (python fallback gives the same order);
+    # bsdextrautils: column (SINEderella_multi summary table)
+    apt-get update
+    apt-get install -y --no-install-recommends gcc libc6-dev bsdextrautils
+    rm -rf /var/lib/apt/lists/*
+    micromamba install -y -n base -f /opt/SINEderella/environment.yml
+    micromamba clean --all --yes
+    rm -rf /opt/SINEderella/.git
+    find /opt/SINEderella -name __pycache__ -type d -prune -exec rm -rf {} +
+    # SINEderella writes this into every run's manifest.txt (there is no git inside the image)
+    echo "{{ PIPELINE_COMMIT }}" > /opt/SINEderella/PIPELINE_COMMIT
+    chmod -R a+rX /opt/SINEderella /opt/conda
+
+%environment
+    export PATH=/opt/SINEderella:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export LANG=C.UTF-8
+    # nothing from the host may replace the image's tools: no ~/.local python packages, no DRAGEN toolchain prepend
+    export PYTHONNOUSERSITE=1
+    export SINEDERELLA_TOOLCHAIN=
+
+%runscript
+    exec /opt/SINEderella/SINEderella "$@"
+
+%test
+    for t in ssearch36 mafft bedtools samtools seqkit cons seqret trf gawk dustmasker jellyfish minimap2 bc gcc python3; do
+        command -v "$t" > /dev/null || { echo "missing: $t"; exit 1; }
+    done
+    awk --version | head -n 1 | grep -q "GNU Awk" || { echo "awk is not gawk"; exit 1; }
+    python3 -c "import numpy, matplotlib, pytest"
+
+%labels
+    org.opencontainers.image.source https://github.com/Toki-bio/SINEderella
+    org.opencontainers.image.title SINEderella
+
+%help
+    SINEderella: genome-wide identification and classification of SINEs.
+    apptainer run <image> <GENOME_FASTA> <CONSENSUS_FASTA>; other scripts: apptainer exec <image> publish_run.sh ...
+    Code in /opt/SINEderella (commit in /opt/SINEderella/PIPELINE_COMMIT), tools in /opt/conda (environment.yml).

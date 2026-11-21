@@ -79,7 +79,9 @@ def element_window(cons, rows):
 
 # DRAGEN toolchain only where it exists; never /usr/bin ahead of the active environment (on therioserver that put the system
 # bedtools/mafft, or none, ahead of the conda env: the same trap align_for_publish.sh fixed for the shell steps, 2026-10-05)
-ENV_PATH = ":".join(d for d in ("/staging/conda/envs/bioinfo/bin", "/staging/miniconda3/bin") if os.path.isdir(d))
+# SINEDERELLA_TOOLCHAIN: colon-separated bin directories (default: the DRAGEN ones); an empty string leaves the PATH alone
+ENV_PATH = ":".join(d for d in os.environ.get(
+    "SINEDERELLA_TOOLCHAIN", "/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin").split(":") if d and os.path.isdir(d))
 MAX_FLANK = 1000
 DISP_L, DISP_R = 50, 70
 MIN_RUN = 6

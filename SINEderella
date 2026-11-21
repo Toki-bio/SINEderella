@@ -359,7 +359,7 @@ sanitize_fasta(){
 manifest_common(){
   printf "COMMAND\t%s\n" "$ORIG_CMD"
   printf "INVOKED_FROM\t%s\n" "$ORIG_PWD"
-  printf "PIPELINE_COMMIT\t%s\n" "$(git -C "$SCRIPT_DIR" describe --always --dirty 2>/dev/null || echo unknown)"
+  printf "PIPELINE_COMMIT\t%s\n" "$(git -C "$SCRIPT_DIR" describe --always --dirty 2>/dev/null || cat "$SCRIPT_DIR/PIPELINE_COMMIT" 2>/dev/null || echo unknown)"
   printf "SUBFAM_VERSION\t%s\n" "$(awk -F= '/^VERSION=/{print $2; exit}' "$SCRIPT_DIR/tools/vendor/SubFam.sh" 2>/dev/null || echo unknown)"
   env | LC_ALL=C sort | grep -E '^(SKIP_|SATELLITE_|CANON_|LENGTH_VARIANTS_|CONSENSUS_AUDIT_|FS9_|SOFTMASK|BODYCHECK|SEARCH_GENOME|MERGE_STRAND|SUBFAM_|MASK_)' |
     sed 's/=/\t/; s/^/ENV\t/' || true

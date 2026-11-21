@@ -35,3 +35,7 @@ secrets.*
 
 # Server artifacts
 *.pid
+
+# container images; the commit file an image build writes
+*.sif
+PIPELINE_COMMIT
