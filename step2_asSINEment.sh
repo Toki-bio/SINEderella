@@ -50,13 +50,24 @@ unit_table(){   # BANK.fa OUT.tsv: composite_units.py --bank, or an empty table 
 # agree on 96 % of the copies.
 # The files keep their layout: a clear winner is written as 10 votes for it (Votes 10, Bitscore = 10 x bit score); a copy
 # without a clear winner as 5 votes for the best and 5 for the runner-up (Votes 5, status no_unanimous, as before).
-# -E 1e-7 is about where E <= 2 lay under the shuffles for this search (consensuses against copies).
-WIN_MARGIN="${WIN_MARGIN:-0.05}"; STEP2_EVALUE="${STEP2_EVALUE:-1e-7}"
+# Which alignments count: each consensus has its own cut, the bit score that 2 shuffled copies of a part are expected to
+# reach (tools/shuffle_cut.py: up to 2,000 copies of the first part shuffled with a fixed seed, searched with the same
+# options). This is what E <= 2 did under the shuffles of -z 11. A consensus without a cut (fewer than 30 shuffled copies
+# with a score) keeps E <= 1e-7. -E 1e-3 only limits the output of ssearch36.
+WIN_MARGIN="${WIN_MARGIN:-0.05}"
 run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit_rule_swaps.tsv)
-  local part
+  local part first ns nlib
+  first="$(printf '%s\n' "$TMPDIR"/splits/*.fasta | head -n 1)"
+  ns="$(python3 "$STEP2_TOOLS/shuffle_cut.py" shuffle "$first" "$TMPDIR/shuffled.fa" --max "${SHUFFLE_N:-2000}")" || die "tools/shuffle_cut.py shuffle failed"
+  nlib="$(awk '/^>/{n++} END{print n+0}' "$first")"
+  ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -b "=$ns" -d 0 -w 95 -W 70 -m 8 "$TMPDIR/consensus_clean.fa" "$TMPDIR/shuffled.fa" \
+    > "$TMPDIR/shuffled.m8" 2>>"$OUTDIR/ssearch.log" || die "ssearch36 failed on the shuffled copies; see $OUTDIR/ssearch.log"
+  python3 "$STEP2_TOOLS/shuffle_cut.py" cut "$TMPDIR/shuffled.m8" "$ns" "$nlib" > "$TMPDIR/consensus_cuts.tsv" || die "tools/shuffle_cut.py cut failed"
+  cp "$TMPDIR/consensus_cuts.tsv" "$OUTDIR/consensus_cuts.tsv"
+  log "Per-consensus cuts from $ns shuffled copies (consensus_cuts.tsv): $(wc -l < "$TMPDIR/consensus_cuts.tsv") consensuses"
   : > "$TMPDIR/raw_1.unsorted.m8"
   for part in "$TMPDIR"/splits/*.fasta; do
-    ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -E "$STEP2_EVALUE" -w 95 -W 70 -m 8 \
+    ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -E 1e-3 -w 95 -W 70 -m 8 \
       "$TMPDIR/consensus_clean.fa" "$part" \
       >> "$TMPDIR/raw_1.unsorted.m8" 2>>"$OUTDIR/ssearch.log" \
       || die "ssearch36 failed (${part##*/}); see $OUTDIR/ssearch.log"
@@ -64,7 +75,8 @@ run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit
   # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
   ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
   # with several threads ssearch36 writes the same lines in another order: sorted, so that nothing depends on it
-  LC_ALL=C sort "$TMPDIR/raw_1.unsorted.m8" > "$TMPDIR/raw_1.m8"; rm -f "$TMPDIR/raw_1.unsorted.m8"
+  awk -F'\t' 'FILENAME == ARGV[1] { c[$1] = $2 + 0; next } (($1 in c) ? $12 + 0 >= c[$1] : $11 + 0 <= 1e-7)' \
+    "$TMPDIR/consensus_cuts.tsv" "$TMPDIR/raw_1.unsorted.m8" | LC_ALL=C sort > "$TMPDIR/raw_1.m8"; rm -f "$TMPDIR/raw_1.unsorted.m8"
   cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_1.m8" | LC_ALL=C sort > "$TMPDIR/best_1.tsv"
   awk -F'\t' -v OFS='\t' -v M="$WIN_MARGIN" '
     { row = $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9

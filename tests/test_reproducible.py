@@ -122,3 +122,37 @@ def test_continuation_check_twice_identical_and_in_a_long_path(tmp_path):
     assert tables[0] == tables[1] == tables[2]
     flag = [x for x in read_tsv(deep / "results" / "continuation" / "continuation.tsv") if x["flag"] == "yes"]
     assert len(flag) == 1 and flag[0]["target"] == "P"                 # the search worked in the long path
+
+
+def test_shuffle_cut_is_the_same_every_time_and_follows_the_consensus(tmp_path):
+    """tools/shuffle_cut.py: the shuffled library is the same bytes in every run, keeps each sequence's composition, and a
+    consensus that scores high against random sequence (a repeated GC-rich motif) gets a higher cut than a plain one"""
+    tool = str(ROOT / "tools" / "shuffle_cut.py")
+    r = random.Random(7)
+    with open(tmp_path / "lib.fa", "w") as fh:
+        for i in range(300):
+            fh.write(">w%d\n%s\n" % (i, "".join(r.choice("ACGGGCCT") for _ in range(1500))))      # GC-rich windows
+    outs = []
+    for name in ("s1.fa", "s2.fa"):
+        p = subprocess.run([sys.executable, tool, "shuffle", "lib.fa", name, "--max", "200"], capture_output=True, text=True, cwd=tmp_path)
+        assert p.returncode == 0 and p.stdout.strip() == "200", p.stderr
+        outs.append((tmp_path / name).read_bytes())
+    assert outs[0] == outs[1]
+    lib = [l for l in (tmp_path / "lib.fa").read_text().splitlines() if not l.startswith(">")]
+    shuf = [l for l in (tmp_path / "s1.fa").read_text().splitlines() if not l.startswith(">")]
+    assert len(shuf) == 200 and all(sorted(a) == sorted(b) and a != b for a, b in zip(lib, shuf))
+    plain = "".join(r.choice(B4) for _ in range(200))
+    (tmp_path / "q.fa").write_text(">plain\n%s\n>gcrepeat\n%s\n" % (plain, "GGGCGCCAGGCCCCGG" * 12))
+    with open(tmp_path / "s.m8", "w") as fh:
+        p = subprocess.run(["ssearch36", "-g", "-3", "-T", "2", "-Q", "-n", "-z", "3", "-b", "=200", "-d", "0", "-m", "8", "q.fa", "s1.fa"],
+                           stdout=fh, stderr=subprocess.PIPE, text=True, cwd=tmp_path)
+    assert p.returncode == 0, p.stderr
+    cuts = []
+    for _ in range(2):
+        p = subprocess.run([sys.executable, tool, "cut", "s.m8", "200", "5000"], capture_output=True, text=True, cwd=tmp_path)
+        assert p.returncode == 0, p.stderr
+        cuts.append(p.stdout)
+    assert cuts[0] == cuts[1]
+    c = {l.split("\t")[0]: float(l.split("\t")[1]) for l in cuts[0].splitlines()}
+    assert set(c) == {"plain", "gcrepeat"}
+    assert c["gcrepeat"] > c["plain"] + 5

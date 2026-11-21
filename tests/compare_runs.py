@@ -7,6 +7,7 @@ Compared, whole lines and bytes (docs/REPRODUCIBILITY.md):
   assignment    results/assignment_full.tsv                   subfamily, summed bit score, votes, status, threshold, runner-up
   verdict       <step2 output>/loci_verdict.tsv               SINE / grey / not_SINE of every copy
   plates        results/alignments/*.fa                       every published alignment, byte for byte
+  cuts          the per-consensus score cuts (step 1: "cut for" lines of step1.stdout.log; step 2: consensus_cuts.tsv)
   consensuses   consensuses.publish.fa
 A missing file in both runs is skipped (a run without publish has no plates); missing in one run is a difference.
 --loci writes one row per locus: subfamily, status and verdict in A and in B (to see which loci changed).
@@ -51,7 +52,8 @@ def main():
              ("hits", "genome.clean_step1/searches/all_hits.labeled.bed", "genome.clean_step1/searches/all_hits.labeled.bed"),
              ("assignment", "results/assignment_full.tsv", "results/assignment_full.tsv"),
              ("verdict", os.path.relpath(os.path.join(sa, "loci_verdict.tsv"), A), os.path.relpath(os.path.join(sb, "loci_verdict.tsv"), B)),
-             ("consensuses", "consensuses.publish.fa", "consensuses.publish.fa")]
+             ("consensuses", "consensuses.publish.fa", "consensuses.publish.fa"),
+             ("cuts step 2", os.path.relpath(os.path.join(sa, "consensus_cuts.tsv"), A), os.path.relpath(os.path.join(sb, "consensus_cuts.tsv"), B))]
     bad = 0
     for name, ra, rb in files:
         pa, pb = os.path.join(A, ra), os.path.join(B, rb)
@@ -71,6 +73,10 @@ def main():
             print("%-12s DIFFERENT: lines A %d, B %d, only in A %d, only in B %d%s" % (
                 name, len(la), len(lb), len(xa - xb), len(xb - xa), "" if xa != xb else " (same lines, other order)"))
             bad += 1
+    # the cut of every query of step 1 (sear prints it; tools/shuffle_cut.py)
+    cuts = [[l for l in lines(os.path.join(r, "step1.stdout.log")) if l.startswith("cut for ")] if os.path.isfile(os.path.join(r, "step1.stdout.log")) else [] for r in (A, B)]
+    print("%-12s %s (%d and %d queries)" % ("cuts step 1", "identical" if cuts[0] == cuts[1] else "DIFFERENT", len(cuts[0]), len(cuts[1])))
+    bad += cuts[0] != cuts[1]
     pa = {os.path.basename(f) for f in glob.glob(os.path.join(A, "results", "alignments", "*.fa"))}
     pb = {os.path.basename(f) for f in glob.glob(os.path.join(B, "results", "alignments", "*.fa"))}
     if pa or pb:

@@ -1,7 +1,8 @@
 # Reproducibility: the same input gives the same output (2026-11-21)
 
-Branch `reproducible`. Not merged: the fix changes results beyond the old run-to-run noise (section 6), and three choices
-in it are the owner's to make (section 8).
+Branch `reproducible`, not merged. Two steps: fixed statistics with fixed cuts (commit 34be237), then a cut per consensus
+from a shuffle with a fixed seed (owner's choice of 2026-11-21, section 4b), which brought the loci back to the old
+behaviour. What still differs from the old runs is in section 6; what is left to decide in section 8.
 
 ## 1. The problem
 
@@ -117,8 +118,8 @@ old call three times, the `-z 3` call once, and for every alignment whether the 
 
 | call | old | new | measured on `mini` |
 |---|---|---|---|
-| `sear` | `-z 11 -E 2` | `-z 3 -E 1e-10` (`SEAR_EVALUE`) | one part: of 865 hits always reported 855 kept, 364 hits never reported before come in; whole window bank: 16,591 of 16,619 kept, 4,525 come in |
-| step 2 | `-z 11 -E 2`, 10 cycles | `-z 3 -E 1e-7` (`STEP2_EVALUE`), once | the weak alignments in question are runner-ups far below the winner |
+| `sear` | `-z 11 -E 2` | `-z 3`, the consensus's own cut (section 4b); first version `-E 1e-10` | fixed cut, one part: of 865 hits always reported 855 kept, 364 never reported before come in; own cut: 864 kept, 59 come in |
+| step 2 | `-z 11 -E 2`, 10 cycles | `-z 3`, the consensus's own cut, once; first version `-E 1e-7` | the weak alignments in question are runner-ups far below the winner |
 | `composite_units.py` | default, `-E 1e-5` | `-z 3 -E 1e-17` | weakest always reported 5.8e-18, strongest never reported 6.4e-18 |
 | `continuation_check.py` | default, `-E 1e-5` | `-z 3 -E 1e-16` | tails vs bank: 2,588 of 2,602 kept, 8 come in |
 | `length_variants.py` | `-z 11 -E 1e-3` | `-z 3 -E 1e-17` | 229 of 229 kept, 1 comes in |
@@ -127,7 +128,56 @@ old call three times, the `-z 3` call once, and for every alignment whether the 
 
 The old cut was not one line on the fixed scale: under shuffles each consensus had its own threshold (bit score on the
 fixed scale 57-70 for most consensuses, 110-125 for `r10_r8_P18`, above 73 for `MEG-T2`), because a consensus with
-GC-rich or repeated stretches scores high against shuffled sequence too. A fixed cut cannot follow that (section 6).
+GC-rich or repeated stretches scores high against shuffled sequence too. A fixed cut cannot follow that, and the first version showed what it costs: `MEG-T2`, which had no hit under shuffles,
+got 31 weak hits and 759 raw hits, the satellite stage flagged their arrays (satellite loci 25 -> 151) and excluded 336
+intervals instead of 18, and 304 loci that were stable in the old runs disappeared.
+
+### 4b. A cut per consensus, from a shuffle with a fixed seed
+
+`tools/shuffle_cut.py` does outside ssearch36 what `-z 11` did inside it, the same way in every run:
+
+1. **Shuffled library, once.** Up to 2,000 sequences (`SHUFFLE_N`) of the first part of the library, each with its
+   residues shuffled. The generator is written out in the script (a 64-bit linear congruential generator and
+   Fisher-Yates), so the bytes do not depend on the python version; seed 1. In `sear` the library is the first of the 20
+   window parts (the parts are dealt round-robin, so it is a sample of the whole genome) and the file is kept with the
+   parts for all queries; in step 2 it is the first part of the copies.
+   The shuffle keeps the composition of each sequence, not its dinucleotides: that is what ssearch36 did, and the aim
+   is the old behaviour. A dinucleotide shuffle would raise the cuts of CpG-poor or repeat-rich consensuses further; not
+   tried.
+2. **The same search** (`-z 3`, same matrix and gaps) of the consensus against the shuffled file.
+3. **The cut.** The best bit score of each shuffled sequence follows an extreme-value distribution; its two parameters
+   are taken from the 80 % and 95 % points of the scores, and the cut is the bit score that 2 shuffled sequences are
+   expected to reach in a library of the size of one part: `cut = mu + beta * ln(N / 2)`. That is the meaning of
+   "E <= 2" in the old call, and like it the cut rises with the size of the library.
+   Only the top fifth of the scores is read because ssearch36 leaves out the lowest-scoring shuffled sequences (59-74 %
+   were reported) and, with several threads, not always the same ones: a first version that used all reported scores
+   wrote a step-2 cut file that differed between the 16- and the 10-thread run in one line (the assignments did not).
+4. **Where it is applied.** `sear`: every alignment of the query must reach the cut (ssearch36 runs with `-E 1e-6`, which
+   only limits its output). Step 2: every alignment of a consensus must reach that consensus's cut (`-E 1e-3`); the cuts
+   are written to `consensus_cuts.tsv` in the step-2 output. A consensus with fewer than 30 scored shuffled sequences
+   (a tiny library, as in the toy) keeps the fixed cut (`1e-10`, `1e-7`).
+   Not applied in `composite_units.py`, `continuation_check.py`, `length_variants.py`, `satellite_trf_verify.py`: their
+   libraries are a bank or a few hundred copies, their fixed cuts are in the table above.
+
+Cuts on `mini` (288 windows per part), bit score on the fixed scale, with the old boundary measured in section 4:
+
+| consensus | cut | under shuffles: weakest hit always reported / strongest never reported |
+|---|---|---|
+| MEG-RL | 53.1 | 56.8 / 50.9 |
+| MEG-RS | 52.4 | 62.9 / 47.3 |
+| MEG-TR | 56.6 | 60.5 / 55.0 |
+| r1_r2_r3_r3_C11 | 67.5 | 67.3 / 63.6 |
+| r5_r6_P26 | 59.9 | 64.1 / 63.2 |
+| r10_r8_P18 | 93.3 | 110.4 / 124.6 |
+| MEG-T2 | 76.7 | no hit / 78.4 |
+
+Applied to the hits of all 21 consensuses on one part: 864 of the 865 always reported under shuffles are kept and 59
+never reported come in (fixed cut: 855 and 364). On the whole window bank with the cut for that size: 16,610 of 16,619
+kept, 631 come in (fixed cut: 16,591 and 4,525). So the cuts are a little lower than the old ones.
+
+Cost: one more search per query against at most 2,000 windows (6 Mb), and one of the bank against at most 2,000 copies.
+On `mini` it is not visible in the run time (section 6); on a large genome it is 6 Mb against 150 Mb per part times 20
+parts: 0.2 % of the sequence searched (well under 1 % of the time; not measured on a large genome).
 
 **The vote of step 2.** With fixed scores ten cycles are ten identical searches. What the ten cycles tested is asked
 directly: the best consensus must be ahead of the runner-up by at least `WIN_MARGIN` = 0.05 of its bit score; equal
@@ -164,83 +214,86 @@ names, as the satellite tools do. Test: `tests/test_reproducible.py` runs it und
 
 ## 5. The test
 
-- `tests/test_reproducible.py` (pytest; needs ssearch36, seqkit, bedtools): the fixed call gives the same lines at 1, 2
-  and 4 threads; the control, the old `-z 11` call, differs between runs; step 2 run twice with 2 and 5 threads writes
+- `tests/test_reproducible.py` (pytest; needs ssearch36, seqkit, bedtools): the shuffled library is the same bytes in
+  every run and keeps each sequence's composition, and a consensus with a repeated GC-rich motif gets a higher cut
+  than a plain one; the fixed call gives the same lines at 1, 2 and 4 threads; the control, the old `-z 11` call, differs between runs; step 2 run twice with 2 and 5 threads writes
   byte-identical `assignment_full.tsv`, `all_votes.tsv`, `assignment_stats.tsv`, `assigned.fasta`, `unassigned.fasta`;
   the continuation check gives the same table at 1, 2 and 4 threads and in a long path.
 - `tests/test_reproducible_run.sh GENOME BANK [WORKDIR] [SPECIES]`: the whole workflow twice with publish, with different
-  numbers of threads, then `tests/compare_runs.py`: loci, hits, assignments, verdicts, published consensuses and every
-  plate must be identical. Minutes; run on a server.
+  numbers of threads, then `tests/compare_runs.py`: loci, hits, the cuts of step 1 and step 2, assignments, verdicts,
+  published consensuses and every plate must be identical. Minutes; run on a server.
 - `tests/compare_runs.py RUN_A RUN_B [--loci OUT.tsv]`: exit 0 only when the two runs are identical in those files.
 
-pytest on therioserver (conda env sinederella): 171 passed.
+pytest on therioserver (conda env sinederella): 172 passed.
 
 ## 6. Verification
 
-Two native runs of the fixed code on each input, with 16 and 10 threads (therioserver, `/home/toki/tmp/repro/e2e_z3c/`):
+Two native runs of the final code on each input, with 16 and 10 threads (therioserver, `/home/toki/tmp/repro/e2e_z3g/`):
 
-| input | loci | hits | assignment | verdict | published consensuses | plates |
-|---|---|---|---|---|---|---|
-| toy | identical (225) | identical | identical | identical | identical | 4 of 4 identical files |
-| mini | identical (770) | identical | identical | identical | identical | 37 of 37 identical files |
+| input | loci | hits | cuts (step 1, step 2) | assignment | verdict | published consensuses | plates |
+|---|---|---|---|---|---|---|---|
+| toy | identical (225) | identical | identical | identical | identical | identical | 4 of 4 identical files |
+| mini | identical (1,071) | identical | identical (38 queries, 21 consensuses) | identical | identical | identical | 43 of 43 identical files |
 
-`mini` takes 408-423 s (old: 470-484 s): one search in step 2 instead of ten.
+`mini` takes 408-429 s (old code: 470-484 s; fixed cuts without the shuffle: 408-423 s). `toy`: 147-149 s (old 161-165 s).
 
-**Fixed run against the old runs.** `toy`: every one of the 225 loci has the same subfamily, status and verdict as in
+**Final run against the old runs.** `toy`: every one of the 225 loci has the same subfamily, status and verdict as in
 the three old runs (217 SINE, 2 grey, 6 not_SINE).
 
 `mini`:
 
-| | old natA / natB / natC | fixed (both runs) |
-|---|---|---|
-| loci | 1,041 / 1,046 / 1,042 | 770 |
-| assigned | 232 / 226 / 241 | 242 |
-| no_unanimous | 805 / 815 / 797 | 505 |
-| rejected_low_bitscore | 4 / 5 / 4 | 23 |
-| verdict SINE | 190 / 174 / 198 | 178 |
-| verdict grey | 25 / 35 / 26 | 45 |
-| verdict not_SINE | 826 / 837 / 818 | 547 |
-| plates | 39 / 39 / 41 | 37 |
-
-The fixed run differs from natA, natB, natC at 866, 888 and 847 loci (subfamily, status or verdict, or present in one
-run only). Of these, 72, 94 and 53 are loci that had flipped among the old runs. **794 loci were the same in all three
-old runs and are different now.** This is not what was asked for (changes only at loci that flipped before), and each
-group has a cause:
-
-| loci | old (all three runs) | fixed | cause |
+| | old natA / natB / natC | fixed cuts (34be237) | cut per consensus (final) |
 |---|---|---|---|
-| 396 | MEG-RL, no_unanimous, not_SINE | MEG-RS, no_unanimous, not_SINE | Only the name of the best consensus of a copy without a winner. These copies score about 2 % higher on MEG-RS (margin 0.021-0.023); under shuffles most of the 10 votes went to MEG-RL (7 or 8 of 10 for most copies). Status and verdict unchanged. |
-| 304 | MEG-RL, no_unanimous, not_SINE | absent | The satellite stage excludes their regions: with fixed statistics `MEG-T2` and a piece of `r10_r8_P18` have many weak raw hits in arrays there (section 7). All were not_SINE. |
-| 62 | absent | 23 r10_r8_P18 rejected_low_bitscore (not_SINE); 21 MEG-T2 assigned (15 grey, 6 SINE); 15 MEG-RS no_unanimous; 2 r6_210seqs assigned (not_SINE); 1 MEG-RL | New loci from hits that the shuffle statistics had rejected (section 7). |
-| 15 | 2 SINE, 5 grey, 8 not_SINE | absent | Loci in the newly excluded satellite regions, or made from weak hits now below the cut. Not traced one by one. |
-| 7 | SINE | grey (6 with the same subfamily, 1 r8_83seqs -> r10_19seqs) | Not traced. The verdict comes from the top-100 copies and the border loop, which now see another set of copies. |
-| 2 | assigned, SINE | no_unanimous, not_SINE | The margin rule (winner ahead by less than 0.05), by its definition; not looked at one by one. |
+| loci | 1,041 / 1,046 / 1,042 | 770 | 1,071 |
+| intervals removed as satellite regions | 18 / 18 / not looked up | 336 | 18 |
+| assigned | 232 / 226 / 241 | 242 | 245 |
+| no_unanimous | 805 / 815 / 797 | 505 | 816 |
+| rejected_low_bitscore | 4 / 5 / 4 | 23 | 10 |
+| verdict SINE | 190 / 174 / 198 | 178 | 179 |
+| verdict grey | 25 / 35 / 26 | 45 | 43 |
+| verdict not_SINE | 826 / 837 / 818 | 547 | 849 |
+| plates | 39 / 39 / 41 | 37 | 43 |
+
+The final run differs from natA, natB, natC at 824, 845 and 793 loci (subfamily, status or verdict, or present in one
+run only); 73, 94 and 42 of them had flipped among the old runs. **751 loci were the same in all three old runs and
+are different now; in 700 of them only the name of the best consensus differs, and the verdict differs in 45.**
+`MEG-T2` has no hit again, and the 304 MEG-RL loci that the fixed cuts had lost are back.
+
+| loci | old (all three runs) | final | cause |
+|---|---|---|---|
+| 700 | MEG-RL, no_unanimous, not_SINE | MEG-RS, no_unanimous, not_SINE | Only the name written for a copy without a winner. These copies score about 2 % higher on MEG-RS (margin 0.021-0.023); under shuffles each consensus had its own score scale and most of the 10 votes went to MEG-RL (7 or 8 of 10 for most copies). Status and verdict unchanged. |
+| 3 | no_unanimous, not_SINE | the same, other name | 2 MEG-RL -> MEG-TR, 1 r5_27seqs -> r5_r5_P48: as above. |
+| 30 | absent | 18 not_SINE (5 r10_r8_P18, 1 r1_r3_P2 and 1 r9_15seqs rejected_low_bitscore; 3 r1_9seqs assigned; 8 without a winner), 8 grey, 4 SINE (3 r1_9seqs, 1 r1_r2_r3_r3_C11) | New loci. The cuts are a little lower than the old ones (section 4b: 59 more hits per part), so some weak hits now reach the length rule or join a neighbour. Not traced one by one. |
+| 1 | r10_r8_P18, no_unanimous, not_SINE | absent | Not traced. |
+| 7 | assigned, SINE | grey (6 with the same subfamily, 1 r8_83seqs -> r10_19seqs) | Not traced. The same number changed with the fixed cuts, so it is probably not the cut; the verdict comes from the top-100 copies and the border loop, which rank by score. |
+| 1 | assigned, grey | assigned, SINE | Not traced. |
+| 3 | assigned, SINE | no_unanimous, not_SINE (2 same subfamily, 1 r8_83seqs -> r1_r3_P1) | The margin rule (winner ahead by less than 0.05), by its definition; not looked at one by one. |
 | 5 | no_unanimous, not_SINE | assigned (2 SINE, 1 grey, 2 not_SINE) | The margin rule (winner ahead by 0.05 or more although the 10 votes had split); not looked at one by one. |
-| 3 | no_unanimous, not_SINE | the same, other name | 2 MEG-RL -> MEG-TR, 1 r5_27seqs -> r5_r5_P48: the name of the best consensus of a copy without a winner. |
+| 1 | rejected_low_bitscore | no_unanimous | Not traced. |
 
-Counted over the loci that were stable in the old runs: 11 lose the verdict SINE (7 to grey, 2 to not_SINE, 2 absent),
-8 gain it (6 new MEG-T2 loci, 2 formerly without a winner). The SINE total, 178, lies inside the old range (174-198).
-The rows marked "not traced" are not explained.
+Among the loci stable in the old runs, 10 lose the verdict SINE (7 to grey, 3 to not_SINE) and 7 gain it (4 new loci,
+2 formerly without a winner, 1 from grey). The SINE total, 179, lies inside the old range (174-198). For comparison,
+two old runs differed from each other at 62-90 loci, 13-37 of them in the verdict. The rows marked "not traced" are not
+explained.
 
-## 7. What the fixed scores cost
+## 7. What is not restored
 
-The shuffle statistics did one useful thing that fixed parameters do not: a consensus that scores high against shuffled
-sequence of the same composition (GC-rich, with repeated motifs) got a higher threshold. On `mini`, `MEG-T2` had no hit
-at all under shuffles and has 31 hits now, all weak (bit score 62-73 on the fixed scale; 65-71 % identity in the five
-looked at), and 759 raw hits of any length; `r10_r8_P18` goes from 224 raw hits to 1,146. The satellite stage then flags
-their arrays (satellite loci 25 -> 151) and excludes those regions with the loci in them. This is the largest part of the difference to the old runs. A
-bank with such a consensus will gain weak hits on other genomes as well.
+Under shuffles each consensus also had its own score scale, not only its own cut, and the winner of a copy was chosen
+on those scales. Now the winner is the consensus with the highest Smith-Waterman score. For copies with a clear winner
+this is the same consensus in all but a handful of loci (table above). For copies without one it changes the name that
+is written (700 loci, MEG-RL -> MEG-RS), not their status or verdict. A score scaled by the consensus's shuffle fit
+would bring the old names back; it is not written, because nothing reads the name of a copy without a winner as an
+assignment.
 
 ## 8. For the owner to decide
 
 1. **`WIN_MARGIN` 0.05.** It reproduces the 10/10 vote on 96 % of the `mini` copies. 0.03-0.07 do about the same; the
    group that the vote left unassigned sits at 0.021-0.023.
-2. **The `sear` cut `-E 1e-10`**, and what to do about consensuses that score high against random sequence (section 7).
-   Options: leave it (the satellite stage and the verdicts deal with the extra hits); a stricter cut (1e-13 removes most
-   `MEG-T2` hits and about 4 % of the weak hits of the other consensuses); or a threshold per consensus taken from a
-   search against a shuffled copy of the library made with a fixed seed outside ssearch36 (keeps the old behaviour, costs
-   a second search, not written).
-3. **The status name `no_unanimous` and `Votes` 10 / 5** are kept so that every reader of `assignment_full.tsv` works
+2. **The cuts are a little lower than the old ones** (30 new loci on `mini`, 4 of them SINE). They can be raised by
+   asking for fewer expected shuffled hits (`--expect` in `tools/shuffle_cut.py`, now 2 as the old `-E 2`), or left.
+3. **The name written for copies without a winner** (section 7): leave, or scale the scores per consensus.
+4. **The status name `no_unanimous` and `Votes` 10 / 5** are kept so that every reader of `assignment_full.tsv` works
    unchanged. They now mean "no clear winner" and "clear winner / none".
 
-Also: the scripts outside the full run (section 3, last paragraph) still use `-z 11`.
+Also: the scripts outside the full run (section 3, last paragraph) still use `-z 11`; 40 loci of section 6 (30 of them the new loci)
+are not traced to a cause one by one.

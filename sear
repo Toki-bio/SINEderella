@@ -427,6 +427,27 @@ else
   echo "$WB_STAMP" > "${WB_BASE}.2k.stamp"
 fi
 
+# The cut of this query (2026-11-21, docs/REPRODUCIBILITY.md). ssearch36 -z 11 -E 2 gave every query its own threshold from
+# shuffled library sequences, with a seed from the clock. The same is done here with a fixed seed: up to 2,000 windows of the
+# first part are shuffled once per bank (tools/shuffle_cut.py, kept with the parts), the query is searched against them
+# with the same options, and the cut is the bit score that 2 shuffled windows of a part are expected to reach.
+SHUF="${WB_BASE}.2k.part_shuffled.fa"
+SHUF_TOOL="${SINEDERELLA_TOOLS:-$(dirname "$(readlink -f "$0")")/tools}/shuffle_cut.py"
+[[ -f "$SHUF_TOOL" ]] || SHUF_TOOL="$(dirname "$(readlink -f "$0")")/tools/shuffle_cut.py"
+[[ -f "$SHUF_TOOL" ]] || { echo "sear: tools/shuffle_cut.py not found" >&2; exit 1; }
+if [[ ! -s "$SHUF" || ! -s "${SHUF%.fa}.n" ]]; then
+  _first="$(printf '%s\n' "${WB_BASE}".2k.part_*.bnk | head -n 1)"
+  _ns="$(python3 "$SHUF_TOOL" shuffle "$_first" "$SHUF" --max "${SHUFFLE_N:-2000}")" || { echo "sear: shuffle_cut.py shuffle failed" >&2; exit 1; }
+  echo "$_ns $(awk '/^>/{n++} END{print n+0}' "$_first")" > "${SHUF%.fa}.n"
+fi
+read -r SHUF_NS SHUF_NPART < "${SHUF%.fa}.n"
+ssearch36 -g -3 -T "${THREADS:-$(nproc 2>/dev/null || echo 1)}" -Q -n -z 3 -b "=$SHUF_NS" -d 0 -w 95 -W 70 -m 8 "$query" "$SHUF" 3 \
+  > "_shuffled_$qname.m8" 2> /dev/null || { echo "sear: ssearch36 failed on the shuffled windows" >&2; exit 1; }
+SHUF_CUT="$(python3 "$SHUF_TOOL" cut "_shuffled_$qname.m8" "$SHUF_NS" "$SHUF_NPART" | awk -F'\t' 'NR==1{print $2}')"
+rm -f "_shuffled_$qname.m8"
+# fewer than 30 shuffled windows with a score (a tiny bank): no cut of its own, the fixed one (E <= 1e-10) instead
+echo "cut for $query: ${SHUF_CUT:-none (fixed cut E <= 1e-10)} bits ($SHUF_NS shuffled windows, $SHUF_NPART windows per part)"
+
 : > "$WORKING_BANK".all_hits.txt
 
 HIT_COUNT=0
@@ -448,12 +469,12 @@ for bank in "${WB_BASE}".2k.part_*.bnk; do
     echo "round $round"
     echo "$query $bank"
 
-    # -z 3 -E 1e-10 (2026-11-21, docs/REPRODUCIBILITY.md; was -z 11 -E 2): with -z 11 the E-values and bit scores came from
+    # -z 3 (2026-11-21, docs/REPRODUCIBILITY.md; was -z 11 -E 2): with -z 11 the E-values and bit scores came from
     # shuffles seeded by the clock, so the same search reported other hits and other scores every time. -z 3 uses fixed
-    # parameters: the bit score is a fixed linear function of the Smith-Waterman score. Its E-values are much smaller
-    # for the same alignment; E <= 1e-10 is where E <= 2 lay under the shuffles (rsi test genome, 21 consensuses).
-    ssearch36 -g -3 -T "${THREADS:-$(nproc 2>/dev/null || echo 1)}" -Q -n -z 3 -E "${SEAR_EVALUE:-1e-10}" -w 95 -W 70 -m 8C "$query" "$bank" 3 \
-    | awk '/^[^#]/ {
+    # parameters: the bit score is a fixed linear function of the Smith-Waterman score. -E 1e-6 only limits the output;
+    # the cut is the query's own (SHUF_CUT above), or E <= 1e-10 when there is none.
+    ssearch36 -g -3 -T "${THREADS:-$(nproc 2>/dev/null || echo 1)}" -Q -n -z 3 -E 1e-6 -w 95 -W 70 -m 8C "$query" "$bank" 3 \
+    | awk -v cut="${SHUF_CUT:-0}" '/^[^#]/ && (cut > 0 ? $12 + 0 >= cut : $11 + 0 <= 1e-10) {
         printf($2"\t"$9-1"\t"$10"\t"$10-$9+1"\t");
         if ($8-$7>0) print $8-$7+1"\t+\t"$3"\t"$12;
         else print -($8-$7+1)"\t-\t"$3"\t"$12
