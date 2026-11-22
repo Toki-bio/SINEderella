@@ -43,18 +43,18 @@ unit_table(){   # BANK.fa OUT.tsv: composite_units.py --bank, or an empty table 
 # from shuffles seeded by the clock (the same call differed by up to 40 bits on 1,042 copies), a copy kept only when the
 # same consensus won all 10. Two runs on one input gave other votes, other summed scores, other thresholds.
 # Now: ONE search with fixed statistics (-z 3: the bit score is a fixed linear function of the Smith-Waterman score, the
-# same in every run and with any number of threads), and the stability the 10 cycles tested is asked directly: the best
-# consensus must be ahead of the runner-up by at least WIN_MARGIN (0.05) of its score (not asked where the unit/composite
-# rule chose between the two: that rule gave its winner all 10 votes before). On the rsi test genome the copies
-# that failed the 10 votes sit at a margin of 0.021-0.023 and the copies that passed at a median of 0.17; the two rules
-# agree on 96 % of the copies.
-# The files keep their layout: a clear winner is written as 10 votes for it (Votes 10, Bitscore = 10 x bit score); a copy
-# without a clear winner as 5 votes for the best and 5 for the runner-up (Votes 5, status no_unanimous, as before).
+# same in every run and with any number of threads). A copy goes to the consensus with the highest score (equal scores:
+# the name that sorts first; the unit/composite rule as before). Nothing is demoted for a close second (owner, 2026-11-22):
+# a margin rule of 0.05 took 3,415 assigned copies away on the full rsi genome, where the 10 votes had passed nearly
+# every copy. A second consensus within TIE_MARGIN (0.02) of the best is recorded instead: ties.tsv and the column Tie
+# of assignment_full.tsv (kind tie_family when the two consensuses are in different families of the --families table).
+# The files keep their layout: every copy with a hit has Votes 10 and Bitscore = 10 x bit score; the status
+# no_unanimous is no longer written by this step.
 # Which alignments count: each consensus has its own cut, the bit score that 2 shuffled copies of a part are expected to
 # reach (tools/shuffle_cut.py: up to 2,000 copies of the first part shuffled with a fixed seed, searched with the same
 # options). This is what E <= 2 did under the shuffles of -z 11. A consensus without a cut (fewer than 30 shuffled copies
 # with a score) keeps E <= 1e-7. -E 1e-3 only limits the output of ssearch36.
-WIN_MARGIN="${WIN_MARGIN:-0.05}"
+TIE_MARGIN="${TIE_MARGIN:-0.02}"
 run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit_rule_swaps.tsv)
   local part first ns nlib
   first="$(printf '%s\n' "$TMPDIR"/splits/*.fasta | head -n 1)"
@@ -78,12 +78,23 @@ run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit
   awk -F'\t' 'FILENAME == ARGV[1] { c[$1] = $2 + 0; next } (($1 in c) ? $12 + 0 >= c[$1] : $11 + 0 <= 1e-7)' \
     "$TMPDIR/consensus_cuts.tsv" "$TMPDIR/raw_1.unsorted.m8" | LC_ALL=C sort > "$TMPDIR/raw_1.m8"; rm -f "$TMPDIR/raw_1.unsorted.m8"
   cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_1.m8" | LC_ALL=C sort > "$TMPDIR/best_1.tsv"
-  awk -F'\t' -v OFS='\t' -v M="$WIN_MARGIN" '
-    { row = $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9
-      # clear winner: no runner-up, or ahead by the margin, or the unit/composite rule chose between the two (column 10)
-      if ($4 == "NA" || $10 == 1 || $3 - $5 >= M * $3) { for (i = 1; i <= 10; i++) print row }
-      else { for (i = 1; i <= 5; i++) print row; for (i = 1; i <= 5; i++) print $1, $4, $5, $2, $3, $8, $9, $6, $7 } }' \
+  # every copy goes to its best-scoring consensus (10 votes); a second consensus within TIE_MARGIN of the best is written
+  # to ties.tsv: copy, best, second, margin, kind (tie = same family or no family table, tie_family = two families)
+  awk -F'\t' -v OFS='\t' '{ row = $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9; for (i = 1; i <= 10; i++) print row }' \
     "$TMPDIR/best_1.tsv" > "$TMPDIR/votes.tsv"
+  local fam="${STEP2_FAMILIES:-$(dirname "$CONSENSUS_FILE")/families/families.clean.tsv}"
+  [[ -f "$fam" ]] || fam=/dev/null
+  awk -F'\t' -v OFS='\t' -v M="$TIE_MARGIN" 'FILENAME == ARGV[1] { if (FNR > 1) f[$1] = $2; next }
+    $4 != "NA" && $10 != 1 && $3 > 0 && ($3 - $5) / $3 < M {
+      k = (($2 in f) && ($4 in f) && f[$2] != f[$4]) ? "tie_family" : "tie"
+      printf "%s\t%s\t%s\t%.4f\t%s\n", $1, $2, $4, ($3 - $5) / $3, k }' "$fam" "$TMPDIR/best_1.tsv" > "$TMPDIR/ties.tsv"
+  cp "$TMPDIR/ties.tsv" "$OUTDIR/ties.tsv"
+  log "Close seconds (within $TIE_MARGIN of the best score): $(awk -F'\t' '$5 == "tie"' "$TMPDIR/ties.tsv" | wc -l) in one family, $(awk -F'\t' '$5 == "tie_family"' "$TMPDIR/ties.tsv" | wc -l) across families (ties.tsv)"
+}
+add_tie_column(){   # assignment_full.tsv gets an 8th column: "-" or tie_with=SECOND;margin=M;kind=tie|tie_family
+  awk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { t[$1] = "tie_with=" $3 ";margin=" $4 ";kind=" $5; next }
+    FNR == 1 { print $0, "Tie"; next } { print $0, (($1 in t) ? t[$1] : "-") }' "$TMPDIR/ties.tsv" "$OUTDIR/assignment_full.tsv" \
+    > "$OUTDIR/assignment_full.tsv.tmp" && mv "$OUTDIR/assignment_full.tsv.tmp" "$OUTDIR/assignment_full.tsv"
 }
 cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per copy in one cycle, unit/composite rule applied
   awk -v F="$UNIT_COVER_OTHER" -v SW="$TMPDIR/unit_rule_swaps.tsv" 'BEGIN{FS="\t"}
@@ -169,7 +180,7 @@ Output:
   assignment_full.tsv  Detailed assignment info for all sequences
 
 Assignment Rules:
-  1) a clear winner: the best consensus is ahead of the runner-up by >= WIN_MARGIN (0.05) of its bit score (written as 10 votes)
+  1) the consensus with the highest bit score (one search, fixed statistics; written as 10 votes)
   2) Bitscore >= threshold (calculated as MIN_REL_BITSCORE . TopN for that subfamily)
 
 Examples:
@@ -295,7 +306,7 @@ run_assignment(){
 
   unit_table "$TMPDIR/consensus_clean.fa" "$TMPDIR/units.tsv"; : > "$TMPDIR/unit_rule_swaps.tsv"
   # One search, then the votes (run_votes, top of this file)
-  log "Running the ssearch36 search (fixed statistics) and the winner rule (margin $WIN_MARGIN)..."
+  log "Running the ssearch36 search (fixed statistics); the best-scoring consensus wins..."
   : > "$OUTDIR/ssearch.log"
   run_votes
   # unit/composite rule: one row per copy where it changed the winner (copy, bitscore winner, rule winner)
@@ -545,6 +556,8 @@ run_assignment(){
       printf "%s\t%s\t%d\t%d\t%s\t%s\t%s\n", $1, $2, $4, $3, "no_unanimous", "NA", "NA"
     }' "$TMPDIR/unanimous.tsv" "$OUTDIR/all_votes.tsv"
   } > "$OUTDIR/assignment_full.tsv"
+  [[ -f "$TMPDIR/ties.tsv" ]] || : > "$TMPDIR/ties.tsv"
+  add_tie_column
 
   # Summary report
   {
@@ -558,7 +571,7 @@ run_assignment(){
     echo "  SINEs: $SINE_FILE ($sine_count sequences)"
     echo
     echo "Assignment Criteria:"
-    echo "  1) clear winner: best consensus ahead of the runner-up by >= ${WIN_MARGIN} of its bit score (written as 10/10 votes)"
+    echo "  1) the consensus with the highest bit score (written as 10/10 votes); close seconds in ties.tsv"
     echo "  2) Bitscore >= ${MIN_REL_BITSCORE} . TopN (N=min(10,count))"
     echo
     echo "Results:"
@@ -898,6 +911,8 @@ run_incremental_assignment(){
       printf "%s\t%s\t%d\t%d\t%s\t%s\t%s\n", $1, $2, $4, $3, "no_unanimous", "NA", "NA"
     }' "$TMPDIR/unanimous.tsv" "$OUTDIR/all_votes.tsv"
   } > "$OUTDIR/assignment_full.tsv"
+  [[ -f "$TMPDIR/ties.tsv" ]] || : > "$TMPDIR/ties.tsv"
+  add_tie_column
 
   # Summary report
   {
@@ -917,7 +932,7 @@ run_incremental_assignment(){
     echo "  Overlapping old assigned:  $overlap_n"
     echo
     echo "Assignment Criteria:"
-    echo "  1) clear winner: best consensus ahead of the runner-up by >= ${WIN_MARGIN} of its bit score (written as 10/10 votes)"
+    echo "  1) the consensus with the highest bit score (written as 10/10 votes); close seconds in ties.tsv"
     echo "  2) Bitscore >= ${MIN_REL_BITSCORE} . TopN (N=min(10,count))"
     echo
     echo "Results:"

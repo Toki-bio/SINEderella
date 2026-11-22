@@ -115,10 +115,13 @@ echo "Total sequences: $SEQ_COUNT  |  subsample=$SUBSAMPLE_SIZE  max_iters=$MAX_
 
 # ── Random subsample function (shuf/awk, no seqkit) ──────────────────────
 # Linearize FASTA → shuf → head → re-format (from toki's sample script)
+# seeded (2026-11-22, docs/REPRODUCIBILITY.md): the name of the output file (subsample_N.fasta) is the seed, so every
+# iteration draws another subsample and every run draws the same ones (the border loop's rebuilt consensus of MEG-RS
+# differed by one base between two runs on the same input)
 random_subsample() {
     local INFILE=$1 N=$2 OUTFILE=$3
     awk '/^>/ { if(i>0) printf("\n"); i++; printf("%s\t",$0); next } {printf("%s",$0)} END { printf("\n") }' "$INFILE" \
-        | shuf | head -n "$N" \
+        | shuf --random-source=<(yes "$OUTFILE") | head -n "$N" \
         | awk 'BEGIN{FS="\t"}{printf("%s\n%s\n",$1,$2)}' > "$OUTFILE"
 }
 

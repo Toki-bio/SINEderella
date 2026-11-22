@@ -95,13 +95,16 @@ def test_step2_twice_identical(tmp_path):
     assert len(rows) == 120                                # every copy has a row
     status = {x[0]: x[4] for x in rows}
     assert "assigned" in status.values()
-    # the winner rule: a clear winner has 10 votes, a copy whose two best consensuses score within 5 % has 5
-    for x in rows:
-        assert x[3] in ("10", "5"), x
-        assert (x[4] == "no_unanimous") == (x[3] == "5"), x
-    assert any(x[3] == "5" for x in rows)                  # TA and TB are 2 % apart: some copies have no clear winner
+    # the best-scoring consensus wins: every copy has 10 votes and none is demoted; a second consensus within 2 % of
+    # the best score is written in the column Tie and in ties.tsv
+    assert all(x[3] == "10" and x[4] != "no_unanimous" and len(x) == 8 for x in rows), rows[:3]
+    ties = [x for x in rows if x[7] != "-"]
+    assert ties and all(x[7].startswith("tie_with=") and ";kind=tie" in x[7] for x in ties)      # TA and TB are 2 % apart
+    assert all(float(x[7].split("margin=")[1].split(";")[0]) < 0.02 for x in ties)
+    assert len((outs[0] / "ties.tsv").read_text().splitlines()) == len(ties)
     tc = [x for x in rows if x[1] == "TC"]
-    assert tc and all(x[3] == "10" for x in tc)            # the unrelated consensus always wins clearly
+    assert tc and all(x[7] == "-" for x in tc)             # the unrelated consensus has no close second
+    assert (outs[0] / "ties.tsv").read_bytes() == (outs[1] / "ties.tsv").read_bytes()
 
 
 @pytest.mark.skipif(shutil.which("bedtools") is None, reason="needs bedtools")
