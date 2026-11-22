@@ -46,8 +46,9 @@ unit_table(){   # BANK.fa OUT.tsv: composite_units.py --bank, or an empty table 
 # same in every run and with any number of threads). A copy goes to the consensus with the highest score (equal scores:
 # the name that sorts first; the unit/composite rule as before). Nothing is demoted for a close second (owner, 2026-11-22):
 # a margin rule of 0.05 took 3,415 assigned copies away on the full rsi genome, where the 10 votes had passed nearly
-# every copy. A second consensus within TIE_MARGIN (0.02) of the best is recorded instead: ties.tsv and the column Tie
-# of assignment_full.tsv (kind tie_family when the two consensuses are in different families of the --families table).
+# every copy. A second consensus within TIE_MARGIN (0.02) of the best is recorded instead: ties.tsv, and the tags
+# tie_with, tie_margin, tie_kind in the RunnerInfo column of assignment_full.tsv (tie_family when the two consensuses are
+# in different families of the --families table).
 # The files keep their layout: every copy with a hit has Votes 10 and Bitscore = 10 x bit score; the status
 # no_unanimous is no longer written by this step.
 # Which alignments count: each consensus has its own cut, the bit score that 2 shuffled copies of a part are expected to
@@ -91,9 +92,10 @@ run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit
   cp "$TMPDIR/ties.tsv" "$OUTDIR/ties.tsv"
   log "Close seconds (within $TIE_MARGIN of the best score): $(awk -F'\t' '$5 == "tie"' "$TMPDIR/ties.tsv" | wc -l) in one family, $(awk -F'\t' '$5 == "tie_family"' "$TMPDIR/ties.tsv" | wc -l) across families (ties.tsv)"
 }
-add_tie_column(){   # assignment_full.tsv gets an 8th column: "-" or tie_with=SECOND;margin=M;kind=tie|tie_family
-  awk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { t[$1] = "tie_with=" $3 ";margin=" $4 ";kind=" $5; next }
-    FNR == 1 { print $0, "Tie"; next } { print $0, (($1 in t) ? t[$1] : "-") }' "$TMPDIR/ties.tsv" "$OUTDIR/assignment_full.tsv" \
+add_tie_column(){   # RunnerInfo (column 7) of assignment_full.tsv gets ;tie_with=SECOND;tie_margin=M;tie_kind=tie|tie_family
+  # the table keeps its 7 columns: its readers unpack 7 fields (a Tie column of its own stopped tools/rollup_families.py)
+  awk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { t[$1] = "tie_with=" $3 ";tie_margin=" $4 ";tie_kind=" $5; next }
+    FNR > 1 && ($1 in t) { $7 = ($7 == "NA" || $7 == "" ? t[$1] : $7 ";" t[$1]) } { print }' "$TMPDIR/ties.tsv" "$OUTDIR/assignment_full.tsv" \
     > "$OUTDIR/assignment_full.tsv.tmp" && mv "$OUTDIR/assignment_full.tsv.tmp" "$OUTDIR/assignment_full.tsv"
 }
 cycle_best(){   # UNITS.tsv RAW.m8 >> votes: best and runner-up consensus per copy in one cycle, unit/composite rule applied

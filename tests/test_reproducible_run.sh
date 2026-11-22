@@ -4,6 +4,8 @@
 # tests/compare_runs.py: loci, hits, assignments, verdicts, published consensuses and every plate must be identical.
 # The two runs use different numbers of threads (THREADS_A, THREADS_B; default 8 and 12): the result must not depend on it.
 # Minutes on a small genome (11 Mb, 21 consensuses: about 15 min per run); run it on a server, not in pytest.
+# FAMILIES=table.tsv runs with --families (the family roll-up reads the step-2 table: a run without it did not show that a
+# changed table stopped tools/rollup_families.py, 2026-11-22).
 # Exit 0 = identical. docs/REPRODUCIBILITY.md.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; SD="$(dirname "$HERE")"
@@ -15,7 +17,7 @@ for x in A B; do
   rm -rf "$W/$x"; mkdir -p "$W/$x" "$W/tmp_$x"
   cp "$G" "$W/$x/genome.fa"; cp "$K" "$W/$x/bank.fa"
   if [ "$x" = A ]; then T=${THREADS_A:-8}; else T=${THREADS_B:-12}; fi
-  ( cd "$W/$x" && THREADS=$T PUBLISH=1 SPECIES_CODE="$SP" TMPDIR="$W/tmp_$x" "$SD/SINEderella" genome.fa bank.fa > run.log 2>&1 ) &
+  ( cd "$W/$x" && THREADS=$T PUBLISH=1 SPECIES_CODE="$SP" TMPDIR="$W/tmp_$x" "$SD/SINEderella" ${FAMILIES:+--families "$FAMILIES"} genome.fa bank.fa > run.log 2>&1 ) &
   pids+=($!)
 done
 rc=0

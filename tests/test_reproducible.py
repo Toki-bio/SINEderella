@@ -96,15 +96,22 @@ def test_step2_twice_identical(tmp_path):
     status = {x[0]: x[4] for x in rows}
     assert "assigned" in status.values()
     # the best-scoring consensus wins: every copy has 10 votes and none is demoted; a second consensus within 2 % of
-    # the best score is written in the column Tie and in ties.tsv
-    assert all(x[3] == "10" and x[4] != "no_unanimous" and len(x) == 8 for x in rows), rows[:3]
-    ties = [x for x in rows if x[7] != "-"]
-    assert ties and all(x[7].startswith("tie_with=") and ";kind=tie" in x[7] for x in ties)      # TA and TB are 2 % apart
-    assert all(float(x[7].split("margin=")[1].split(";")[0]) < 0.02 for x in ties)
+    # the best score is written as tags in the column RunnerInfo and in ties.tsv; the table keeps 7 columns (its readers unpack 7)
+    assert all(x[3] == "10" and x[4] != "no_unanimous" and len(x) == 7 for x in rows), rows[:3]
+    ties = [x for x in rows if "tie_with=" in x[6]]
+    assert ties and all(";tie_kind=tie" in x[6] and "runner_ratio=" in x[6] for x in ties)      # TA and TB are 2 % apart
+    assert all(float(x[6].split("tie_margin=")[1].split(";")[0]) < 0.02 for x in ties)
     assert len((outs[0] / "ties.tsv").read_text().splitlines()) == len(ties)
     tc = [x for x in rows if x[1] == "TC"]
-    assert tc and all(x[7] == "-" for x in tc)             # the unrelated consensus has no close second
+    assert tc and all("tie_with=" not in x[6] for x in tc)             # the unrelated consensus has no close second
     assert (outs[0] / "ties.tsv").read_bytes() == (outs[1] / "ties.tsv").read_bytes()
+    # the readers of the table: tools/rollup_families.py unpacks 7 fields per row and reads the tags by name
+    sys.path.insert(0, str(ROOT / "tools"))
+    import rollup_families
+    for x in rows:
+        seq, sub, bs, nv, status, th, tag = x
+        d = rollup_families.parse_runner(tag)
+        assert ("tie_with" in d) == ("tie_with=" in tag) and (tag == "NA" or "runner" in d)
 
 
 @pytest.mark.skipif(shutil.which("bedtools") is None, reason="needs bedtools")
