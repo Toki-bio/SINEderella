@@ -509,3 +509,96 @@ instead of 3,415 assigned copies lost, 656 copies whose 10 votes had split are a
 2. Flagged copies are in the plates (above). Say if they should be kept out.
 3. The cuts of `r10_r8_P18` and `MEG-T2` are unchanged, as agreed (84 MEG-T2 loci with the verdict SINE are still gone).
 4. `input.msf` of SubFam differs between runs; nothing reads it. A fix belongs in SubFam.
+
+## 11. The environment must not change the output either (2026-11-23)
+
+Sections 1-10 made two runs on one machine identical. A native run and a run of the container image
+(branch `container`) on the same input then still compared as different, and `tests/test_reproducible.py`
+failed one test in both environments. Both were workflow bugs, fixed here; nothing was worked around in the
+comparison.
+
+### 11a. `sim_scores.tsv` was written in the host's collation
+
+`tests/compare_runs.py` reported `sim_scores.tsv` of step 2 and of the family view as "same lines, other
+order" (1,027 and 1,071 rows, none only in one run). The order of that file is the order of a sort of the
+locus names, and the sort ran in the inherited locale: `en_US.UTF-8` on therioserver, `C.UTF-8` in the image.
+glibc's `en_US.UTF-8` collation ignores `:`, `-` and `(`, the C collation does not, so the same rows came out
+in two orders. Sorting the old native file under `LC_ALL=C` gave exactly the container's file (md5
+`7f85a273…` both ways), which is what identified the cause.
+
+The order is not cosmetic: `step6_report.stratified_sample_sim` reads this file in order and keeps a reservoir
+sample of 3,000 copies per subfamily, so the divergence histogram of a subfamily with more copies than that
+depends on it.
+
+Fixed where the file is written: `step3_postprocess.sh` sorts `sim_scores.tsv` with `LC_ALL=C sort -k1,1`, and
+every other sort in that script that writes a file (`self_bits.tsv`, `self_bits_real.tsv`, the soft-assignment
+table, `summary.by_subfam.tsv`) and the cut-off table of `step1c_deplete.sh` run under `LC_ALL=C` too. Step 2
+already exports `LC_ALL=C` for its whole run and `step8a_extract_alignments.sh` already sorted that way; step 3
+was the gap.
+
+### 11b. ssearch36 and paths longer than 120 characters, again
+
+`tests/test_reproducible.py::test_step2_twice_identical` failed identically native and in the container with
+
+```
+***[ssearch36]  cannot open library …/test_step2_twice_identical0/.step2_assign_sOhi/consensx***
+```
+
+— the library name cut off mid-word at 120 characters. This is the limit already met in the Sicista runs of
+2026-10-06 and fixed then in `tools/satellite_trf_verify.py`, `tools/satellite_kindB_verify.py` and later
+`tools/continuation_check.py` (section 4, "Long paths"): ssearch36 truncates the file name, prints `***…***`
+on stderr and **exits 0**. `step2_asSINEment.sh` makes its temp directory under `$PWD`
+(`STEP2_TMP_BASE:-$PWD`) and handed ssearch36 the full path, so any run started from a deep directory died
+there; under pytest it always did.
+
+Every ssearch36 call of the repository was checked. Already safe: `sear` and step 1 (they `cd` into the search
+directory and pass bare names), the flankscan stages (relative names), `tools/kindB_flank_check.sh`,
+`tools/trna_heads.sh`, `tools/trna_plates.py` and the three tools fixed in 2026-10/11. Six calls still passed a
+constructed path and were given bare names with the working directory set, the pattern of
+`tools/continuation_check.py`:
+
+| file | call |
+|---|---|
+| `step2_asSINEment.sh` | the shuffle search of `tools/shuffle_cut.py`, and the main search over `splits/part_*.fasta` |
+| `step3_postprocess.sh` | the consensus self-alignment, and the per-copy search over `copies_parts/*` |
+| `step4_plots.sh` | the %identity search per subfamily |
+| `step6_report.py` | the SINEplot search (`cwd=work`) |
+| `tools/length_variants.py` | the chunk search (`cwd=workdir`) |
+| `flankscan/fs9_bodycheck.py` | the body-identity search per copy (`cwd=tmp`) |
+
+Nothing about what is searched or scored changed. Not changed: the scripts a full run does not reach
+(`asSINEment`, `sear_multi`, `tools/composite_scan.py`, `tools/vote_eval/`, `step4_diagnostic.py`), which also
+still use `-z 11` (section 3).
+
+`tests/test_reproducible.py::test_step2_in_a_long_path` runs step 2 from a directory whose path is over 150
+characters and checks the assignment table and an empty `ssearch.log`. On the code before this section it fails
+with the error above; after it, it passes. The stub in `tests/test_sineplot_sine_loci.py` now resolves the
+ssearch36 arguments against the `cwd` the call sets, as ssearch36 does.
+
+### 11c. Verification
+
+therioserver, conda env `sinederella` and image `/home/toki/tmp/containers/sinederella_<container commit>.sif`
+(image locale `LANG=C.UTF-8 LC_ALL=C.UTF-8`); runs under `/home/toki/tmp/sdc3/`.
+
+- pytest: **173 passed** natively and in the image (172 before, plus the new test).
+- `tests/test_reproducible_run.sh` (the whole workflow twice with publish, 8 and 12 threads) on `toy` and on
+  `mini` with `--families`, in both environments: all four passed.
+- `tests/compare_runs.py`, all four native/container pairs (A/A, B/B, A/B, B/A) on both inputs: exit 0.
+
+| comparison | toy | mini |
+|---|---|---|
+| native A vs native B | identical | identical |
+| container A vs container B | identical | identical |
+| native vs container (4 pairs) | identical | identical |
+
+`toy`: 225 loci, SINE 217 / grey 2 / not_SINE 6, 4 plates. `mini`: 1,071 loci, 1,027 in `sim_scores.tsv`,
+73 flagged close seconds, SINE 204 / grey 40 / not_SINE 827, 41 plates — the numbers of section 10. Times:
+`mini` 671 s native, 673 s in the image (both environments running at once).
+
+### 11d. Left open
+
+- Only `step2_asSINEment.sh`, `step3_postprocess.sh` and `step8a_extract_alignments.sh` force `LC_ALL=C`. The
+  other sorts of the workflow (`sear`, `SINEderella`, the flankscan stages) were identical in both locales on
+  these inputs, but nothing guarantees that. Exporting `LC_ALL=C` once in `SINEderella` would cover them all;
+  it is not done here because it would change more than the two bugs this section is about.
+- The toy and `mini` are small. Two runs of the full *R. sinicus* genome in the two environments were not made.

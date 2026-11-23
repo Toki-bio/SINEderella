@@ -88,7 +88,7 @@ did not re-test these.
 ## Documentation
 
 - [MANUAL.md](MANUAL.md) — Full user manual
-- [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) — the same input gives the same output: why it did not (ssearch36 shuffle statistics), the fix (fixed statistics, a clear-winner rule) and the test
+- [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md) — the same input gives the same output: why it did not (ssearch36 shuffle statistics), the fix (fixed statistics, a clear-winner rule), the two bugs that made the environment change the output (sort collation, ssearch36 and long paths; section 11) and the tests
 - [docs/AIM.md](docs/AIM.md) — what the workflow is for; [docs/VERDICTS.md](docs/VERDICTS.md) — the verdict of every copy (SINE / grey zone / not SINE), `loci_verdict.tsv`, and how plates and page use it
 - [docs/CONTINUATION.md](docs/CONTINUATION.md) — copies that continue past their ends into another consensus (a missing composite, or a copy labelled with a shorter consensus), checked in every run
 - [disc/README.md](disc/README.md) — the SINE-discriminator modules the publish chain runs (kept in this repository since 2026-10-21)
