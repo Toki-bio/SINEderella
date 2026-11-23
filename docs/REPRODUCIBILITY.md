@@ -3,6 +3,9 @@
 Branch `reproducible`, not merged. Two steps: fixed statistics with fixed cuts (commit 34be237), then a cut per consensus
 from a shuffle with a fixed seed (owner's choice of 2026-11-21, section 4b), which brought the loci back to the old
 behaviour. What still differs from the old runs is in section 6; what is left to decide in section 8.
+**Step 2 was changed again on 2026-11-22 (section 10): the best-scoring consensus wins, a close second is flagged and
+no longer costs the copy its assignment.** Where sections 4, 6, 8 and 9 speak of `WIN_MARGIN` and of copies "without a
+clear winner", they describe the version before that; the numbers that hold now are in section 10.
 
 ## 1. The problem
 
@@ -396,3 +399,113 @@ same order.
    95 % points is extrapolated far into the tail when a part holds tens of thousands of windows). 84 MEG-T2 loci with the verdict SINE are gone. Whether these
    were real copies has to be looked at in their alignments.
 3. Two runs of the full genome were not compared byte for byte.
+
+## 10. Best score wins, close seconds flagged (2026-11-22/23; commits 6a90eb5, fbd15ff, f4e6811)
+
+**Rule (owner, after section 9).** A copy goes to the consensus with the highest bit score; equal scores are broken by
+name; the unit/composite rule is unchanged. There is no margin gate. When the second consensus is within `TIE_MARGIN`
+(0.02) of the best and the unit/composite rule did not choose between the two, the copy is flagged: a row in
+`ties.tsv` of the step-2 output (copy, best, second, margin, kind) and the tags `tie_with`, `tie_margin`, `tie_kind` in
+the RunnerInfo column of `assignment_full.tsv`. `tie_kind` is `tie_family` when the two consensuses are in different
+families of the `--families` table, otherwise `tie`. A flagged copy is assigned and gets its verdict like any other.
+The 0.45 x TopN threshold is unchanged. Step 2 no longer writes the status `no_unanimous`; every copy with a hit has
+Votes 10.
+
+**What went wrong on the way, and the fixes.**
+
+1. The flag was first written as an 8th column. `tools/rollup_families.py` unpacks 7 fields per row, so both full runs
+   with `--families` stopped in the family roll-up. The small test runs had no `--families` and did not show it. The
+   table is read by 20 scripts; it keeps 7 columns and the flag is in the tags, which are read by name.
+   `tests/test_reproducible.py` now puts the step-2 rows through rollup_families' own unpacking and tag parser, and
+   `tests/test_reproducible_run.sh` takes `FAMILIES=table` to run the workflow with `--families`.
+2. With more copies assigned, the border loop reached `sine_consensus.sh`, whose subsampling used `shuf` without a seed:
+   the rebuilt consensus of MEG-RS differed by one base between two `mini` runs. The seed is now the name of the
+   subsample file.
+3. Two full runs differed in three files of the family view (`sim_scores.tsv`: 58,336 and 58,225 rows). ssearch36 keeps
+   a limited list of best library sequences and, on a larger library, drops low-scoring ones in an order that depends
+   on its threads: one consensus against 68,345 copies gave 74,644, 73,620 and 75,923 alignment rows in three calls, in
+   parts of 20,000 copies the same 242,211 rows at 32 and at 24 threads. Step 3 now searches in parts of 20,000 (step 2
+   already did). `tests/compare_runs.py` also compares the step-3 tables and the family view.
+
+**Plates.** Flagged copies are not kept out of the plates. A plate takes its copies from `assigned.publish.fasta`, whose
+coordinates the border loop has changed, so a copy cannot be matched to `ties.tsv` by name there; and the old full-genome
+runs had these copies in their plates too (the 10 votes passed nearly all of them, section 9). Keeping them out needs the
+flag carried into that file; not done.
+
+**Small inputs** (two runs each, 16 and 10 threads, `mini` with `--families`): identical in everything
+`tests/compare_runs.py` reads. `toy`: the 225 loci as in the old runs. `mini`: 1,071 loci, 1,027 assigned, 44 rejected_low_bitscore, SINE 204, grey 40, not_SINE 827, 73 flagged copies, 41 plates (old runs: SINE 174-198, grey
+25-35); the 700 MEG-RL/MEG-RS copies of section 6 are now assigned to MEG-RS with the verdict not_SINE.
+pytest on therioserver: 172 passed (f4e6811).
+
+**Full *R. sinicus* genome, f4e6811**, same inputs as section 9, two runs: 32 threads 1 h 10 min 37 s, 24 threads
+1 h 15 min 14 s (old 1 h 31 min 48 s). Runs: therioserver `/home/toki/tmp/repro/rsi_full/B/run_20261123_072054` and
+`/home/toki/tmp/repro/rsi_full/C/run_20261123_072054`.
+
+*Byte identity.* `tests/compare_runs.py`: identical. All 2,038 files of each run directory, logs, manifest, report page
+and timings left out: 50 differ. 42 are the PDF plots of step 4 (the PNG plots are identical). 6 hold the run directory
+path, a date or a duration (`border_loop.json`, `consensus.path`, `run_info.txt`, `subfam_log.txt`, `summary.txt`,
+`verdict_chain.done`). `vote_summary.tsv.gz` has the same content after decompression. One real difference is left:
+`subfam_input/input.msf`, the alignment SubFam makes for itself (1,823 and 1,781 columns); the workflow does not read
+it, and `input.clw` and the alignment built from it are identical. It comes from the vendored SubFam
+(`mafft --thread` without `--threadit 0`) and was left alone.
+
+*Totals.*
+
+| | old (main f2457a8) | section 9 (margin 0.05) | now |
+|---|---|---|---|
+| loci | 68,580 | 68,191 | 68,191 |
+| assigned | 64,697 | 61,081 | 64,900 |
+| no_unanimous | 1,123 | 4,877 | 0 |
+| rejected_low_bitscore | 2,760 | 2,233 | 3,291 |
+| verdict SINE | 50,790 | 48,512 | 50,907 |
+| verdict grey | 12,404 | 11,845 | 12,463 |
+| verdict not_SINE | 5,386 | 7,834 | 4,821 |
+
+*Assigned copies and SINE verdicts per subfamily (old -> now).*
+
+| subfamily | assigned | SINE | subfamily | assigned | SINE |
+|---|---|---|---|---|---|
+| r1_r3_P1 | 14,464 -> 14,595 | 11,183 -> 11,287 | r5_r3_P34 | 1,576 -> 1,655 | 1,207 -> 1,265 |
+| r6_210seqs | 7,442 -> 7,388 | 5,934 -> 5,897 | MEG-RS | 729 -> 770 | 0 -> 0 |
+| r1_r3_P2 | 6,940 -> 6,813 | 5,596 -> 5,500 | r10_r8_P18del | 505 -> 722 | 419 -> 590 |
+| r9_15seqs | 6,937 -> 6,915 | 5,617 -> 5,597 | r5_r5_P48 | 464 -> 641 | 369 -> 504 |
+| r7_133seqs | 6,862 -> 6,883 | 5,720 -> 5,740 | r10_19seqs | 351 -> 92 | 270 -> 66 |
+| r5_r6_P26 | 5,677 -> 5,730 | 4,372 -> 4,419 | MEG-T2 | 103 -> 12 | 94 -> 10 |
+| r10_r8_P18 | 4,308 -> 4,274 | 3,404 -> 3,379 | r3_58seqs | 40 -> 14 | 30 -> 9 |
+| r8_83seqs | 3,385 -> 3,282 | 2,759 -> 2,674 | r2_3seqs | 29 -> 17 | 24 -> 16 |
+| r1_r2_r3_r3_C11 | 2,866 -> 3,021 | 2,169 -> 2,286 | MEG-TR | 18 -> 15 | 16 -> 12 |
+| r5_27seqs | 1,981 -> 2,025 | 1,589 -> 1,626 | r4_32seqs, MEG-RL | 12 -> 17, 8 -> 19 | 11 -> 17, 7 -> 13 |
+
+*Agreement with the old assignment* (66,818 copies with the same name in both runs):
+
+| old | now | copies |
+|---|---|---|
+| assigned | assigned, same subfamily | 63,028 (98.7 % of the 63,861 old assigned) |
+| assigned | assigned, other subfamily | 424 (r10_19seqs -> r10_r8_P18del 168, r8_83seqs -> r5_r5_P48 61, r1_r3_P2 -> r1_r3_P1 58) |
+| assigned | rejected_low_bitscore | 409 (349 with another subfamily: 87 r10_r8_P18del -> r10_r8_P18) |
+| no_unanimous | assigned | 656 (372 same subfamily, 284 other); verdicts SINE 516, grey 136, not_SINE 4 |
+| no_unanimous | rejected_low_bitscore | 376 |
+| rejected_low_bitscore | rejected_low_bitscore | 1,898 |
+| rejected_low_bitscore | assigned | 27 |
+
+*Close seconds.* 1,873 copies are flagged, all `tie`, none `tie_family`: no copy has its two best consensuses in
+different families (MEG and Rhin). Of them 872 are assigned with the verdict SINE, 232 grey, 59 not_SINE, and 710 are
+rejected_low_bitscore. By pair: r1_r3_P1 / r1_r3_P2 497, r1_r3_P1 / r1_r2_r3_r3_C11 433, r5_r5_P48 / r5_r6_P26 347,
+r1_r3_P1 / r5_r3_P34 124, r8_83seqs / r5_27seqs 91; MEG-RS ahead of MEG-RL 43.
+Margins of all 68,191 copies (from the runner-up score): 14.8 % below 0.005, 15.4 % below 0.01, 16.7 % below 0.02,
+19.0 % below 0.03, 21.5 % below 0.05, 31.5 % below 0.10. So 11,408 copies have a second consensus within 0.02 and 1,873
+are flagged; the others are pairs where the unit/composite rule chose (a unit and a composite that holds it align the
+same way), which are left out of the flag on purpose. That reading of the 9,535 was not counted apart.
+
+*What still differs from the old run.* 5,212 loci differ in subfamily, status or verdict or are in one run only; the
+verdict differs in 4,219. The loci and their causes are those of section 9, points 2 to 5 (the searches are the same):
+625 loci lost (398 rejected loci of r10_r8_P18 and r10_r8_P18del and 91 MEG-T2 loci, from their higher cuts), 236 new,
+about 1,100 copies with other ends, a few hundred copies with another best consensus. Point 1 of section 9 is gone:
+instead of 3,415 assigned copies lost, 656 copies whose 10 votes had split are assigned now (516 SINE).
+
+**For the owner.**
+
+1. `TIE_MARGIN` 0.02 flags 1,873 copies (2.7 %). It decides nothing; it can be moved freely.
+2. Flagged copies are in the plates (above). Say if they should be kept out.
+3. The cuts of `r10_r8_P18` and `MEG-T2` are unchanged, as agreed (84 MEG-T2 loci with the verdict SINE are still gone).
+4. `input.msf` of SubFam differs between runs; nothing reads it. A fix belongs in SubFam.
