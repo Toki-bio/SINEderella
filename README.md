@@ -109,6 +109,30 @@ docker run --rm -u $(id -u):$(id -g) -v "$PWD":/work -w /work sinederella SINEde
 
 The run directory `run_<date>_<time>` is written to the working directory, as in a native run. Environment variables (`THREADS`, `SPECIES_CODE`, `PUBLISH`, `SKIP_*`, `TMPDIR`, ...) are read from the host shell by Apptainer; with Docker pass each with `-e`. Apptainer binds the home and the working directory; a genome elsewhere needs `--bind /data` (Docker: another `-v`). `PIPELINE_COMMIT` goes into `manifest.txt` of every run (there is no git in the image).
 
+### The image gives the same results as a native run
+
+Tested on therioserver with the whole workflow, publish included, on the planted toy and on `mini` (11.4 Mb of the
+*Rhinolophus sinicus* genome with a bank of 21 consensuses): `tests/test_reproducible_run.sh` runs it twice with
+different numbers of threads, and `tests/compare_runs.py` compares two run directories file by file (loci, hits, the
+cuts of step 1 and step 2, the assignment, the step-3 tables, the family view, the verdicts, the published consensuses
+and every plate). Three comparisons are made and all three must come out identical: native against native, image
+against image, and **native against image**.
+
+Two differences the environment alone produced were workflow bugs and are fixed in the workflow, not worked around in
+the comparison (docs/REPRODUCIBILITY.md section 11):
+
+- `sim_scores.tsv` was written in the order of a sort that follows the inherited locale. A typical host runs under
+  `en_US.UTF-8`, whose collation ignores `:`, `-` and `(` in the locus names; the image runs under `C.UTF-8`, whose
+  collation does not. The same run wrote the same lines in two orders. Every sort of step 3 that writes a file now
+  runs under `LC_ALL=C` (step 2 already did).
+- `ssearch36` cannot open a file whose path is longer than about 120 characters; it silently truncates the name,
+  prints `cannot open library ...` and exits 0. Every call now gives bare file names and sets the working directory.
+  Keep run directories short anyway: paths inside a run directory are long.
+
+Result (2026-11-23, therioserver): pytest 173 passed in both environments; `toy` and `mini` each run twice in each
+environment; `tests/compare_runs.py` exit 0 on all four native/container pairs of both inputs. Run directories, image
+and logs: `/home/toki/tmp/sdc3/`, `/home/toki/tmp/containers/` and `/home/toki/tmp/sd_container_v2/` on therioserver.
+
 ## Host-specific paths
 
 No path of a particular server is needed. The ones that remain are defaults that are used only where they exist:
