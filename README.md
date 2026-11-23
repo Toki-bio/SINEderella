@@ -124,7 +124,8 @@ the comparison (docs/REPRODUCIBILITY.md section 11):
 - `sim_scores.tsv` was written in the order of a sort that follows the inherited locale. A typical host runs under
   `en_US.UTF-8`, whose collation ignores `:`, `-` and `(` in the locus names; the image runs under `C.UTF-8`, whose
   collation does not. The same run wrote the same lines in two orders. Every sort of step 3 that writes a file now
-  runs under `LC_ALL=C` (step 2 already did).
+  runs under `LC_ALL=C` (step 2 already did), and since 2026-11-23 `SINEderella` exports `LC_ALL=C` once for the whole
+  workflow, so every stage it starts — native or in the image — collates the same way.
 - `ssearch36` cannot open a file whose path is longer than about 120 characters; it silently truncates the name,
   prints `cannot open library ...` and exits 0. Every call now gives bare file names and sets the working directory.
   Keep run directories short anyway: paths inside a run directory are long.
@@ -132,6 +133,21 @@ the comparison (docs/REPRODUCIBILITY.md section 11):
 Result (2026-11-23, therioserver): pytest 173 passed in both environments; `toy` and `mini` each run twice in each
 environment; `tests/compare_runs.py` exit 0 on all four native/container pairs of both inputs. Run directories, image
 and logs: `/home/toki/tmp/sdc3/`, `/home/toki/tmp/containers/` and `/home/toki/tmp/sd_container_v2/` on therioserver.
+
+### Install without git: `tools/pack_tree.sh`
+
+A run records in `manifest.txt` the commit that made it. In a checkout `git describe` answers; in the image the build
+writes `/opt/SINEderella/PIPELINE_COMMIT`. A tree copied to a machine without git had neither, and the manifest said
+`PIPELINE_COMMIT unknown`. Pack it with the commit inside instead:
+
+```bash
+tools/pack_tree.sh                       # ../SINEderella_<commit>.tar.gz, git archive of HEAD + a PIPELINE_COMMIT file
+mkdir SINEderella && tar -xzf SINEderella_<commit>.tar.gz -C SINEderella
+SINEderella/SINEderella genome.fa consensuses.fa      # manifest.txt: PIPELINE_COMMIT <commit>
+```
+
+`PIPELINE_COMMIT` in the environment overrides both. When nothing answers, the run still starts and writes `unknown`,
+with a warning in the log.
 
 ## Host-specific paths
 
@@ -142,7 +158,7 @@ No path of a particular server is needed. The ones that remain are defaults that
 | `SINEDERELLA_TOOLCHAIN` | `/staging/conda/envs/bioinfo/bin:/staging/miniconda3/bin` (DRAGEN) | `publish/align_for_publish.sh`, `publish/verdict_chain.sh`, `publish/flank_border_iterate.py` | bin directories put first on `PATH` when the first one exists; set to an empty string to leave `PATH` alone (the container images do) |
 | `DISC` (or `SINE_DISC`) | `disc/` of this repository; after it `/staging/tmp/sinedisc`, `$HOME/SINE_discriminator/site`, `$HOME/SINE_discriminator` | `publish_run.sh`, `publish/align_for_publish.sh` | SINE-discriminator modules; the later candidates are reached only if `disc/` is missing |
 | `SINE_CONSENSUS_SH` | `/staging/tmp/SINEderella/sine_consensus.sh` | `publish/border_loop_subfam.py` run by hand (`--sine-script` overrides it; `verdict_chain.sh` always passes the repository's `sine_consensus.sh`) | consensus builder for the border loop |
-| `PIPELINE_COMMIT` file | — | `SINEderella`, `publish/verdict_chain.sh` | read from the script directory for the manifest when `git describe` does not work there |
+| `PIPELINE_COMMIT` | — | `tools/pipeline_commit.sh`, used by `SINEderella` and `publish/verdict_chain.sh` | the commit written into `manifest.txt`. The environment variable wins; then `git describe` of the script directory, but only when that directory is itself a checkout; then the one-line file `PIPELINE_COMMIT` beside the scripts, which the container build and `tools/pack_tree.sh` write; then `unknown`, and the run says so in its log |
 
 Scripts outside the main chain (`run_subfam_per_sf.sh`, `flank_border_consensus_test.sh/.py`, `tools/coseg_compare/`, `tests/bench/`, `tests/toy/run_toy.sh`) still carry the paths of the servers they were run on.
 

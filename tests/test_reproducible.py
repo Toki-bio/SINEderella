@@ -186,3 +186,55 @@ def test_shuffle_cut_is_the_same_every_time_and_follows_the_consensus(tmp_path):
     c = {l.split("\t")[0]: float(l.split("\t")[1]) for l in cuts[0].splitlines()}
     assert set(c) == {"plain", "gcrepeat"}
     assert c["gcrepeat"] > c["plain"] + 5
+
+
+def _commit_of(tree, env_extra=None):
+    env = dict(os.environ)
+    env.pop("PIPELINE_COMMIT", None)
+    if env_extra:
+        env.update(env_extra)
+    r = subprocess.run(["bash", str(ROOT / "tools" / "pipeline_commit.sh"), str(tree)],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    return r.stdout.strip()
+
+
+def test_pipeline_commit_is_recorded_without_git(tmp_path):
+    """A run must say which code made it. tools/pipeline_commit.sh: the environment wins, then git (only when the
+    tree itself is a checkout), then the PIPELINE_COMMIT file that the container build and tools/pack_tree.sh write.
+    docs/REPRODUCIBILITY.md section 12; before this the manifest of a run from an unpacked tarball said "unknown"."""
+    # a tree with neither git nor the file
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert _commit_of(bare) == "unknown"
+
+    # the file is read when there is no git, blanks and a CR stripped
+    (bare / "PIPELINE_COMMIT").write_bytes(b"  deadbee \r\n")
+    assert _commit_of(bare) == "deadbee"
+
+    # the environment wins over the file
+    assert _commit_of(bare, {"PIPELINE_COMMIT": "fromenv"}) == "fromenv"
+
+    # an empty file is not an answer
+    (bare / "PIPELINE_COMMIT").write_text("\n")
+    assert _commit_of(bare) == "unknown"
+
+    if shutil.which("git") is None:
+        pytest.skip("no git")
+
+    # a real checkout: git wins over the file, and the answer is that checkout's commit
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    for cmd in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "commit", "-q", "-m", "x", "--allow-empty"]):
+        assert subprocess.run(cmd, cwd=repo, env=env, capture_output=True).returncode == 0
+    head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    (repo / "PIPELINE_COMMIT").write_text("stale\n")
+    assert _commit_of(repo).startswith(head)
+
+    # a tree unpacked INSIDE another checkout is not stamped with that checkout's commit
+    inside = repo / "unpacked"
+    inside.mkdir()
+    assert _commit_of(inside) == "unknown"
+    (inside / "PIPELINE_COMMIT").write_text("packed1\n")
+    assert _commit_of(inside) == "packed1"

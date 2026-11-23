@@ -106,5 +106,5 @@ log "flank verdicts"
 python3 "$SINEDERELLA_BIN/tools/flank_verdict.py" "$RUN_ROOT" >&2 || {
   echo "ERROR: tools/flank_verdict.py failed" >&2; exit 1; }
 
-printf 'finished\t%s\ncode\t%s\n' "$(date '+%F %T')" "$(git -C "$SINEDERELLA_BIN" log -1 --format=%h 2>/dev/null || cat "$SINEDERELLA_BIN/PIPELINE_COMMIT" 2>/dev/null || echo unknown)" \
+printf 'finished\t%s\ncode\t%s\n' "$(date '+%F %T')" "$(bash "$SINEDERELLA_BIN/tools/pipeline_commit.sh" "$SINEDERELLA_BIN" 2>/dev/null || echo unknown)" \
   > "$S2/verdict_chain.done"

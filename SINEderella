@@ -68,6 +68,14 @@ EOF
   exit 2
 }
 
+# One collation for the whole workflow (2026-11-23, docs/REPRODUCIBILITY.md section 12).
+# Every stage is started as a separate process from here, so the export reaches them all, and the
+# container run (image locale C.UTF-8) sorts the same way as a native run (host locale en_US.UTF-8).
+# glibc's en_US.UTF-8 collation ignores ':', '-' and '(' in locus names, the C collation does not;
+# that difference already changed sim_scores.tsv (section 11a). The per-script `LC_ALL=C` settings are
+# kept: they also protect a stage run on its own.
+export LC_ALL=C
+
 # Resolve script directory deterministically
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
@@ -357,9 +365,15 @@ sanitize_fasta(){
 ###############################################################################
 # what reproduces a run: the pipeline commit, the command line and where it was started, the environment switches it reads
 manifest_common(){
+  local commit
+  commit="$(bash "$SCRIPT_DIR/tools/pipeline_commit.sh" "$SCRIPT_DIR" 2>/dev/null || echo unknown)"
+  if [[ $commit == unknown ]]; then
+    log "WARNING: this tree has no git and no PIPELINE_COMMIT file, so the run cannot say which code made it."
+    log "         Pack it with tools/pack_tree.sh, or set PIPELINE_COMMIT (docs/REPRODUCIBILITY.md section 12)."
+  fi
   printf "COMMAND\t%s\n" "$ORIG_CMD"
   printf "INVOKED_FROM\t%s\n" "$ORIG_PWD"
-  printf "PIPELINE_COMMIT\t%s\n" "$(git -C "$SCRIPT_DIR" describe --always --dirty 2>/dev/null || cat "$SCRIPT_DIR/PIPELINE_COMMIT" 2>/dev/null || echo unknown)"
+  printf "PIPELINE_COMMIT\t%s\n" "$commit"
   printf "SUBFAM_VERSION\t%s\n" "$(awk -F= '/^VERSION=/{print $2; exit}' "$SCRIPT_DIR/tools/vendor/SubFam.sh" 2>/dev/null || echo unknown)"
   env | LC_ALL=C sort | grep -E '^(SKIP_|SATELLITE_|CANON_|LENGTH_VARIANTS_|CONSENSUS_AUDIT_|FS9_|SOFTMASK|BODYCHECK|SEARCH_GENOME|MERGE_STRAND|SUBFAM_|MASK_)' |
     sed 's/=/\t/; s/^/ENV\t/' || true
