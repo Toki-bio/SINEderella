@@ -77,6 +77,26 @@ against 135; its assigned pool is mixed with MEG-RL-like copies), 3 SKIPPED (MEG
 Two rebuilds of one family differ by 0-2 mismatches here (0-7 in the first, unseeded measurement, `rsi_fresh2/consensus_audit.tsv` in Tal):
 the subsampling is random by design, only a fixed seed repeats it.
 
+## Identity between the copies, measured on rsi (run_20261123_072054, 21 consensuses)
+
+Sorted, median per family: **38.8, 39.7, 40.2, 40.5 | 52.3 | 72.0, 75.1, 78.6, 79.7, 80.6, 81.7, 81.7, 81.8, 82.5, 83.9, 84.5, 85.3, 88.0,
+89.5, 90.3, 93.9 %**. Fifteen of the 21 are between 72 and 94 %, eleven of them between 80 and 90 %, and that band holds every consensus with
+more than 60 assigned copies. Four sit at 38.8-40.5 % with a p90 never reaching 54 % - `r4` (17 copies), `MEG-TR` (15), `r2` (17), `MEG-T2`
+(12) - and all four are below `--min-copies`, so every other numeric cell of their rows is empty: the rebuild could not have shown it.
+`MEG-RL` (52.3 %, p10-p90 39.6-78.4) is between the two groups and its spread is the widest in the table. The gaps in the distribution are
+11.8 points above the group of four and 19.7 points above `MEG-RL`; no line is drawn in the code.
+
+Two things the measurement is **not**: `MEG-RS` has the highest identity in the run (93.9 %) and all 794 of its loci are verdicted
+`not_SINE` - copies that resemble each other closely but have no unique flanks are a tandem or recent repeat, so a high value is not a pass.
+And composition does not sort the groups by itself: the copies are more GC-rich than the bank in only `MEG-RS` (+7.2), `MEG-T2` (+6.0),
+`MEG-TR` (+4.8) and `MEG-RL` (+0.8), while two of the four low families look ordinary there, and the most GC-rich bank sequence in the run
+(`r10_r8_P18`, 66.4 %) has copies that resemble each other at 80.6 %.
+
+Checked before the numbers were believed: a low median is **not** a strand artefact. The extractor already strand-normalises - families with
+26-38 of 60 copies at minus-strand loci get 0 reverse-complements from `mafft --adjustdirection` and the same median with and without it - and
+for the low families `--adjustdirection` moves the median by at most 1.5 points, *lowering* `r4`'s from 38.8 to 34.0 while flipping 11 of its
+17 rows, which is what MAFFT does when there is no signal to align. Full write-up: `C:\work\Raks_COI\results\rsi_subfam_identity\results.md`.
+
 ## Use
 
 * In the pipeline: runs after the length-version test; `SKIP_CONSENSUS_AUDIT=1` skips it, `CONSENSUS_AUDIT_JOBS` (default 8) sets the parallel rebuilds.

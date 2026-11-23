@@ -94,9 +94,11 @@ def _consensus_audit(run_root):
         copies = html.escape(r.get("copies", ""))
         if r.get("copies_compared"):
             copies += " <span style='opacity:.7'>(%s)</span>" % html.escape(r["copies_compared"])
+        # the rebuild GC of the first seed only: the seeds differ by ~1 point and four slashed numbers read badly.
+        # Both are in summary.tsv.
         rgc = [html.escape(r[k]) for k in g1 if r.get(k)]
         gcs = "%s / %s / %s" % (html.escape(r.get("bank_gc", "") or "-"), html.escape(r.get("copy_gc_median", "") or "-"),
-                                " ".join(rgc) if rgc else "-")
+                                rgc[0] if rgc else "-")
         rows.append("<tr><td>%s</td><td class='n'>%s</td><td>%s</td><td class='n'>%s</td>"
                     "<td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td><b>%s</b></td></tr>" % (
                         html.escape(lab(r["family"])), copies, ident, gcs,
@@ -115,7 +117,7 @@ def _consensus_audit(run_root):
             "(bank / copies / rebuild) is there because composition is the usual reason a consensus draws unrelated copies. The sampled copies stay "
             "aligned in <code>results/consensus_audit/copies/</code> for reading.</p>"
             "<table class='tbl'><thead><tr><th>Consensus</th><th class='n'>Copies (compared)</th>"
-            "<th>Identity between the copies %, median (p10&ndash;p90)</th><th class='n'>GC % bank / copies / rebuild</th>"
+            "<th>Identity between the copies %, median (p10&ndash;p90)</th><th class='n'>GC % bank / copies / rebuild (seed 1)</th>"
             "<th class='n'>Bank bp</th><th class='n'>Rebuilt bp (2 seeds)</th><th class='n'>Mismatches</th><th>Answer</th>"
             "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
