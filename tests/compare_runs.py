@@ -54,12 +54,19 @@ def main():
              ("verdict", os.path.relpath(os.path.join(sa, "loci_verdict.tsv"), A), os.path.relpath(os.path.join(sb, "loci_verdict.tsv"), B)),
              ("consensuses", "consensuses.publish.fa", "consensuses.publish.fa"),
              ("cuts step 2", os.path.relpath(os.path.join(sa, "consensus_cuts.tsv"), A), os.path.relpath(os.path.join(sb, "consensus_cuts.tsv"), B))]
+    # the tables of step 3, of the main run and of the family view (--families): similarity scores, the table of all loci,
+    # the summary per subfamily (2026-11-23: the family view's sim_scores.tsv differed between two full-genome runs)
+    for sub, da, db in (("", os.path.relpath(sa, A), os.path.relpath(sb, B)),
+                        ("family view ", "family_view/step2/step2_output", "family_view/step2/step2_output")):
+        for f in ("sim_scores.tsv", "all_sines.bedlike.ALL.tsv", "summary.by_subfam.tsv", "unassigned.tsv", "assignment_full.tsv", "ties.tsv"):
+            files.append((sub + f, da + "/" + f, db + "/" + f))
+    for f in ("family_view/family_view.tsv", "family_view/family_view.summary.tsv"):
+        files.append((f, f, f))
     bad = 0
     for name, ra, rb in files:
         pa, pb = os.path.join(A, ra), os.path.join(B, rb)
         ea, eb = os.path.isfile(pa), os.path.isfile(pb)
         if not ea and not eb:
-            print("%-12s in neither run (skipped)" % name)
             continue
         if ea != eb:
             print("%-12s DIFFERENT: present in A %s, in B %s" % (name, ea, eb))

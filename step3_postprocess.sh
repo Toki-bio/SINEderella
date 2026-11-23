@@ -135,10 +135,19 @@ if [[ ! -s "$SIM_SCORES" ]]; then
 
     # Single ssearch36: consensus query vs copies library
     if [[ -s "$tmpdir/copies.fa" && -s "$tmpdir/cons_single.fa" ]]; then
-      ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 10 -d 100000000 -b 100000000 \
-        "$tmpdir/cons_single.fa" "$tmpdir/copies.fa" 2>/dev/null \
-      | awk 'BEGIN{OFS="\t"} /^>>[^>]/{s=substr($1,3)} /^; sw_score:/{print "q",s,$3}' \
-        >> "$tmpdir/all_sim.m8" || true
+      # In parts of 20,000 copies (2026-11-23, docs/REPRODUCIBILITY.md): ssearch36 keeps a limited list of best library
+      # sequences (60,000), and which of the lowest-scoring ones it drops depends on the order its threads deliver them.
+      # A family of the family view with more copies than that lost 111 weak copies in one of two runs on the same input.
+      rm -rf "$tmpdir/copies_parts"
+      seqkit split2 -s 20000 -O "$tmpdir/copies_parts" "$tmpdir/copies.fa" >/dev/null 2>&1 || true
+      for _part in "$tmpdir"/copies_parts/*; do
+        [[ -s "$_part" ]] || continue
+        ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 10 -d 100000000 -b 100000000 \
+          "$tmpdir/cons_single.fa" "$_part" 2>/dev/null \
+        | awk 'BEGIN{OFS="\t"} /^>>[^>]/{s=substr($1,3)} /^; sw_score:/{print "q",s,$3}' \
+          >> "$tmpdir/all_sim.m8" || true
+      done
+      rm -rf "$tmpdir/copies_parts"
     fi
 
     printf "  %d/%d subfamilies (%s: %d copies)\r" "$isf" "$nsf" "$sf" "$ncopies" >&2
