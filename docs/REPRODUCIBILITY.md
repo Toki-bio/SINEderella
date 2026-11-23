@@ -602,3 +602,147 @@ therioserver, conda env `sinederella` and image `/home/toki/tmp/containers/sined
   these inputs, but nothing guarantees that. Exporting `LC_ALL=C` once in `SINEderella` would cover them all;
   it is not done here because it would change more than the two bugs this section is about.
 - The toy and `mini` are small. Two runs of the full *R. sinicus* genome in the two environments were not made.
+
+## 12. One collation for the workflow, the commit of every run, and the full genome in both environments (2026-11-23)
+
+The two points left open in section 11d, and the full-genome check they were waiting for. Code: commit `0bac7e7`.
+
+### 12a. `export LC_ALL=C` once, in `SINEderella`
+
+Section 11a fixed the sorts of step 3 one by one. Three scripts forced the collation (`step2_asSINEment.sh`,
+`step3_postprocess.sh`, `step8a_extract_alignments.sh`); every other sort of the workflow ran in whatever locale the
+caller happened to have. `SINEderella` now exports `LC_ALL=C` before anything else (line 77). The per-script settings
+are kept: they also protect a stage that is run on its own.
+
+Every stage is an ordinary child process (`bash "$SCRIPT_DIR/step..."`, `python3 "$SCRIPT_DIR/tools/..."`), nothing in
+the repository sets or unsets a locale variable afterwards, and nothing is started with `env -i`, so the export reaches
+all of them. Checked at run time, not by reading the code: `/proc/<pid>/environ` of the 23 live processes of the two
+full runs below, native and in the image.
+
+| process | native run | container run |
+|---|---|---|
+| `rsi.sh`, `/usr/bin/time`, the Apptainer starter and `squashfuse_ll` (above `SINEderella`) | `LC_ALL` unset, `LANG=en_US.UTF-8` | unset, `LANG=C.UTF-8` |
+| `SINEderella` itself | `LC_ALL` unset at exec, set by the script | the same |
+| `step1_search_extract.sh`, its two `tee`, `sear`, `ssearch36`, `awk`, `sort -V` | `LC_ALL=C` | `LC_ALL=C` |
+
+So the host locale no longer reaches a sort: in the image `LANG` stays `C.UTF-8` and natively `en_US.UTF-8`, and both
+collate under `C`.
+
+**What it changed.** Toy and `mini` (with `--families`) were run with the code before (`6fdb10a`) and after
+(`0bac7e7`), on the same inputs, same 8 threads, publish on, natively: `/home/toki/tmp/sdc4/{toy,mini}/{before,after}/`.
+
+`tests/compare_runs.py` reports the two runs identical on both inputs — every file it reads: loci, hits, the cuts of
+step 1 and step 2, the assignment, `ties.tsv`, the step-3 tables, the family view, the verdicts, the published
+consensuses and all 41 plates. `toy` 225 loci (SINE 217 / grey 2 / not_SINE 6, 4 plates); `mini` 1,071 loci, 1,027 in
+`sim_scores.tsv`, 73 flagged close seconds, SINE 204 / grey 40 / not_SINE 827, 41 plates — the numbers of section 10.
+**No result changed.**
+
+Of all 977 files of the `mini` run directory, 72 differ, and each is accounted for:
+
+| files | why |
+|---|---|
+| 38 PDF plots of step 2 | identical after the `CreationDate` / `ModDate` lines are dropped (the PNG plots are identical, as in section 10) |
+| 12 `__pycache__/*.pyc` | bytecode of two source trees at two paths |
+| 11 logs, `manifest.txt`, `results/report.html`, `summary.txt`, `verdict_chain.done`, `consensus.path`, two `border_loop.json` | identical once the commit, the run path, the Plotly `div` ids, the dates and the durations are masked |
+| `run_info.txt` | one line: the PID |
+| `subfam_input/subfam_log.txt` | two lines: SubFam's `mktemp` directory names |
+| `vote_summary.tsv.gz` | the same content; gzip stores the mtime in its header |
+| `publish/verdict_chain.sh` | the changed script itself, copied into the run directory |
+
+One real change, cosmetic: `printf "DATE\t%s\n" "$(date)"` in the manifest no longer follows the locale.
+`Mon Nov 23 12:27:16 PM MSK 2026` became `Mon Nov 23 12:27:16 MSK 2026`, and `results/report.html` shows that string.
+It is a timestamp for a reader, nothing reads it, and the C form is the same on every host. Left as it is.
+
+### 12b. A run always records the code that made it
+
+The container recorded its commit and a native run from an unpacked tarball recorded `PIPELINE_COMMIT unknown`: there
+is no git in such a tree, and the one-line `PIPELINE_COMMIT` file was written by hand for some runs and forgotten for
+others (the two full runs of section 10 both say `unknown`).
+
+`tools/pipeline_commit.sh` now resolves it in one place, for `SINEderella` (`manifest.txt`) and
+`publish/verdict_chain.sh` (`verdict_chain.done`):
+
+1. `$PIPELINE_COMMIT` from the environment, if set and not empty — it wins, so a wrapper can override.
+2. `git describe --always --dirty`, but only when the tree **itself** is a checkout (`TREE/.git` exists). Without that
+   test git walks up, and a tree unpacked inside somebody else's repository would be stamped with that repository's
+   commit.
+3. `TREE/PIPELINE_COMMIT`, first non-empty line, CR and blanks stripped.
+4. `unknown` — and the run writes two `WARNING` lines in its log saying how to fix it, which it did not do before.
+
+`tools/pack_tree.sh` makes the tarball for a machine without git: `git archive` of the commit plus a
+`PIPELINE_COMMIT` file, so nobody has to remember the hand step. It refuses a dirty checkout, because `git archive`
+would silently pack the committed tree instead of what is there.
+
+Checked, all three ways of installing the code:
+
+| install | what the run records | checked |
+|---|---|---|
+| plain `git clone` of `main` + run | `PIPELINE_COMMIT 0bac7e7`, and `code 0bac7e7` in `verdict_chain.done` | therioserver, clone of `main` at `0bac7e7`, toy run `/home/toki/tmp/sdc4/clonetest/run/` |
+| tarball of `tools/pack_tree.sh`, unpacked, no `.git` | `PIPELINE_COMMIT 0bac7e7` | the toy, `mini` and full-genome native runs below |
+| image `sinederella_0bac7e7.sif` | `PIPELINE_COMMIT 0bac7e7`, from `/opt/SINEderella/PIPELINE_COMMIT` written at build | `apptainer exec`, and the container full run below |
+| `git archive` tree with neither `.git` nor the file (the old failing case) | `unknown`, and two `WARNING` lines in the log | therioserver, `/home/toki/tmp/sdc4/clonetest/run2/` |
+
+`tests/test_reproducible.py::test_pipeline_commit_is_recorded_without_git` covers the five cases: no git and no file
+(unknown), the file alone, the environment over the file, an empty file (unknown), a real checkout over a stale file,
+and a tree unpacked inside another checkout.
+
+### 12c. The full *R. sinicus* genome, native and in the image
+
+Section 11c compared the two environments on the toy (0.5 Mb) and on `mini` (11.4 Mb) only. One run of the whole
+*Rhinolophus sinicus* genome was now made natively and one in the image, with the code of 12a and 12b in place, both
+at 24 threads, started together on an otherwise busy server (load 19 of 128 before the start, 56 at the peak).
+
+Inputs and options of the section-10 runs: `rsi.fna`, `bank21_nor1.fa`, `--families rsi_families_nor1.tsv`, no
+publish. Runs: therioserver `/home/toki/tmp/sdc4/rsi/{nat,cnt}/run_20261123_153329`; image
+`/home/toki/tmp/containers/sinederella_0bac7e7.sif`. Native 1 h 13 min 11 s (12.3 GB peak), container 1 h 13 min 52 s
+(section 10, one environment: 1 h 10 min 37 s at 32 threads and 1 h 15 min 14 s at 24).
+
+**`tests/compare_runs.py`: the two runs are identical** — every file it reads, including the 1.6 million hit lines and
+the family view:
+
+| what | lines | native vs container |
+|---|---|---|
+| loci | 136,690 | identical |
+| hits | 1,602,403 | identical |
+| assignment, `assignment_full.tsv`, verdicts | 68,192 each | identical |
+| `sim_scores.tsv` (step 3) / family view | 64,900 / 68,186 | identical |
+| `all_sines.bedlike.ALL.tsv` / family view | 68,345 / 68,345 | identical |
+| `ties.tsv` | 1,873 | identical |
+| `unassigned.tsv` / family view | 3,446 / 155 | identical |
+| `summary.by_subfam.tsv` / family view, `family_view.tsv`, `family_view.summary.tsv` | 22 / 3, 68,192, 3 | identical |
+| cuts of step 1 and step 2 | 39 queries, 21 consensuses | identical |
+| published consensuses | 42 | identical |
+| loci, one by one | 68,191 in both, 0 in one only | subfamily differs 0, status differs 0, verdict differs 0 |
+
+Plates are skipped (no publish, as in section 10).
+
+**The totals are those of section 10, to the copy.**
+
+| | section 10 (f4e6811, 2 runs, one environment) | now (0bac7e7, native) | now (0bac7e7, image) |
+|---|---|---|---|
+| loci | 68,191 | 68,191 | 68,191 |
+| assigned | 64,900 | 64,900 | 64,900 |
+| without a winner (`no_unanimous`) | 0 | 0 | 0 |
+| `rejected_low_bitscore` | 3,291 | 3,291 | 3,291 |
+| verdict SINE | 50,907 | 50,907 | 50,907 |
+| verdict grey | 12,463 | 12,463 | 12,463 |
+| verdict not_SINE | 4,821 | 4,821 | 4,821 |
+| flagged close seconds (`ties.tsv`) | 1,873 | 1,873, all `tie` | 1,873, all `tie` |
+
+So nothing in section 10 moved: not the locale change of 12a, not the commit change of 12b, and not the environment.
+`manifest.txt` of both runs says `PIPELINE_COMMIT 0bac7e7` — the native run was started from an unpacked tarball, which
+before 12b would have written `unknown`.
+
+**pytest** (therioserver, 2026-11-23): 174 passed natively; in the image 173 passed and 1 skipped — the new commit test
+skips its git half there, because the image has no git, which is the reason the `PIPELINE_COMMIT` file exists.
+
+### 12d. Left open
+
+- `SINEderella_multi` and the scripts that can be started on their own (`publish_run.sh`, `sear`, the flankscan stages)
+  do not export `LC_ALL=C` themselves; three of them already did (12a). Started through `SINEderella` they all inherit
+  it. A stage started by hand from a shell in another locale is on the user.
+- The two full runs were compared with `tests/compare_runs.py`, not file by file over the whole run directory. Section
+  10 did that for two native runs and found only PDF dates, paths, durations and SubFam's `input.msf`; the file-by-file
+  comparison of 12a (977 files of a `mini` run) found nothing else either.
+- The scripts a full run does not reach still use `-z 11` (section 3), and SubFam's `input.msf` still differs between
+  runs (section 10, point 4).
