@@ -62,7 +62,7 @@ if [[ ! -s "$SELF_BITS" ]]; then
          if(!(sf in mx) || thr>mx[sf]) mx[sf]=thr
        }
        END{for(sf in mx) print sf,mx[sf]}' "$ASSIGN" \
-  | sort -k1,1 > "$SELF_BITS"
+  | LC_ALL=C sort -k1,1 > "$SELF_BITS"
 else
   log "Keeping existing $SELF_BITS"
 fi
@@ -81,8 +81,11 @@ if [[ ! -s "$SIM_SCORES" ]]; then
   # a failed self-alignment stops the run: it gave ratio 0 instead of NA for every copy (GLM audit 2026-10-19)
   # -z 3 (2026-11-21, docs/REPRODUCIBILITY.md; was -z 11): fixed statistics, so which alignments are reported no longer
   # changes from run to run; the score read here is the raw one in both cases
-  ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 10 -d 1000000 -b 1000000 \
-    "$CONS" "$CONS" > "$tmpdir/self.out" 2> "$tmpdir/self.err" \
+  # bare file names inside $tmpdir: ssearch36 cannot open a path longer than ~120 characters (FASTA36 file-name limit),
+  # it truncates the name and reports "cannot open library ..." (2026-11-23; the pattern of tools/continuation_check.py)
+  cp "$CONS" "$tmpdir/cons_all.fa"
+  ( cd "$tmpdir" && ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 10 -d 1000000 -b 1000000 \
+      cons_all.fa cons_all.fa ) > "$tmpdir/self.out" 2> "$tmpdir/self.err" \
     || { tail -5 "$tmpdir/self.err" >&2; log "ERROR: consensus self-alignment (ssearch36) failed"; exit 1; }
   awk 'BEGIN{OFS="\t"} /^>>>/{q=substr($1,4); sub(/,$/,"",q)} /^>>[^>]/{s=substr($1,3)} /^; sw_score:/{print q,s,$3}' \
     "$tmpdir/self.out" > "$tmpdir/self.m8"
@@ -92,7 +95,7 @@ if [[ ! -s "$SIM_SCORES" ]]; then
     if(q==s && (!(q in mx) || bs>mx[q])) mx[q]=bs
   } END {
     for(c in mx) printf "%s\t%.1f\n", c, mx[c]
-  }' "$tmpdir/self.m8" | sort -k1,1 > "$REAL_SELF_BITS"
+  }' "$tmpdir/self.m8" | LC_ALL=C sort -k1,1 > "$REAL_SELF_BITS"
 
   log "  Self-bits computed for $(wc -l < "$REAL_SELF_BITS") subfamilies"
   _ncons=$(grep -c '^>' "$CONS")
@@ -104,7 +107,7 @@ if [[ ! -s "$SIM_SCORES" ]]; then
     > "$tmpdir/assigned_map.tsv"
 
   awk -F'\t' '{print $2}' "$tmpdir/assigned_map.tsv" \
-    | sort -u > "$tmpdir/sim_subfam_list.txt"
+    | LC_ALL=C sort -u > "$tmpdir/sim_subfam_list.txt"
 
   nsf=$(wc -l < "$tmpdir/sim_subfam_list.txt")
   log "  Running per-copy ssearch36 for $nsf subfamilies..."
@@ -142,8 +145,9 @@ if [[ ! -s "$SIM_SCORES" ]]; then
       seqkit split2 -s 20000 -O "$tmpdir/copies_parts" "$tmpdir/copies.fa" >/dev/null 2>&1 || true
       for _part in "$tmpdir"/copies_parts/*; do
         [[ -s "$_part" ]] || continue
-        ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 10 -d 100000000 -b 100000000 \
-          "$tmpdir/cons_single.fa" "$_part" 2>/dev/null \
+        # bare names inside $tmpdir, as in A): ssearch36 truncates a path longer than ~120 characters
+        ( cd "$tmpdir" && ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 10 -d 100000000 -b 100000000 \
+            cons_single.fa "copies_parts/${_part##*/}" 2>/dev/null ) \
         | awk 'BEGIN{OFS="\t"} /^>>[^>]/{s=substr($1,3)} /^; sw_score:/{print "q",s,$3}' \
           >> "$tmpdir/all_sim.m8" || true
       done
@@ -160,9 +164,15 @@ if [[ ! -s "$SIM_SCORES" ]]; then
     if(!(seq in mx) || bs>mx[seq]) mx[seq]=bs
   } END {
     for(s in mx) printf "%s\t%.1f\n", s, mx[s]
-  }' "$tmpdir/all_sim.m8" | sort -k1,1 > "$tmpdir/per_copy_bs.tsv"
+  }' "$tmpdir/all_sim.m8" | LC_ALL=C sort -k1,1 > "$tmpdir/per_copy_bs.tsv"
 
   # Build sim_scores.tsv: seqID, single_bs, self_bits, sim_ratio
+  # LC_ALL=C on the sort below (2026-11-23): the order of this file is the order of a locus name sort, and glibc's
+  # en_US.UTF-8 collation ignores ':', '-' and '(' while the C locale does not. The same run native (en_US.UTF-8) and
+  # in the container (C) wrote the same 1,027 lines in two different orders, so tests/compare_runs.py called the two
+  # runs different although every value was equal. The order is not cosmetic: step6_report.stratified_sample_sim reads
+  # this file in order and keeps a reservoir sample of 3,000 copies per subfamily, so a larger subfamily's divergence
+  # histogram depends on it. Written sorted in the C collation, which is the same in every environment.
   awk -F'\t' 'BEGIN{OFS="\t"}
     FILENAME==ARGV[1]{sb[$1]=$2; next}
     FILENAME==ARGV[2]{sf[$1]=$2; next}
@@ -174,7 +184,7 @@ if [[ ! -s "$SIM_SCORES" ]]; then
       printf "%s\t%.1f\t%.1f\t%.4f\n", seq, bs, self, ratio
     }
   ' "$REAL_SELF_BITS" "$tmpdir/assigned_map.tsv" "$tmpdir/per_copy_bs.tsv" \
-    > "$SIM_SCORES"
+    | LC_ALL=C sort -k1,1 > "$SIM_SCORES"
 
   log "  Similarity scores computed for $(wc -l < "$SIM_SCORES") assigned copies"
 else
@@ -430,7 +440,7 @@ if [[ $unassigned_n -gt 0 && -s "$HITS_LABELED" ]]; then
     for(id in best_subfam){
       print id, best_subfam[id], best_score[id], all_subfams[id]
     }
-  }' "$soft_intersect" | sort -k1,1n > "$soft_best"
+  }' "$soft_intersect" | LC_ALL=C sort -k1,1n > "$soft_best"
 
   # 4) Build unassigned.tsv by joining ALL table, soft_best, and all_votes.tsv
   {
@@ -584,7 +594,7 @@ awk -F'\t' -v OFS="\t" -v utfile="$UNASSIGNED_TSV" -v total_ext="$total_extracte
     }
   }' "$ALL" > "$sum_tmp"
 
-( head -n1 "$sum_tmp"; tail -n +2 "$sum_tmp" | sort -k2,2nr ) > "$SUMMARY"
+( head -n1 "$sum_tmp"; tail -n +2 "$sum_tmp" | LC_ALL=C sort -k2,2nr ) > "$SUMMARY"
 rm -f "$sum_tmp"
 
 ###############################################################################

@@ -138,8 +138,11 @@ for sf_fasta in "${subfam_files[@]}"; do
   log "  Running ssearch36 for %identity (both strands, matches step2)..."
   # -z 3 (2026-11-21, docs/REPRODUCIBILITY.md; was -z 11): fixed statistics; the lines are sorted below because several
   # threads write them in another order from run to run and the first of two equal-score alignments was taken
-  ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 8 \
-    "$tmpdir/cons_${sf_name}.fa" "$tmpdir/copies_clean_${sf_name}.fa" \
+  # bare file names inside $tmpdir (2026-11-23): ssearch36 cannot open a path longer than ~120 characters (FASTA36
+  # file-name limit) - it truncates the name and reports "cannot open library ...". $tmpdir plus a long subfamily name
+  # crosses that. Same pattern as tools/continuation_check.py and the satellite tools.
+  ( cd "$tmpdir" && ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 8 \
+      "cons_${sf_name}.fa" "copies_clean_${sf_name}.fa" ) \
     > "$tmpdir/sim_${sf_name}.m8" 2>"$tmpdir/ssearch_err_${sf_name}.txt" || true
 
   # Best hit per copy (highest bitscore): extract %identity (col3)

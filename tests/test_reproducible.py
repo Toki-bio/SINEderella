@@ -5,7 +5,8 @@ library sequences seeded by the clock, so bit scores and E-values of the same al
 calls, and with them votes, thresholds, verdicts and plates. Every call of the workflow now uses fixed statistics (-z 3).
 Tested here: the control (the old call differs between runs, the new one does not, with 1 or several threads), step 2 run
 twice with different numbers of threads (assignment files identical byte for byte), the continuation check run twice, and
-the continuation check in a directory whose path is longer than 120 characters (ssearch36 cannot open such a path).
+step 2 and the continuation check in a directory whose path is longer than 120 characters (ssearch36 cannot open such a
+path: it truncates the name and reports "cannot open library ...").
 The whole workflow twice: tests/test_reproducible_run.sh (server, minutes).
 
 Needs ssearch36; step 2 needs seqkit, the continuation check bedtools.
@@ -112,6 +113,25 @@ def test_step2_twice_identical(tmp_path):
         seq, sub, bs, nv, status, th, tag = x
         d = rollup_families.parse_runner(tag)
         assert ("tie_with" in d) == ("tie_with=" in tag) and (tag == "NA" or "runner" in d)
+
+
+@pytest.mark.skipif(shutil.which("seqkit") is None, reason="needs seqkit")
+def test_step2_in_a_long_path(tmp_path):
+    """ssearch36 cannot open a file whose path is longer than ~120 characters (FASTA36 file-name limit): it truncates
+    the name and reports '***[ssearch36] cannot open library .../consensx***'. Step 2 makes its temp directory under
+    $PWD and passed its files to ssearch36 by full path, so a run started from a deep directory died there
+    (2026-11-23, found under pytest's own tmp path). The files are given by bare name inside the temp directory now."""
+    deep = tmp_path / ("run_" + "x" * 60) / ("sub_" + "y" * 50)
+    deep.mkdir(parents=True)
+    assert len(str(deep / ".step2_assign_abcd" / "splits" / "part_0001.fasta")) > 150
+    step2_toy(deep)
+    r = subprocess.run(["bash", str(ROOT / "step2_asSINEment.sh"), "cons.fa", "ext.fa", "2", "deep_out"],
+                       capture_output=True, text=True, cwd=deep, env=dict(os.environ, UNIT_RULE="0"))
+    assert r.returncode == 0, r.stderr[-2000:]
+    out = deep / sorted(p.name for p in deep.glob("deep_out*"))[0]
+    assert "***" not in (out / "ssearch.log").read_text()      # ssearch36 exits 0 when it cannot open a file
+    rows = [l.split("\t") for l in (out / "assignment_full.tsv").read_text().splitlines()[1:]]
+    assert len(rows) == 120 and "assigned" in {x[4] for x in rows}     # the same result as from a short path
 
 
 @pytest.mark.skipif(shutil.which("bedtools") is None, reason="needs bedtools")

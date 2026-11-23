@@ -53,8 +53,11 @@ def _sineplot(R, monkeypatch, s2):
 
     def fake_run(cmd, **kw):
         if cmd[0] == "ssearch36":
-            seen["names"] = [l[1:].strip() for l in open(cmd[-1]) if l.startswith(">")]
-            seen["queries"] = [l[1:].strip() for l in open(cmd[-2]) if l.startswith(">")]
+            # the call gives bare file names and sets cwd (ssearch36 cannot open a path over ~120 characters,
+            # 2026-11-23), so the stub resolves them against that directory as ssearch36 itself would
+            d = Path(kw.get("cwd") or ".")
+            seen["names"] = [l[1:].strip() for l in open(d / cmd[-1]) if l.startswith(">")]
+            seen["queries"] = [l[1:].strip() for l in open(d / cmd[-2]) if l.startswith(">")]
             seen["ssearch"] = cmd
         else:
             seen["argv"] = cmd

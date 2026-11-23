@@ -113,7 +113,7 @@ awk -F'\t' -v OFS='\t' -v pct="$PERCENTILE" '
       if (cut=="") cut=1
       print s, n, cut
     }
-  }' "$ASSIGN" "$SIM" | sort -k1,1 > "$OUT/cutoffs.tsv"
+  }' "$ASSIGN" "$SIM" | LC_ALL=C sort -k1,1 > "$OUT/cutoffs.tsv"   # C collation: the same order in every environment (2026-11-23)
 log "per-subfamily cut-offs (subfam, n_assigned, sim_ratio at P$PERCENTILE):"
 awk '{printf "  %-24s n=%-8s cut=%s\n", $1, $2, $3}' "$OUT/cutoffs.tsv" >&2
 

@@ -61,15 +61,19 @@ run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit
   first="$(printf '%s\n' "$TMPDIR"/splits/*.fasta | head -n 1)"
   ns="$(python3 "$STEP2_TOOLS/shuffle_cut.py" shuffle "$first" "$TMPDIR/shuffled.fa" --max "${SHUFFLE_N:-2000}")" || die "tools/shuffle_cut.py shuffle failed"
   nlib="$(awk '/^>/{n++} END{print n+0}' "$first")"
-  ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -b "=$ns" -d 0 -w 95 -W 70 -m 8 "$TMPDIR/consensus_clean.fa" "$TMPDIR/shuffled.fa" \
+  # bare file names inside $TMPDIR: ssearch36 cannot open a path longer than ~120 characters (FASTA36 file-name limit),
+  # it truncates the name and reports "cannot open library ..." (2026-11-23; the pattern of tools/continuation_check.py
+  # and the satellite tools). A run started from a deep working directory failed here on every call.
+  ( cd "$TMPDIR" && ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -b "=$ns" -d 0 -w 95 -W 70 -m 8 consensus_clean.fa shuffled.fa ) \
     > "$TMPDIR/shuffled.m8" 2>>"$OUTDIR/ssearch.log" || die "ssearch36 failed on the shuffled copies; see $OUTDIR/ssearch.log"
   python3 "$STEP2_TOOLS/shuffle_cut.py" cut "$TMPDIR/shuffled.m8" "$ns" "$nlib" > "$TMPDIR/consensus_cuts.tsv" || die "tools/shuffle_cut.py cut failed"
   cp "$TMPDIR/consensus_cuts.tsv" "$OUTDIR/consensus_cuts.tsv"
   log "Per-consensus cuts from $ns shuffled copies (consensus_cuts.tsv): $(wc -l < "$TMPDIR/consensus_cuts.tsv") consensuses"
   : > "$TMPDIR/raw_1.unsorted.m8"
   for part in "$TMPDIR"/splits/*.fasta; do
-    ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -E 1e-3 -w 95 -W 70 -m 8 \
-      "$TMPDIR/consensus_clean.fa" "$part" \
+    # bare names inside $TMPDIR, as above: "splits/part_0001.fasta" is 24 characters whatever the run directory is called
+    ( cd "$TMPDIR" && ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -E 1e-3 -w 95 -W 70 -m 8 \
+        consensus_clean.fa "splits/${part##*/}" ) \
       >> "$TMPDIR/raw_1.unsorted.m8" 2>>"$OUTDIR/ssearch.log" \
       || die "ssearch36 failed (${part##*/}); see $OUTDIR/ssearch.log"
   done

@@ -398,8 +398,10 @@ def collect(genome, hits_tsv, families, cons_fa, long_name, workdir, threads, fl
         chunks.append(p)
 
     def run(p):
-        r = subprocess.run(["ssearch36", "-g", "-3", "-m", "8CB", "-E", "1e-17", "-d", "5", "-z", "3", "-T", "1", workdir + "/cons.fa", p],   # fixed statistics (docs/REPRODUCIBILITY.md; was -z 11 -E 1e-3, the same cut under shuffles)
-                           capture_output=True, text=True)
+        # bare file names with cwd=workdir (2026-11-23): ssearch36 cannot open a path longer than ~120 characters
+        # (FASTA36 file-name limit); it truncates the name and reports "cannot open library ..."
+        r = subprocess.run(["ssearch36", "-g", "-3", "-m", "8CB", "-E", "1e-17", "-d", "5", "-z", "3", "-T", "1", "cons.fa", os.path.basename(p)],   # fixed statistics (docs/REPRODUCIBILITY.md; was -z 11 -E 1e-3, the same cut under shuffles)
+                           cwd=workdir, capture_output=True, text=True)
         # ssearch36 exits 0 also when it cannot read a file; "***" on stderr is the only sign. Until 2026-10-19 a failed search
         # was read as "no 5'-complete copies" and gave an UNRESOLVED verdict as if measured (GLM audit 2026-10-19)
         if r.returncode != 0 or "***" in r.stderr:

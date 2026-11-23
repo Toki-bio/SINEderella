@@ -1101,11 +1101,13 @@ def build_sineplot_iframe(s2_out: Path,
         scores = work / "scores.txt"
         LOG.info("  ssearch36: consensuses against %d sequences", len(records))
         with scores.open("w") as fh:
+            # bare file names with cwd=work (2026-11-23): ssearch36 cannot open a path longer than ~120 characters
+            # (FASTA36 file-name limit); it truncates the name and reports "cannot open library ...".
             r = subprocess.run(
                 ["ssearch36", "-g", "-3", "-m", "8", "-T", str(threads),
                  "-z", "3", "-b", "=%d" % len(records),
-                 str(cons_fa), str(all_fa)],
-                stdout=fh, stderr=subprocess.PIPE, check=False)
+                 cons_fa.name, all_fa.name],
+                cwd=str(work), stdout=fh, stderr=subprocess.PIPE, check=False)
         if r.returncode != 0:
             LOG.warning("ssearch36 failed (rc=%d): %s",
                         r.returncode, r.stderr.decode(errors="replace")[:300])
