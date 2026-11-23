@@ -99,7 +99,7 @@ After assignment `tools/array_flag.py` writes `results/array_flag.tsv` (share of
 
 ### Consensus audit
 
-After the length-version test, `tools/consensus_audit.py` rebuilds every consensus of the bank from its own assigned copies (bootstrap subsamples, two seeds; `tools/vendor/sine_consensus.sh`) and writes `results/consensus_audit/summary.tsv`: mismatches and gap columns against the bank, and a verdict `MATCH` / `SHORTER` / `LONGER` / `DIVERGED` / `UNSTABLE` / `SKIPPED`. The table is shown in the report. It is a decision input; the bank is never changed. Method and limits: docs/CONSENSUS_AUDIT.md.
+After the length-version test, `tools/consensus_audit.py` rebuilds every consensus of the bank from its own assigned copies (bootstrap subsamples, two seeds; `tools/vendor/sine_consensus.sh`) and writes `results/consensus_audit/summary.tsv`: mismatches and gap columns against the bank, and a verdict `MATCH` / `SHORTER` / `LONGER` / `DIVERGED` / `UNSTABLE` / `SKIPPED`. The same table also carries the identity **between the copies themselves** (median and 10th-90th percentile of pairwise identity over a seeded sample of at most 60 copies, aligned with each other and kept in `results/consensus_audit/copies/`) and the GC of the bank sequence, the copies and the rebuild: the only place in the workflow where copies are compared with each other rather than with a consensus. The report table is sorted by that median, lowest first. The table is shown in the report. It is a decision input; no threshold is applied, no verdict depends on the identity column and the bank is never changed. Method and limits: docs/CONSENSUS_AUDIT.md.
 
 ### Length versions
 

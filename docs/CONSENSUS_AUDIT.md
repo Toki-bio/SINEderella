@@ -4,6 +4,11 @@ A consensus of the bank is a hypothesis; the copies assigned to it are the evide
 consensus from its own assigned copies and compares the result with the bank sequence. It never changes the bank: the table
 (`results/consensus_audit/summary.tsv`, shown in the report under "Sequence similarity between consensuses") is a decision input.
 
+The same copies answer a second question, added 2026-11-23: **do they resemble each other?** Every other gate of the workflow
+compares a copy with a consensus - the per-consensus score cut of step 1, the flank-uniqueness test, the per-copy verdict - so a
+consensus whose *composition* alone attracts hits can collect copies that each pass on their own and have nothing to do with one
+another, and the report would still list them as a subfamily. The audit now measures that directly and prints it beside the rebuild.
+
 ## Method
 
 * Copies: `results/assigned.fasta`, split by the family label in the id (`locus|family|bits`). A family needs at least 20 assigned copies
@@ -19,6 +24,32 @@ consensus from its own assigned copies and compares the result with the bank seq
   `--threadit 0` (see PUBLISH_WORKFLOW.md); an error unless awk is gawk (the column counting uses arrays of arrays).
 * Each family is rebuilt with two seeds (`--seeds 1,2`), each rebuild is aligned globally to the bank sequence (match +1, mismatch −1,
   gap −1) and the table gives bp, mismatches and gap columns, and the mismatches between the two rebuilds.
+
+## Identity between the copies (copy against copy, not copy against consensus)
+
+* **Sample.** The assigned copies of a family are sorted by id and, if there are more than `--identity-sample` (60), a seeded draw
+  (`--identity-seed`, fixed at 20261123) takes 60 of them; the drawn ids are sorted again. Same assigned set → same 60 copies →
+  same numbers. 60 copies give 1770 pairs, which is plenty for a median; the cost is one alignment per family.
+* **Alignment.** `mafft --threadit 0 --auto --quiet --preservecase` on those copies - the same binary and the same determinism
+  setting as the rebuild. The alignment is kept, so the number can be read off a plate:
+  `results/consensus_audit/copies/<family>.sample.aln.fa`.
+* **Identity of one pair.** Over the columns where **both** rows carry A/C/G/T: matches ÷ shared columns. A gap or an N in either
+  row removes the column from both the numerator and the denominator, so an insertion in one copy neither helps nor hurts the pair.
+  A pair sharing fewer than 30 columns is dropped. The table gives the median and the 10th-90th percentile over all pairs, with
+  `copies_compared` and `copy_pairs`.
+* **Copy set.** The copies the *rebuild* uses, that is every copy in `results/assigned.fasta` with that label, whatever its per-copy
+  verdict - so the identity column and the rebuild columns rest on the same evidence. A family needs at least 4 assigned copies;
+  below that the cell is empty. This is deliberately **not** restricted to the flank-unique copies: it is a measurement table, not
+  a plate to decide a locus from.
+* **Composition.** `bank_gc`, `copy_gc_median` (median GC of the sampled copies) and `rebuilt_gc_s<seed>` are in the table because
+  composition is the usual reason a consensus draws unrelated copies: a GC-rich consensus matches GC-rich genomic sequence.
+* **It is computed for every family that has copies, including the ones with fewer than `--min-copies`** whose rebuild is `SKIPPED`
+  (that is where MEG-T2 in rsi sits: 12 assigned copies, no rebuild, and an identity the rebuild could never have shown).
+* **No threshold, and no verdict depends on it.** The `verdict` column is still only about the rebuild. Where the line between a
+  real family and a composition artefact falls is a decision to be made from the distribution across real subfamilies, not a
+  constant in this script.
+* In the report the audit table is **sorted by this median, lowest first**, with a bar per row, so a consensus whose copies do not
+  resemble one another is at the top of the table without anything being flagged.
 
 ## Verdicts
 
@@ -49,6 +80,10 @@ the subsampling is random by design, only a fixed seed repeats it.
 ## Use
 
 * In the pipeline: runs after the length-version test; `SKIP_CONSENSUS_AUDIT=1` skips it, `CONSENSUS_AUDIT_JOBS` (default 8) sets the parallel rebuilds.
-* By hand: `python3 tools/consensus_audit.py RUN_DIR [--jobs 8] [--min-copies 20] [--seeds 1,2] [--subsample 100]`. Needs mafft and gawk.
-* Tests: `tests/test_consensus_audit.py` (alignment counts, every verdict, copy splitting; an end-to-end toy when mafft and gawk exist,
-  which must give the same rebuild twice for the same seed).
+* By hand: `python3 tools/consensus_audit.py RUN_DIR [--jobs 8] [--min-copies 20] [--seeds 1,2] [--subsample 100]
+  [--identity-sample 60] [--identity-seed 20261123]`. Needs mafft and gawk.
+* Tests: `tests/test_consensus_audit.py` (alignment counts, every verdict, copy splitting, the pairwise-identity arithmetic on a
+  hand-made alignment plus a random-sequence and a one-ancestor control; an end-to-end toy when mafft and gawk exist, which must give
+  the same rebuild **and the same table** twice for the same seed). `tests/compare_runs.py` compares
+  `results/consensus_audit/summary.tsv` between two runs of the same input, so both draws staying reproducible is checked by
+  `tests/test_reproducible_run.sh` like the rest of the run.

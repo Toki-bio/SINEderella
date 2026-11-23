@@ -9,6 +9,8 @@ Compared, whole lines and bytes (docs/REPRODUCIBILITY.md):
   plates        results/alignments/*.fa                       every published alignment, byte for byte
   cuts          the per-consensus score cuts (step 1: "cut for" lines of step1.stdout.log; step 2: consensus_cuts.tsv)
   consensuses   consensuses.publish.fa
+  audit         results/consensus_audit/summary.tsv           the rebuild of every consensus and the identity between its copies
+                                                              (both are drawn with fixed seeds, so they must repeat exactly)
 A missing file in both runs is skipped (a run without publish has no plates); missing in one run is a difference.
 --loci writes one row per locus: subfamily, status and verdict in A and in B (to see which loci changed).
 Used by tests/test_reproducible_run.sh.
@@ -60,7 +62,8 @@ def main():
                         ("family view ", "family_view/step2/step2_output", "family_view/step2/step2_output")):
         for f in ("sim_scores.tsv", "all_sines.bedlike.ALL.tsv", "summary.by_subfam.tsv", "unassigned.tsv", "assignment_full.tsv", "ties.tsv"):
             files.append((sub + f, da + "/" + f, db + "/" + f))
-    for f in ("family_view/family_view.tsv", "family_view/family_view.summary.tsv"):
+    for f in ("family_view/family_view.tsv", "family_view/family_view.summary.tsv",
+              "results/consensus_audit/summary.tsv"):
         files.append((f, f, f))
     bad = 0
     for name, ra, rb in files:

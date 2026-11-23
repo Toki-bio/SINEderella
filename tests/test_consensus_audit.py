@@ -46,6 +46,56 @@ class Verdict(unittest.TestCase):
         self.assertEqual(v(40, [34, 35], [0, 0], 0), "MATCH")             # 8 bp floor on a short one
 
 
+class Identity(unittest.TestCase):
+    """the copy-against-copy measure: pairwise identity over the columns where both rows have a base"""
+
+    def test_counted_only_where_both_have_a_base(self):
+        old = ca.IDENT_MIN_COLUMNS
+        ca.IDENT_MIN_COLUMNS = 3
+        try:
+            # row 3 differs from row 1 at the last base and has a gap: 7 shared columns, 6 the same
+            got = ca.pairwise_identities(["ACGTACGT", "ACGTACGT", "ACG-ACGA"])
+            self.assertEqual([round(x, 2) for x in got], [85.71, 85.71, 100.0])
+        finally:
+            ca.IDENT_MIN_COLUMNS = old
+
+    def test_rows_without_a_shared_column_are_dropped(self):
+        self.assertEqual(ca.pairwise_identities(["ACGTACGTAC" * 4, "N" * 40]), [])
+
+    def test_unrelated_sequences_sit_near_chance(self):
+        rows = [rnd(300) for _ in range(12)]
+        med = ca.percentile(ca.pairwise_identities(rows), 50)
+        self.assertLess(med, 60.0)                                          # random sequence: nowhere near a real family
+
+    def test_copies_of_one_family_sit_high(self):
+        base = rnd(300)
+        rows = []
+        for _ in range(12):
+            c = list(base)
+            for _ in range(30):                                             # ~10 % divergence from the common ancestor
+                c[R.randrange(len(c))] = R.choice("ACGT")
+            rows.append("".join(c))
+        self.assertGreater(ca.percentile(ca.pairwise_identities(rows), 50), 75.0)
+
+    def test_gc_and_percentile(self):
+        self.assertAlmostEqual(ca.gc_pct("GGCCAATT"), 50.0)
+        self.assertAlmostEqual(ca.gc_pct("GG--NN"), 100.0)
+        self.assertIsNone(ca.gc_pct("---"))
+        v = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        self.assertEqual((ca.percentile(v, 10), ca.percentile(v, 50), ca.percentile(v, 90)), (2, 5, 9))
+        self.assertIsNone(ca.percentile([], 50))
+
+    def test_read_rows_keeps_duplicate_names(self):
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, "x.fa")
+            with open(p, "w") as fh:
+                fh.write(">a\nACGT\n>a\nAC\nGT\n>b\nTTTT\n")
+            self.assertEqual(ca.read_rows(p), ["ACGT", "ACGT", "TTTT"])
+        finally:
+            shutil.rmtree(d)
+
+
 class Split(unittest.TestCase):
     def test_split_by_label(self):
         d = tempfile.mkdtemp()
@@ -83,11 +133,20 @@ class EndToEnd(unittest.TestCase):
                 self.assertEqual(ca.main.__module__, "consensus_audit")
                 sys.argv = ["consensus_audit.py", d, "--jobs", "2"]
                 ca.main()
-                outs.append(open(os.path.join(d, "results", "consensus_audit", "rebuilt.fa")).read())
-            self.assertEqual(outs[0], outs[1])                              # same seeds -> same rebuild
+                outs.append((open(os.path.join(d, "results", "consensus_audit", "rebuilt.fa")).read(),
+                             open(os.path.join(d, "results", "consensus_audit", "summary.tsv")).read()))
+            self.assertEqual(outs[0], outs[1])                              # same seeds -> same rebuild and same table
             rows = [l.split("\t") for l in open(os.path.join(d, "results", "consensus_audit", "summary.tsv")).read().splitlines()]
             r = dict(zip(rows[0], rows[1]))
             self.assertEqual(r["verdict"], "MATCH")
+            # the copies were made from one sequence with up to 6 substitutions each, so they must resemble each other
+            self.assertEqual(r["copies_compared"], "60")
+            self.assertEqual(r["copy_pairs"], "1770")
+            self.assertGreater(float(r["copy_identity_median"]), 90.0)
+            self.assertLessEqual(float(r["copy_identity_p10"]), float(r["copy_identity_median"]))
+            self.assertGreaterEqual(float(r["copy_identity_p90"]), float(r["copy_identity_median"]))
+            self.assertTrue(r["bank_gc"] and r["copy_gc_median"] and r["rebuilt_gc_s1"])
+            self.assertTrue(os.path.exists(os.path.join(d, "results", "consensus_audit", "copies", "toy.sample.aln.fa")))
         finally:
             shutil.rmtree(d)
 

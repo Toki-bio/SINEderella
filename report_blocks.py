@@ -71,21 +71,53 @@ def _consensus_audit(run_root):
     if len(lines) < 2:
         return ""
     h = lines[0]
+    recs = [dict(zip(h, l)) for l in lines[1:]]
+    # sorted by the identity between the copies, lowest first: a consensus whose copies do not resemble one another
+    # stands at the top of the table without any threshold being applied to it
+    recs.sort(key=lambda r: (float(r["copy_identity_median"]) if r.get("copy_identity_median") else 1e9, r.get("family", "")))
     rows = []
-    for l in lines[1:]:
-        r = dict(zip(h, l))
+    for r in recs:
         s1 = [k for k in h if k.startswith("rebuilt_bp_s")]
         m1 = [k for k in h if k.startswith("mismatches_s")]
+        g1 = [k for k in h if k.startswith("rebuilt_gc_s")]
         bp = " / ".join(r.get(k, "") or "-" for k in s1)
         mm = " / ".join(r.get(k, "") or "-" for k in m1)
-        rows.append("<tr><td>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td><b>%s</b></td></tr>" % (
-            html.escape(lab(r["family"])), html.escape(r.get("copies", "")), html.escape(r.get("bank_bp", "")), html.escape(bp), html.escape(mm),
-            AUDIT_WORDS.get(r.get("verdict", ""), html.escape(r.get("verdict", "")))))
-    return ("<h3 style='margin-top:16px'>Is each consensus what its copies say?</h3><p>Every consensus is rebuilt from the copies assigned to it (random subsamples, "
-            "two seeds) and compared with the bank sequence (<code>docs/CONSENSUS_AUDIT.md</code>). A shorter or longer rebuild is not an error by itself: "
-            "it says that fewer, or more, than 30 % of the copies carry a stretch.</p>"
-            "<table class='tbl'><thead><tr><th>Consensus</th><th class='n'>Copies</th><th class='n'>Bank bp</th><th class='n'>Rebuilt bp (2 seeds)</th>"
-            "<th class='n'>Mismatches</th><th>Answer</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
+        med = r.get("copy_identity_median", "")
+        if med:
+            ident = ("<span style='display:inline-block;width:64px;height:9px;background:#e3e3e3;vertical-align:middle'>"
+                     "<span style='display:block;width:%d%%;height:9px;background:#777'></span></span>"
+                     "<span style='margin-left:6px'><b>%s</b> <span style='opacity:.7'>(%s&ndash;%s)</span></span>"
+                     % (max(1, min(100, int(round(float(med))))), html.escape(med),
+                        html.escape(r.get("copy_identity_p10", "")), html.escape(r.get("copy_identity_p90", ""))))
+        else:
+            ident = "&ndash;"
+        copies = html.escape(r.get("copies", ""))
+        if r.get("copies_compared"):
+            copies += " <span style='opacity:.7'>(%s)</span>" % html.escape(r["copies_compared"])
+        rgc = [html.escape(r[k]) for k in g1 if r.get(k)]
+        gcs = "%s / %s / %s" % (html.escape(r.get("bank_gc", "") or "-"), html.escape(r.get("copy_gc_median", "") or "-"),
+                                " ".join(rgc) if rgc else "-")
+        rows.append("<tr><td>%s</td><td class='n'>%s</td><td>%s</td><td class='n'>%s</td>"
+                    "<td class='n'>%s</td><td class='n'>%s</td><td class='n'>%s</td><td><b>%s</b></td></tr>" % (
+                        html.escape(lab(r["family"])), copies, ident, gcs,
+                        html.escape(r.get("bank_bp", "")), html.escape(bp), html.escape(mm),
+                        AUDIT_WORDS.get(r.get("verdict", ""), html.escape(r.get("verdict", "")))))
+    return ("<h3 style='margin-top:16px'>Is each consensus what its copies say &ndash; and do its copies resemble each other?</h3>"
+            "<p>Every consensus is rebuilt from the copies assigned to it (random subsamples, two seeds) and compared with the bank sequence "
+            "(<code>docs/CONSENSUS_AUDIT.md</code>). A shorter or longer rebuild is not an error by itself: it says that fewer, or more, than 30 % of "
+            "the copies carry a stretch.</p>"
+            "<p>The same copies answer a second question, and it is the only place in the workflow where they are compared with <b>each other</b> rather "
+            "than with a consensus: the <b>identity between the copies</b> is the median of the pairwise identity of a seeded sample of them "
+            "(at most 60 copies, so up to 1770 pairs), counted over the alignment columns where both copies have a base, with the 10th&ndash;90th "
+            "percentile beside it. The table is sorted by that median, lowest first. Members of one SINE subfamily resemble one another; a consensus "
+            "that collects copies resembling only it, and not each other &ndash; which every score cut, flank test and per-copy verdict would still pass "
+            "one by one &ndash; sits at the top of this table. <b>No threshold is applied and no verdict depends on this column</b>; the GC column "
+            "(bank / copies / rebuild) is there because composition is the usual reason a consensus draws unrelated copies. The sampled copies stay "
+            "aligned in <code>results/consensus_audit/copies/</code> for reading.</p>"
+            "<table class='tbl'><thead><tr><th>Consensus</th><th class='n'>Copies (compared)</th>"
+            "<th>Identity between the copies %, median (p10&ndash;p90)</th><th class='n'>GC % bank / copies / rebuild</th>"
+            "<th class='n'>Bank bp</th><th class='n'>Rebuilt bp (2 seeds)</th><th class='n'>Mismatches</th><th>Answer</th>"
+            "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>")
 
 
 def _arrays(run_root):
