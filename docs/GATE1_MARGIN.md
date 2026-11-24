@@ -123,13 +123,28 @@ both assert 120 rows and now fail - correctly: they are catching this, not compl
 On the rsi run this did not arise, because step 1's own cut is stricter than the old `expect` = 2, so every one
 of the 68,191 loci had a row. With the margin, some will not.
 
-**Two ways to fix it - owner's decision:**
+### Fixed (owner chose option 1, 2026-11-24)
 
-1. **Keep the margin in 1a and add the missing rows.** For a copy that had hits but none above the cut, emit a
-   row with its best sub-cut consensus and status `rejected_low_bitscore`. Purely additive: no surviving
-   assignment changes. Needs doing in both copies of the logic (:416, :818).
-2. **Move the margin to 1b** instead, where the row already survives. Smaller change, but it leaves 1a sitting
-   at the noise floor, and 1b is the relative threshold that cannot see a wholly-noise subfamily - so the
-   margin would have to be made absolute there anyway.
+`run_votes` keeps each such copy's best sub-cut hit in `below_cut.tsv`, and **both** assignment paths
+(`run_assignment`, `run_incremental_assignment`) write it as a row with status `rejected_low_bitscore` and
+`Threshold` `NA`, tagged `below_cut=1` in `RunnerInfo`. Purely additive: nothing above the cut changes, and these
+copies never enter `unanimous.tsv`, so the relative thresholds of `thresholds.tsv` do not move.
 
-I prefer 1. It is not applied yet, so this branch is not ready to merge.
+Verified on the toy fixture, both ways:
+
+| | rows | assigned | rejected_low_bitscore |
+|---|---|---|---|
+| `STEP2_EXPECT=2` | 120 | 91 | 29 |
+| `STEP2_EXPECT=1e-7` | **120** | 91 | 29 |
+
+All 120 input copies present exactly once, none missing, none duplicated. The five copies the margin pushed below
+the cut (`TC_p0.4` x4, `TB_p0.4` x1) carry `below_cut=1`. Their final status is unchanged, because the relative
+threshold 1b had already rejected them - the margin moved them from being rejected by 1b to being rejected by 1a.
+
+The two tests that caught the problem (`test_step2_twice_identical`, `test_step2_in_a_long_path`) pass
+**unchanged** - the assertion of 120 rows was not relaxed. Whole suite: 175 passed.
+
+### Still not done
+
+The effect of the margin on the full rsi genome has **not** been measured; a full run is needed to say how many
+loci change status there, and the five noise subfamilies' loci are the point of the exercise.
