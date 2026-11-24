@@ -51,10 +51,20 @@ unit_table(){   # BANK.fa OUT.tsv: composite_units.py --bank, or an empty table 
 # in different families of the --families table).
 # The files keep their layout: every copy with a hit has Votes 10 and Bitscore = 10 x bit score; the status
 # no_unanimous is no longer written by this step.
-# Which alignments count: each consensus has its own cut, the bit score that 2 shuffled copies of a part are expected to
-# reach (tools/shuffle_cut.py: up to 2,000 copies of the first part shuffled with a fixed seed, searched with the same
-# options). This is what E <= 2 did under the shuffles of -z 11. A consensus without a cut (fewer than 30 shuffled copies
-# with a score) keeps E <= 1e-7. -E 1e-3 only limits the output of ssearch36.
+# Which alignments count: each consensus has its own cut, the bit score that STEP2_EXPECT shuffled copies of a part are
+# expected to reach (tools/shuffle_cut.py: up to 2,000 copies of the first part shuffled with a fixed seed, searched with
+# the same options; a Gumbel fit, cut = mu + beta * ln(nlib / STEP2_EXPECT)). A consensus without a cut (fewer than 30
+# shuffled copies with a score) keeps E <= $STEP2_EXPECT. -E 1e-3 only limits the output of ssearch36.
+#
+# STEP2_EXPECT was 2 until 2026-11-24 ("E <= 2", what the shuffles of -z 11 did). That is the noise floor itself, so a copy
+# that beat it by a hair was assigned: on the full rsi genome the weakest copies of r2_3seqs and r4_32seqs cleared their
+# cut by 0.07 beta, and MEG-TR / MEG-T2 / MEG-RL by 2.75 / 3.23 / 3.56, while the weakest copy of every other subfamily
+# cleared it by 21.73 beta or more (empty range 3.56-21.73; docs/GATE1_MARGIN.md). Nothing downstream re-examines the
+# element: the flank tests of step 7 and flankscan stage 9 compare flanks, never two copies' bodies, so copies that are
+# no more alike than their own shuffles came out verdicted SINE (owner 2026-11-24).
+# The margin is therefore set in gate 1 itself, and not as a number in bits: 1e-7 is the stringency the no-cut branch below
+# already demanded, so both branches are now equally strict. 2 -> 1e-7 is ln(2e7) = 16.8 beta, inside the empty range.
+STEP2_EXPECT="${STEP2_EXPECT:-1e-7}"
 TIE_MARGIN="${TIE_MARGIN:-0.02}"
 run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit_rule_swaps.tsv)
   local part first ns nlib
@@ -66,7 +76,7 @@ run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit
   # and the satellite tools). A run started from a deep working directory failed here on every call.
   ( cd "$TMPDIR" && ssearch36 -g -3 -T "$THREADS" -Q -n -z 3 -b "=$ns" -d 0 -w 95 -W 70 -m 8 consensus_clean.fa shuffled.fa ) \
     > "$TMPDIR/shuffled.m8" 2>>"$OUTDIR/ssearch.log" || die "ssearch36 failed on the shuffled copies; see $OUTDIR/ssearch.log"
-  python3 "$STEP2_TOOLS/shuffle_cut.py" cut "$TMPDIR/shuffled.m8" "$ns" "$nlib" > "$TMPDIR/consensus_cuts.tsv" || die "tools/shuffle_cut.py cut failed"
+  python3 "$STEP2_TOOLS/shuffle_cut.py" cut "$TMPDIR/shuffled.m8" "$ns" "$nlib" --expect "$STEP2_EXPECT" > "$TMPDIR/consensus_cuts.tsv" || die "tools/shuffle_cut.py cut failed"
   cp "$TMPDIR/consensus_cuts.tsv" "$OUTDIR/consensus_cuts.tsv"
   log "Per-consensus cuts from $ns shuffled copies (consensus_cuts.tsv): $(wc -l < "$TMPDIR/consensus_cuts.tsv") consensuses"
   : > "$TMPDIR/raw_1.unsorted.m8"
@@ -80,7 +90,7 @@ run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit
   # ssearch36 exits 0 when it cannot open a file; "***" in its log is then the only sign (healthy runs leave the log empty)
   ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
   # with several threads ssearch36 writes the same lines in another order: sorted, so that nothing depends on it
-  awk -F'\t' 'FILENAME == ARGV[1] { c[$1] = $2 + 0; next } (($1 in c) ? $12 + 0 >= c[$1] : $11 + 0 <= 1e-7)' \
+  awk -F'\t' -v EXP="$STEP2_EXPECT" 'FILENAME == ARGV[1] { c[$1] = $2 + 0; next } (($1 in c) ? $12 + 0 >= c[$1] : $11 + 0 <= EXP + 0)' \
     "$TMPDIR/consensus_cuts.tsv" "$TMPDIR/raw_1.unsorted.m8" | LC_ALL=C sort > "$TMPDIR/raw_1.m8"; rm -f "$TMPDIR/raw_1.unsorted.m8"
   cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_1.m8" | LC_ALL=C sort > "$TMPDIR/best_1.tsv"
   # every copy goes to its best-scoring consensus (10 votes); a second consensus within TIE_MARGIN of the best is written

@@ -11,6 +11,7 @@ The whole workflow twice: tests/test_reproducible_run.sh (server, minutes).
 
 Needs ssearch36; step 2 needs seqkit, the continuation check bedtools.
 """
+import math
 import os
 import random
 import shutil
@@ -186,6 +187,51 @@ def test_shuffle_cut_is_the_same_every_time_and_follows_the_consensus(tmp_path):
     c = {l.split("\t")[0]: float(l.split("\t")[1]) for l in cuts[0].splitlines()}
     assert set(c) == {"plain", "gcrepeat"}
     assert c["gcrepeat"] > c["plain"] + 5
+
+
+def test_gate1_margin_expect_raises_every_cut_by_the_same_beta_factor(tmp_path):
+    """Gate 1 keeps a margin above the shuffle noise floor (docs/GATE1_MARGIN.md, owner 2026-11-24): step 2 asks
+    tools/shuffle_cut.py for STEP2_EXPECT = 1e-7, not the old 2. cut = mu + beta * ln(nlib / expect), so tightening
+    expect must raise every consensus's cut by exactly beta * ln(2 / 1e-7), whatever its composition."""
+    tool = str(ROOT / "tools" / "shuffle_cut.py")
+    r = random.Random(11)
+    with open(tmp_path / "lib.fa", "w") as fh:
+        for i in range(300):
+            fh.write(">w%d\n%s\n" % (i, "".join(r.choice("ACGGGCCT") for _ in range(1500))))
+    p = subprocess.run([sys.executable, tool, "shuffle", "lib.fa", "s1.fa", "--max", "200"], capture_output=True, text=True, cwd=tmp_path)
+    assert p.returncode == 0, p.stderr
+    plain = "".join(r.choice(B4) for _ in range(200))
+    (tmp_path / "q.fa").write_text(">plain\n%s\n>gcrepeat\n%s\n" % (plain, "GGGCGCCAGGCCCCGG" * 12))
+    with open(tmp_path / "s.m8", "w") as fh:
+        p = subprocess.run(["ssearch36", "-g", "-3", "-T", "2", "-Q", "-n", "-z", "3", "-b", "=200", "-d", "0", "-m", "8", "q.fa", "s1.fa"],
+                           stdout=fh, stderr=subprocess.PIPE, text=True, cwd=tmp_path)
+    assert p.returncode == 0, p.stderr
+
+    def cuts_for(expect):
+        p = subprocess.run([sys.executable, tool, "cut", "s.m8", "200", "5000", "--expect", expect],
+                           capture_output=True, text=True, cwd=tmp_path)
+        assert p.returncode == 0, p.stderr
+        out = {}
+        for line in p.stdout.splitlines():
+            f = line.split("\t")
+            out[f[0]] = (float(f[1]), float(f[2]), float(f[3]))     # cut, mu, beta
+        return out
+
+    old, new = cuts_for("2"), cuts_for("1e-7")
+    assert set(old) == set(new) == {"plain", "gcrepeat"}
+    want = math.log(2 / 1e-7)                                        # 16.81 beta units
+    for q in old:
+        cut_old, _, beta = old[q]
+        cut_new, _, beta_new = new[q]
+        assert beta == beta_new                                      # the fit itself does not move
+        assert cut_new > cut_old
+        assert abs((cut_new - cut_old) / beta - want) < 0.05, (q, cut_old, cut_new, beta)
+
+    # step 2 must ask for 1e-7 by default, and the no-cut branch must use the same number, not a second literal
+    src = (ROOT / "step2_asSINEment.sh").read_text(encoding="utf-8")
+    assert 'STEP2_EXPECT="${STEP2_EXPECT:-1e-7}"' in src
+    assert '--expect "$STEP2_EXPECT"' in src
+    assert '$11 + 0 <= EXP + 0' in src and "<= 1e-7" not in src.split("STEP2_EXPECT=")[1]
 
 
 def _commit_of(tree, env_extra=None):
