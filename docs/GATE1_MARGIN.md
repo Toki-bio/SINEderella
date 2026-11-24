@@ -120,8 +120,8 @@ row of that table. Such a copy therefore gets **no verdict**, which contradicts 
 copy verdicted"). `tests/test_reproducible.py::test_step2_twice_identical` and `::test_step2_in_a_long_path`
 both assert 120 rows and now fail - correctly: they are catching this, not complaining about the margin.
 
-On the rsi run this did not arise, because step 1's own cut is stricter than the old `expect` = 2, so every one
-of the 68,191 loci had a row. With the margin, some will not.
+The fault is older than the margin: on the full rsi genome with `expect` = 2, step 1 gives 68,345 copies and
+`assignment_full.tsv` had 68,191 rows, so 154 copies had no row and no verdict.
 
 ### Fixed (owner chose option 1, 2026-11-24)
 
@@ -144,7 +144,34 @@ threshold 1b had already rejected them - the margin moved them from being reject
 The two tests that caught the problem (`test_step2_twice_identical`, `test_step2_in_a_long_path`) pass
 **unchanged** - the assertion of 120 rows was not relaxed. Whole suite: 175 passed.
 
-### Still not done
+### Effect on the full rsi genome (2026-11-24)
 
-The effect of the margin on the full rsi genome has **not** been measured; a full run is needed to say how many
-loci change status there, and the five noise subfamilies' loci are the point of the exercise.
+`therioserver:/home/toki/tmp/sdc5/rsi_margin/run_20261124_125913` (commit dd71d4b) against
+`therioserver:/home/toki/tmp/sdc4/rsi/nat/run_20261123_153329` (commit 0bac7e7, expect 2). Same genome, bank and
+threads; step 1 output byte-identical. Compared copy by copy on `loci_verdict.tsv`
+(`therioserver:/home/toki/tmp/margin_verify.sh`).
+
+| | expect 2 | expect 1e-7 |
+|---|---|---|
+| step 1 copies | 68,345 | 68,345 |
+| copies with a verdict | 68,191 | 68,345 |
+| SINE | 50,907 | 50,845 |
+| grey | 12,463 | 12,471 |
+| not_SINE | 4,821 | 5,029 |
+
+Every cut rose by 16.8 beta (21 of 21 consensuses). 62 copies left SINE (56 to not_SINE, 6 to grey), all of them in the
+five small subfamilies; no copy of the other 16 changed its SINE or grey verdict, and no copy became SINE.
+
+| subfamily | assigned | SINE / grey / not_SINE, expect 2 | assigned, 1e-7 | SINE / grey / not_SINE, 1e-7 |
+|---|---|---|---|---|
+| MEG-T2 | 12 | 10/0/2 | 0 | 0/0/12 |
+| r4_32seqs | 17 | 17/0/0 | 2 | 0/2/9 |
+| r2_3seqs | 17 | 16/1/0 | 4 | 0/4/5 |
+| MEG-TR | 15 | 12/1/2 | 5 | 0/5/10 |
+| MEG-RL | 19 | 13/6/0 | 11 | 6/5/8 |
+
+22 of the 80 copies of these five clear the new cut, so four of the five are mixtures and only MEG-T2 is wholly at the
+noise level: the median copy-against-copy excess above describes the mixture, not every copy. The three with fewer than
+7 copies left are grey because step 7 cannot test their flanks. Scores inside these subfamilies are continuous (r4_32seqs
+keeps a copy at 102.5 bits with a cut of 101.5), so the empty range holds between subfamilies, not within them.
+The subfamily written on a below-cut copy is only its best hit (221 not_SINE copies changed label); it is not an assignment.

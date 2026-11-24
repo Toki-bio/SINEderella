@@ -95,13 +95,12 @@ run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit
   cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_1.m8" | LC_ALL=C sort > "$TMPDIR/best_1.tsv"
   # A copy whose every hit fell below its consensus's cut is not in best_1.tsv, so it would reach no row in
   # assignment_full.tsv at all - and publish/verdict_chain.sh writes one verdict per row of that table, so the copy
-  # would get no verdict, against docs/AIM.md (every initial copy verdicted). With STEP2_EXPECT at the old 2 this was
-  # invisible, because step 1's own cut is stricter than E <= 2; with the margin it is not (docs/GATE1_MARGIN.md,
-  # owner 2026-11-24). The best sub-cut hit of each such copy is kept here and written as rejected_low_bitscore.
+  # would get no verdict, against docs/AIM.md (every initial copy verdicted). With STEP2_EXPECT at the old 2 this
+  # already took the row of 154 of the 68,345 rsi copies (docs/GATE1_MARGIN.md, owner 2026-11-24). The best sub-cut hit of each such copy is kept here and written as rejected_low_bitscore.
   # Nothing above the cut is touched, and these copies never enter unanimous.tsv, so the relative thresholds of
   # thresholds.tsv do not move either.
   awk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { done[$1] = 1; next }
-    !($2 in done) && ($12 + 0 > best[$2] + 0) { best[$2] = $12 + 0; bc[$2] = $1 }
+    !($2 in done) && ($12 + 0 > best[$2] + 0 || ($12 + 0 == best[$2] + 0 && $1 < bc[$2])) { best[$2] = $12 + 0; bc[$2] = $1 }   # equal scores: the name that sorts first (the hits are unsorted here)
     END { for (s in bc) printf "%s\t%s\t%d\n", s, bc[s], int(best[s] * 10 + 0.5) }' \
     "$TMPDIR/best_1.tsv" "$TMPDIR/raw_1.unsorted.m8" | LC_ALL=C sort > "$TMPDIR/below_cut.tsv"
   rm -f "$TMPDIR/raw_1.unsorted.m8"
