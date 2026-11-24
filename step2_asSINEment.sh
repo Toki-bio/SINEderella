@@ -91,8 +91,21 @@ run_votes(){   # $TMPDIR/splits/*.fasta -> $TMPDIR/votes.tsv (and raw_1.m8, unit
   ! grep -q '\*\*\*' "$OUTDIR/ssearch.log" || die "ssearch36 error: $(grep '\*\*\*' "$OUTDIR/ssearch.log" | head -1)"
   # with several threads ssearch36 writes the same lines in another order: sorted, so that nothing depends on it
   awk -F'\t' -v EXP="$STEP2_EXPECT" 'FILENAME == ARGV[1] { c[$1] = $2 + 0; next } (($1 in c) ? $12 + 0 >= c[$1] : $11 + 0 <= EXP + 0)' \
-    "$TMPDIR/consensus_cuts.tsv" "$TMPDIR/raw_1.unsorted.m8" | LC_ALL=C sort > "$TMPDIR/raw_1.m8"; rm -f "$TMPDIR/raw_1.unsorted.m8"
+    "$TMPDIR/consensus_cuts.tsv" "$TMPDIR/raw_1.unsorted.m8" | LC_ALL=C sort > "$TMPDIR/raw_1.m8"
   cycle_best "$TMPDIR/units.tsv" "$TMPDIR/raw_1.m8" | LC_ALL=C sort > "$TMPDIR/best_1.tsv"
+  # A copy whose every hit fell below its consensus's cut is not in best_1.tsv, so it would reach no row in
+  # assignment_full.tsv at all - and publish/verdict_chain.sh writes one verdict per row of that table, so the copy
+  # would get no verdict, against docs/AIM.md (every initial copy verdicted). With STEP2_EXPECT at the old 2 this was
+  # invisible, because step 1's own cut is stricter than E <= 2; with the margin it is not (docs/GATE1_MARGIN.md,
+  # owner 2026-11-24). The best sub-cut hit of each such copy is kept here and written as rejected_low_bitscore.
+  # Nothing above the cut is touched, and these copies never enter unanimous.tsv, so the relative thresholds of
+  # thresholds.tsv do not move either.
+  awk -F'\t' -v OFS='\t' 'FILENAME == ARGV[1] { done[$1] = 1; next }
+    !($2 in done) && ($12 + 0 > best[$2] + 0) { best[$2] = $12 + 0; bc[$2] = $1 }
+    END { for (s in bc) printf "%s\t%s\t%d\n", s, bc[s], int(best[s] * 10 + 0.5) }' \
+    "$TMPDIR/best_1.tsv" "$TMPDIR/raw_1.unsorted.m8" | LC_ALL=C sort > "$TMPDIR/below_cut.tsv"
+  rm -f "$TMPDIR/raw_1.unsorted.m8"
+  log "Copies with hits but none above their consensus cut (kept as rejected_low_bitscore): $(awk 'END{print NR+0}' "$TMPDIR/below_cut.tsv")"
   # every copy goes to its best-scoring consensus (10 votes); a second consensus within TIE_MARGIN of the best is written
   # to ties.tsv: copy, best, second, margin, kind (tie = same family or no family table, tie_family = two families)
   awk -F'\t' -v OFS='\t' '{ row = $1 OFS $2 OFS $3 OFS $4 OFS $5 OFS $6 OFS $7 OFS $8 OFS $9; for (i = 1; i <= 10; i++) print row }' \
@@ -571,6 +584,14 @@ run_assignment(){
     !($1 in seen){
       printf "%s\t%s\t%d\t%d\t%s\t%s\t%s\n", $1, $2, $4, $3, "no_unanimous", "NA", "NA"
     }' "$TMPDIR/unanimous.tsv" "$OUTDIR/all_votes.tsv"
+    # 3) copies with hits but none above their consensus's cut (gate 1): a row each, so that every initial copy is
+    # verdicted (docs/AIM.md, docs/GATE1_MARGIN.md). Threshold is NA: they never reached the relative threshold.
+    [[ -f "$TMPDIR/below_cut.tsv" ]] || : > "$TMPDIR/below_cut.tsv"
+    awk 'BEGIN{FS=OFS="\t"}
+    FILENAME == ARGV[1] || FILENAME == ARGV[2] { seen[$1] = 1; next }
+    !($1 in seen){
+      printf "%s\t%s\t%s\t10\trejected_low_bitscore\tNA\trunner=NA;runner_bs=0;runner_ratio=0.0000;below_cut=1\n", $1, $2, $3
+    }' "$TMPDIR/unanimous.tsv" "$OUTDIR/all_votes.tsv" "$TMPDIR/below_cut.tsv"
   } > "$OUTDIR/assignment_full.tsv"
   [[ -f "$TMPDIR/ties.tsv" ]] || : > "$TMPDIR/ties.tsv"
   add_tie_column
@@ -926,6 +947,14 @@ run_incremental_assignment(){
     !($1 in seen){
       printf "%s\t%s\t%d\t%d\t%s\t%s\t%s\n", $1, $2, $4, $3, "no_unanimous", "NA", "NA"
     }' "$TMPDIR/unanimous.tsv" "$OUTDIR/all_votes.tsv"
+    # 3) copies with hits but none above their consensus's cut (gate 1): a row each, so that every initial copy is
+    # verdicted (docs/AIM.md, docs/GATE1_MARGIN.md). Threshold is NA: they never reached the relative threshold.
+    [[ -f "$TMPDIR/below_cut.tsv" ]] || : > "$TMPDIR/below_cut.tsv"
+    awk 'BEGIN{FS=OFS="\t"}
+    FILENAME == ARGV[1] || FILENAME == ARGV[2] { seen[$1] = 1; next }
+    !($1 in seen){
+      printf "%s\t%s\t%s\t10\trejected_low_bitscore\tNA\trunner=NA;runner_bs=0;runner_ratio=0.0000;below_cut=1\n", $1, $2, $3
+    }' "$TMPDIR/unanimous.tsv" "$OUTDIR/all_votes.tsv" "$TMPDIR/below_cut.tsv"
   } > "$OUTDIR/assignment_full.tsv"
   [[ -f "$TMPDIR/ties.tsv" ]] || : > "$TMPDIR/ties.tsv"
   add_tie_column
