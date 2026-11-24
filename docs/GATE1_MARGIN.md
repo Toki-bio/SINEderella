@@ -86,3 +86,50 @@ by 142 bits on average, while MEG-T2 at 232 bp clears it by 16).
   copies pass gate 1 with a wide margin but still do not resemble each other would not be caught; no such
   case is present in the rsi run, where the two measures agree.
 - Step 1's own cut (which loci are found at all) is unchanged.
+
+## Gate 1 is two gates, and the second one cannot see this problem at all
+
+Step 2 applies two different thresholds:
+
+- **1a, the shuffle cut** (`consensus_cuts.tsv`): absolute and properly calibrated per consensus, but it was set
+  *at* the noise floor (`expect` = 2). This is what the margin above fixes.
+- **1b, `thresholds.tsv`** (step2_asSINEment.sh:416 and again at :818): `MIN_REL_BITSCORE x TopN of that
+  subfamily` - a threshold **relative to the subfamily's own best copies**. A copy below it is kept in the table
+  with status `rejected_low_bitscore`.
+
+1b is self-referential by construction: if every copy of a subfamily is noise, the top copy is noise too, and
+the threshold moves down with it. MEG-T2's 12 copies score 76.2-86.3 bits and its 1b threshold is 34.5 bits, so
+all 12 pass. **A relative threshold can never detect that a whole subfamily is noise.** Together with gates 2
+and 3 looking only at flanks, that is the full reason 10 MEG-T2 copies came out verdicted SINE.
+
+(Note the duplication: the same threshold logic exists twice in the script, at :416 and :818.)
+
+## Open issue from the margin: a rejected copy loses its row
+
+Measured on the step-2 toy fixture (3 consensuses x 4 divergence levels x 10 copies = 120), run both ways:
+
+| STEP2_EXPECT | rows in `assignment_full.tsv` |
+|---|---|
+| 2 (old) | 120 |
+| 1e-7 (new) | **115** |
+
+The five copies are the most diverged ones (`TC_p0.4` x4, `TB_p0.4` x1). They are present in
+`unassigned.fasta`, so nothing is lost from the run - but gate 1a filters hit *lines*, so a copy with no
+surviving line never reaches `assignment_full.tsv`, and `publish/verdict_chain.sh` writes one verdict row per
+row of that table. Such a copy therefore gets **no verdict**, which contradicts docs/AIM.md ("every initial
+copy verdicted"). `tests/test_reproducible.py::test_step2_twice_identical` and `::test_step2_in_a_long_path`
+both assert 120 rows and now fail - correctly: they are catching this, not complaining about the margin.
+
+On the rsi run this did not arise, because step 1's own cut is stricter than the old `expect` = 2, so every one
+of the 68,191 loci had a row. With the margin, some will not.
+
+**Two ways to fix it - owner's decision:**
+
+1. **Keep the margin in 1a and add the missing rows.** For a copy that had hits but none above the cut, emit a
+   row with its best sub-cut consensus and status `rejected_low_bitscore`. Purely additive: no surviving
+   assignment changes. Needs doing in both copies of the logic (:416, :818).
+2. **Move the margin to 1b** instead, where the row already survives. Smaller change, but it leaves 1a sitting
+   at the noise floor, and 1b is the relative threshold that cannot see a wholly-noise subfamily - so the
+   margin would have to be made absolute there anyway.
+
+I prefer 1. It is not applied yet, so this branch is not ready to merge.
