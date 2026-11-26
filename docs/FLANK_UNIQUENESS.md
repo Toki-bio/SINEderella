@@ -234,6 +234,39 @@ copies are marked `[twin]` on the plates and the top100 takes one copy per twin 
 segmental duplication of tests/make_toy_satellite.py (3 copies present twice) gives exactly 6 twin1 copies, 0 false twins among
 217 others.
 
+## Speed of stage 9 (2026-11-26, branch fix/fs9-speed)
+
+Measured on the Ata run (therioserver `/home/toki/sine_runs/Ata/ten10/run_20261126_160931`, 2.79 Gb, 10 families, 1.9 M loci;
+production 64 threads, about 28 min). Work folder therioserver `/home/toki/tmp/sd_fs9fix/` (traces, monitor files, scripts),
+both runs at 32 threads with the server load at 30-95 from other users.
+
+Profile of the old code (32:26 wall, 20,710 s CPU, on average 10.6 of 32 cores busy): families ran one after the other; e2-3
+(874,097 copies) 16.3 min and e2-1 (472,311) 8.4 min. Seeds (`fs9_seeds.py | sort -u`, three passes per family) 44 % of the
+time, mostly one thread (np.lexsort of ~140 M seed rows); confirmation awks 26 %; repeat filter (`fs9_repmask.py`, one thread)
+15 %; body check 4 %; the per-family reading of assignment_full.tsv about 30 s in all.
+
+Changes, every one leaving the rows unchanged:
+| change | measured |
+|---|---|
+| `fs9_run.sh`: all families' copies in one pass; `FS9_JOBS` (default 2) families at once, largest first, each with 1/FS9_JOBS of the threads; rows of flank_twins.tsv in the old order | - |
+| `fs9_twins.sh`: unmasked pass beside the masked passes, pass 1 beside pass 2, half the threads per branch | - |
+| confirmation: a diagonal ends once the score is back at 0 past START (no segment can start again) | e2-3 unmasked pass, 22.8 M candidates, 32 workers: gawk 299 -> 115 s |
+| confirmation in mawk when on PATH (`FS9_CONF_AWK`) | 115 -> 50 s; 0.42 instead of 0.75 GB per worker |
+| `fs9_seeds.py`: packed 64-bit keys instead of np.lexsort and the stable argsort by copy | e2-3 unmasked pass 1 173 -> 80 s, pass 2 212 -> 121 s (16 workers) |
+
+Result: 32:26 -> 9:31 wall, 20,710 -> 6,789 s CPU; peak memory (summed PSS) 28.7 GB, largest process 10.2 GB; peak
+temporary disk in results/ 4.5 GB (old 3.5 GB). Equivalence: all 121 files of `results/flank_twins*` (fs9.log included)
+byte-identical to the production run; the old code at 32 threads was identical to production too (the output does not
+depend on the thread count). Confirmation rows identical in gawk and mawk (6,055,205 rows, md5 724c13d6), fs9_seeds.py
+candidates identical old/new on e2-3 (unmasked flanks: 22,829,572 rows pass 1, 41,881,611 pass 2; masked flanks pass 2:
+131,203). test_audit8.sh case 2 (fs_fold) fails on the base 3c799fb as well; not touched here.
+Failures: a failing tool in any parallel branch stops `fs9_twins.sh`; removing the check where the branches join let a
+failing pass-2 confirmation or pass-2 seeds step end with exit 0 (mutation run), which `tests/test_fs9_parallel.sh` catches.
+A family whose fs9_twins.sh fails still gets a message and no row (exit 0, as before); any other failing step of a family
+job stops the stage. Not changed (they would not change results either, but are smaller): fs9_repmask.py, the body check.
+The awk reference path (`FS9_AWK=1`) still pairs every row of a seed bucket and checks CAP inside the double loop (n^2 per
+bucket); it is used only by tests/test_fs9_engines.sh.
+
 ## Class R: manual, not wired (decision 2026-10-19, GLM audit 46)
 
 `fs9_dupregion.sh` stays a manual follow-up tool; nothing in the run calls it and its marks stay off the plates. Reasons:
