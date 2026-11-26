@@ -522,7 +522,23 @@ sum_tmp="$tmpdir/summary.tmp.tsv"
 # Count total extracted sequences
 total_extracted=$(awk '/^>/{c++} END{print c+0}' "$EXTRACTED")
 
+# The median is found with a heapsort (n log n). Until 2026-11-26 it was an insertion sort, quadratic in the copy number of a
+# subfamily: 40,000 values took 40 s in mawk, and a run with a subfamily of 874,097 copies (Atelerix, ten10) would have needed
+# about 7 h in mawk, 17 h in gawk. The sorted values are the same numbers, so the file is byte-identical (old and new compared on
+# subsamples of that run, mawk and gawk; full run: 16 s in mawk, 38 s in gawk, medians equal to a sort -g check).
 awk -F'\t' -v OFS="\t" -v utfile="$UNASSIGNED_TSV" -v total_ext="$total_extracted" '
+  # A[1..n] ascending, numeric (the values are stored as numbers)
+  function sift_down(A, r, n,    c, t){
+    while((c = 2*r) <= n){
+      if(c < n && A[c+1] > A[c]) c++
+      if(A[r] < A[c]){ t = A[r]; A[r] = A[c]; A[c] = t; r = c }
+      else return
+    }
+  }
+  function heap_sort(A, n,    i, t){
+    for(i = int(n/2); i >= 1; i--) sift_down(A, i, n)
+    for(i = n; i > 1; i--){ t = A[1]; A[1] = A[i]; A[i] = t; sift_down(A, 1, i-1) }
+  }
   BEGIN{
     soft_total=0
     # Read unassigned.tsv to count soft assignments per subfamily
@@ -576,15 +592,10 @@ awk -F'\t' -v OFS="\t" -v utfile="$UNASSIGNED_TSV" -v total_ext="$total_extracte
       smed = "."
       if(k in sim_count && sim_count[k]>0){
         sm = sprintf("%.4f", sim_sum[k]/sim_count[k])
-        # sort values for median (simple insertion sort)
+        # sort values for median
         nc = sim_count[k]
         for(i=1; i<=nc; i++) sorted[i] = sim_vals[k, i]
-        for(i=2; i<=nc; i++){
-          v = sorted[i]
-          j = i-1
-          while(j>=1 && sorted[j]>v){ sorted[j+1]=sorted[j]; j-- }
-          sorted[j+1] = v
-        }
+        heap_sort(sorted, nc)
         if(nc%2==1) smed = sprintf("%.4f", sorted[int(nc/2)+1])
         else        smed = sprintf("%.4f", (sorted[nc/2]+sorted[nc/2+1])/2)
       }
