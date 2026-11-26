@@ -344,6 +344,22 @@ def fig_funnel(stats: Dict[str, str]) -> dict:
     }
 
 
+def add_soft_counts(stats: Dict[str, str], bysf_hdr: List[str], bysf_rows: List[List[str]]) -> None:
+    """step2's summary.txt counts 'Unassigned' before step3 soft-assigns those copies to the subfamily of their best original search
+    hit (unassigned.tsv, the soft_assigned column of summary.by_subfam.tsv). Adds 'soft' (sum of soft_assigned) and 'left'
+    (unassigned - soft) so that the page does not call soft-assigned copies unassigned. Leaves stats unchanged if a number is missing."""
+    if not bysf_hdr or "soft_assigned" not in bysf_hdr:
+        return
+    i = bysf_hdr.index("soft_assigned")
+    try:
+        soft = sum(int(r[i]) for r in bysf_rows if len(r) > i and r[i] not in ("", "."))
+        stats["soft"] = str(soft)
+        if stats.get("unassigned", "").isdigit():
+            stats["left"] = str(int(stats["unassigned"]) - soft)
+    except ValueError:
+        return
+
+
 def funnel_html(stats: Dict[str, str]) -> str:
     """Simple two-branch HTML summary of pipeline counts (no chart)."""
     def fmt(n: str) -> str:
@@ -365,6 +381,14 @@ def funnel_html(stats: Dict[str, str]) -> str:
     unan     = stats.get("unanimous", "")
     assigned = stats.get("assigned", "")
     unassgn  = stats.get("unassigned", "")
+    soft     = stats.get("soft", "")
+    left     = stats.get("left", "")
+    soft_rows = (
+        f"<tr><td style='padding-left:1.4em'>&#9492; soft-assigned in step3"
+        f" (subfamily of the best original search hit)</td>"
+        f"<td>{fmt(soft)}{pct(soft, total)}</td></tr>"
+        f"<tr><td style='padding-left:1.4em'>&#9492; left unassigned</td>"
+        f"<td>{fmt(left)}{pct(left, total)}</td></tr>") if soft and left else ""
     return (
         "<table class='tbl' style='max-width:540px'>"
         "<colgroup><col style='width:62%'><col></colgroup>"
@@ -376,13 +400,17 @@ def funnel_html(stats: Dict[str, str]) -> str:
         f"<tr><td><b>&#10003;&thinsp;Assigned</b>"
         f" (passed bitscore threshold)</td>"
         f"<td><b>{fmt(assigned)}</b>{pct(assigned, total)}</td></tr>"
-        f"<tr><td>&#10007;&thinsp;Unassigned</td>"
+        f"<tr><td>&#10007;&thinsp;Not assigned in step2</td>"
         f"<td>{fmt(unassgn)}{pct(unassgn, total)}</td></tr>"
+        + soft_rows +
         "</table>"
         "<p class='small muted' style='margin-top:6px'>"
-        "Assigned + Unassigned &asymp; Total. "
-        "Unanimous is a strict subset; assigned includes unanimous + "
-        "soft-assigned copies that passed the bitscore threshold.</p>"
+        "Assigned + not assigned in step2 &asymp; Total. Assigned = firm "
+        "(passed the bitscore threshold in step2). "
+        + ("Step3 then gives the not-assigned copies the subfamily of their best original search hit "
+           "(Soft column of the subfamily table); only the rest stay unassigned."
+           if soft_rows else "")
+        + "</p>"
     )
 
 
@@ -2308,6 +2336,7 @@ def build_html(run_root: Path,
 
     stats_hdr, stats_rows = read_tsv(s2 / "assignment_stats.tsv")
     bysf_hdr, bysf_rows   = read_tsv(s2 / "summary.by_subfam.tsv")
+    add_soft_counts(summary_stats, bysf_hdr, bysf_rows)   # before flank-verdict columns are added
     # flank verdicts (tools/flank_verdict.py, publish runs): only "interspersed" subfamilies are SINE loci (docs/AIM.md)
     fv_hdr, fv_rows = read_tsv(s2 / "flank_verdict.tsv")
     flank_verdict = {r[0]: dict(zip(fv_hdr, r)) for r in fv_rows if r}
@@ -2467,8 +2496,12 @@ def build_html(run_root: Path,
         + (f"<b>{_fmt(assigned_v)}</b>{_ipct(assigned_v, total_v)} "
            "passed the bitscore threshold and received a final "
            "subfamily label, " if assigned_v else "")
-        + (f"and <b>{_fmt(unassigned_v)}</b>"
-           f"{_ipct(unassigned_v, total_v)} remained unassigned."
+        + ((f"and <b>{_fmt(unassigned_v)}</b>{_ipct(unassigned_v, total_v)} did not; "
+            f"step3 soft-assigned <b>{_fmt(summary_stats['soft'])}</b> of these to the subfamily of their best "
+            f"original search hit, and <b>{_fmt(summary_stats['left'])}</b> remained unassigned."
+            if summary_stats.get("soft") and summary_stats.get("left") else
+            f"and <b>{_fmt(unassigned_v)}</b>"
+            f"{_ipct(unassigned_v, total_v)} remained unassigned.")
            if unassigned_v else "")
         + "</p>"
         + flank_verdict_paragraph(flank_verdict)
