@@ -33,6 +33,7 @@
 # Out: OUT_BED (same columns as MERGED_BED, ends moved), OUT_DIR/ends_extension.tsv, OUT_DIR/loci_extended.tsv, one line
 # on stdout: EXTEND loci=.. extended5=.. extended3=.. flagged=.. -> OUT_DIR/ends_extension.tsv
 set -euo pipefail
+export SHELLOPTS   # the xargs child shells need the same options: a failing bedtools in a child pipeline must stop the run
 export LC_ALL=C
 
 usage() { awk 'NR>=2 && /^#/{sub(/^# ?/, ""); print; next} NR>=2{exit}' "$0" >&2; exit 2; }
