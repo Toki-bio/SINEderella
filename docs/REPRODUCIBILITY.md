@@ -70,7 +70,7 @@ noise changes the outcome most. Calls of scripts that a full run does not reach 
 |---|---|---|
 | `sear:451` | E <= 2 (`-z 11`) | whether an alignment is a hit at all; hits become loci (`sear:460-465`: merge, identity >= 65, length >= 0.8 x query) and raw hits for the satellite stage |
 | `step1_search_extract.sh:240` | sear's maximum bit score | score column of `all_hits.labeled.bed` |
-| `tools/extend_ends.py:119-121` | that score column (cross) | group of a locus for the end extension, which changes locus coordinates |
+| `tools/extend_ends.py:119-121` (since 2026-11-26 `tools/extend_ends.sh`, function `best1`, same rule) | that score column (cross) | group of a locus for the end extension, which changes locus coordinates |
 | `step3_postprocess.sh:401-422` | that score column (cross) | `Soft_Subfamily` of an unassigned locus |
 | `tools/composite_units.py:59,66,77` (step 1, step 2, publish) | E <= 1e-5 (shuffle statistics: bank < 500 sequences) | which bank entries are composites: the pieces searched in step 1, the unit/composite rule of step 2 |
 | `tools/satellite_trf_verify.py:225,243` | E <= 1e-2 (`-z 11`), best alignment by bit score | a TRF unit is SINE-derived (kind-A satellite locus); its region is excluded |

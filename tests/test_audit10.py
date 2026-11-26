@@ -1,26 +1,25 @@
 """Regression tests for two small fixes of audit-fixes-10.
 
 The scripts under test are taken from AUDIT10_ROOT when that is set (a copy of the tree with the files of main put back, to
-show that the test fails on the old code), else from this repository. No external program is needed: bedtools is replaced by a
-subprocess.run stand-in inside the test.
+show that the test fails on the old code), else from this repository. The extend_ends test needs bedtools (skipped without
+it; since 2026-11-26 the tool is the shell script tools/extend_ends.sh); the other needs no external program.
 """
-import importlib.util
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = Path(os.environ.get("AUDIT10_ROOT", str(ROOT)))
 
 
-def test_extend_ends_paths_with_space_and_shell_chars(tmp_path, monkeypatch, capsys):
-    """tools/extend_ends.py: bedtools gets every path as one argument and no shell is used, so a run directory or genome
-    path with a space or a shell character does not break step 1."""
-    spec = importlib.util.spec_from_file_location("extend_ends_audit10", str(SRC / "tools" / "extend_ends.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+@pytest.mark.skipif(shutil.which("bedtools") is None, reason="needs bedtools")
+def test_extend_ends_paths_with_space_and_shell_chars(tmp_path):
+    """tools/extend_ends.sh (was extend_ends.py): every path is passed quoted, so a run directory or genome path with a
+    space or a shell character does not break step 1. Real bedtools (the Python stand-in no longer applies)."""
     d = tmp_path / "run dir;$x"
     d.mkdir()
     merged = "chr1\t100\t200\t80\t100\t+\nchr1\t500\t600\t80\t100\t-\n"
@@ -28,30 +27,13 @@ def test_extend_ends_paths_with_space_and_shell_chars(tmp_path, monkeypatch, cap
     (d / "g.fa.fai").write_text("chr1\t1000\t6\t1000\t1001\n")
     (d / "m.bed").write_text(merged)
     (d / "l.bed").write_text("chr1\t100\t200\tE\t100\t+\nchr1\t500\t600\tE\t100\t-\n")
-    calls = []
-
-    def fake_run(cmd, **kw):
-        calls.append((cmd, kw))
-        assert not kw.get("shell"), "a shell is used: %r" % (cmd,)
-        assert isinstance(cmd, list), "the command is one string, not an argument list: %r" % (cmd,)
-        if cmd[0] == "rm":
-            shutil.rmtree(cmd[-1])
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
-    monkeypatch.setattr(sys, "argv", ["extend_ends.py", str(d / "m.bed"), str(d / "l.bed"), str(d / "g.fa"),
-                                      str(d / "o.bed"), str(d / "x")])
-    mod.main()
-    bed = [c for c, _ in calls if c[0] == "bedtools"]
-    assert [c[1] for c in bed] == ["intersect", "getfasta"]
-    inter, getfa = bed
-    assert inter[inter.index("-b") + 1] == str(d / "l.bed")              # each path is one intact argument
-    assert getfa[getfa.index("-fi") + 1] == str(d / "g.fa")
-    a_bed, win_bed = inter[inter.index("-a") + 1], getfa[getfa.index("-bed") + 1]
-    assert a_bed.startswith(str(d / "x")) and a_bed.endswith("loci.bed")
-    assert win_bed.startswith(str(d / "x")) and win_bed.endswith("win.bed")
-    assert (d / "o.bed").read_text() == merged                           # no windows returned: nothing moves
-    assert "EXTEND loci=2" in capsys.readouterr().out
+    r = subprocess.run(["bash", str(SRC / "tools" / "extend_ends.sh"), str(d / "m.bed"), str(d / "l.bed"), str(d / "g.fa"),
+                        str(d / "o.bed"), str(d / "x"), "--threads", "2"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert (d / "o.bed").read_text() == merged                           # 2 windows per group: nothing is shared, nothing moves
+    assert "EXTEND loci=2" in r.stdout
+    assert (d / "x" / "ends_extension.tsv").exists() and (d / "x" / "loci_extended.tsv").exists()
+    assert not (tmp_path / "x").exists() and not list(tmp_path.glob("o.bed*"))   # nothing written outside the run directory
 
 
 def test_test2_props_prints_its_table(tmp_path):

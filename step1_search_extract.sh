@@ -291,8 +291,8 @@ fi
 #     shared by many copies of the same group. END_EXTENSION=0 skips it.
 if [[ "${END_EXTENSION:-1}" != "0" ]]; then
     cp merged_hits.bed merged_hits.bed.before_extension
-    python3 "$_TOOLS_M/extend_ends.py" merged_hits.bed.before_extension searches/all_hits.labeled.bed "$GENOME" \
-        merged_hits.bed.tmp end_extension | tee -a end_extension.log
+    bash "$_TOOLS_M/extend_ends.sh" merged_hits.bed.before_extension searches/all_hits.labeled.bed "$GENOME" \
+        merged_hits.bed.tmp end_extension --threads "${THREADS:-$(nproc 2>/dev/null || echo 8)}" | tee -a end_extension.log
     [[ "$(wc -l < merged_hits.bed.tmp)" -eq "$BED_COUNT" ]] || { echo "ERROR: end extension changed the number of loci" >&2; exit 1; }
     mv merged_hits.bed.tmp merged_hits.bed
 fi

@@ -1,4 +1,4 @@
-# End extension in step 1 (tools/extend_ends.py, 2026-10-29)
+# End extension in step 1 (tools/extend_ends.sh; was tools/extend_ends.py, 2026-10-29)
 
 ## The defect
 A locus is the union of the hits of all bank consensuses, so its end is where the longest consensus that hit it stops.
@@ -16,7 +16,7 @@ The continuation check (docs/CONTINUATION.md) does not catch this: it runs after
 match another bank consensus, and changes nothing.
 
 ## What step 1 does now
-After the satellite regions are removed and before extraction, `tools/extend_ends.py` moves the ends of `merged_hits.bed`
+After the satellite regions are removed and before extraction, `tools/extend_ends.sh` moves the ends of `merged_hits.bed`
 (the original is kept as `merged_hits.bed.before_extension`; `END_EXTENSION=0` skips the step):
 
 1. loci are grouped by the label of their highest-scoring hit;
@@ -35,10 +35,32 @@ extended, median and max bp, at the cap, `flag` when >= 20 % of the group grew b
 than the element there), `loci_extended.tsv` (every moved locus). One line in the log: `EXTEND loci=.. extended5=..
 extended3=.. flagged=..`.
 
+## Implementation: bash/awk, parallel (2026-11-26)
+`tools/extend_ends.py` (one Python/numpy process) took 23 min 06 s and 8.4 GB on therioserver for the 1,895,638 loci of
+therioserver:/home/toki/sine_runs/Ata/ten10/run_20261126_160931 (re-run alone on the same input; the production run took
+23 min). It was replaced by `tools/extend_ends.sh` (bash, awk, bedtools, sort, xargs -P), same algorithm, same outputs,
+called with `--threads "$THREADS"` from `step1_search_extract.sh` and the `--add`/`--exclude` rebuild in `SINEderella`.
+How the work is split without changing any group-wide number:
+- bedtools intersect runs per bin of contigs; a bin's hit file keeps its hits in file order and bedtools keeps one
+  interval tree per contig, so a locus meets its hits in the same order and the equal-score rule (first hit wins) holds;
+  on Ata 3,173 loci have such a tie between two labels, and all labels came out the same;
+- the windows are read once with bedtools getfasta (THREADS chunks) into pieces per group, side and chunk;
+- stage 1 (K-mer counts, the per group and side threshold): one job per group, side and two-base K-mer prefix; each job
+  reads every window of its group and side, so the count of a K-mer is always the count over the whole group; the shared
+  K-mers of the 16 prefixes are pooled before the MIN_SHARED rule;
+- stage 2 (the walk) runs per piece; the table, the new coordinates and the neighbour rule are one awk pass each.
+
+Equivalence, on the full Ata data against the production run's files (`merged_hits.bed`, `end_extension/*.tsv`,
+`end_extension.log`): 0 differing lines in each of the four, mawk with 32 threads (42.7 s, largest process 0.7 GB) and
+gawk with 7 threads (2 min 39 s). Toys: 12 random toy genomes x 4 parameter sets (several contigs, lower case, N, loci
+without a label, label ties, touching loci, loci at contig ends, other K/STEP/WIN/BRIDGE/SHARE), old against new, under
+mawk and gawk: 48 + 48 cases, 0 differing. Temporary files (`end_extension/extend_*/`, removed at the end) peak at about
+100 bytes per window for the window sequences plus the locus lists (Ata: about 0.7 GB).
+
 ## Tests
 - `tests/test_extend_ends.py` (toy, 8 % divergence): 100 cut copies, 100 complete copies of the same element, 100 copies
   of another: >= 75 cut copies regain the tail and A tail, none goes more than 5 bp into the flank, no complete copy moves,
-  only the cut element is flagged.
+  only the cut element is flagged; the same files with 1 and 7 threads and with mawk and gawk.
 - hla, real loci of hla_rsibank_20261026 (233,376), against the shortie oracle (tail found by aligning the genome copies):
   cut copies reaching the tail end 566 of 764 and 621 of 708; more than 45 bp past it 2 and 3; copies that had the tail and
   moved 10 of 636 and 9 of 1,642. Flagged 3': r1_r3_P1, r1_r3_P2, r5_r5_P48, r9_15seqs (the consensuses that hit the

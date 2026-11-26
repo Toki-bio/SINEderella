@@ -1,23 +1,23 @@
-"""tools/extend_ends.py: loci whose element goes on past the hits are extended to the element's end, nothing else moves.
-Needs bedtools on PATH."""
+"""tools/extend_ends.sh: loci whose element goes on past the hits are extended to the element's end, nothing else moves.
+The result does not depend on the number of threads or on the awk (mawk / gawk). Needs bedtools on PATH."""
 import os
 import random
 import shutil
 import subprocess
-import sys
 
 import pytest
 
-pytestmark = pytest.mark.skipif(shutil.which("bedtools") is None, reason="needs bedtools")
+pytestmark = pytest.mark.skipif(shutil.which("bedtools") is None or shutil.which("bash") is None, reason="needs bedtools and bash")
 
-TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "extend_ends.py")
+TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "extend_ends.sh")
 
 
 def mutate(s, rate, rnd):
     return "".join(rnd.choice("ACGT".replace(c, "")) if rnd.random() < rate else c for c in s)
 
 
-def test_extend_ends(tmp_path):
+def make_toy(d):
+    """300 elements on one contig: 100 cut copies of E (hits stop before a 40-bp tail), 100 complete copies of E, 100 of F"""
     rnd = random.Random(7)
     body = "".join(rnd.choice("ACGT") for _ in range(150))
     tail = "".join(rnd.choice("ACGT") for _ in range(40))       # the part the bank consensus E lacks
@@ -46,14 +46,26 @@ def test_extend_ends(tmp_path):
         labeled.append("chr1\t%d\t%d\t%s\t100\t%s" % (s, e, "F" if kind == "other" else "E", st))
         truth.append((kind, len(el) - hit_len))
         add("".join(rnd.choice("ACGT") for _ in range(400)))        # unique flank
-    (tmp_path / "g.fa").write_text(">chr1\n" + "".join(seq) + "\n")
-    (tmp_path / "g.fa.fai").write_text("chr1\t%d\t6\t%d\t%d\n" % (pos, pos, pos + 1))
-    (tmp_path / "m.bed").write_text("\n".join(merged) + "\n")
-    (tmp_path / "l.bed").write_text("\n".join(labeled) + "\n")
-    r = subprocess.run([sys.executable, TOOL, str(tmp_path / "m.bed"), str(tmp_path / "l.bed"), str(tmp_path / "g.fa"),
-                        str(tmp_path / "o.bed"), str(tmp_path / "x")], capture_output=True, text=True)
+    (d / "g.fa").write_text(">chr1\n" + "".join(seq) + "\n")
+    (d / "g.fa.fai").write_text("chr1\t%d\t6\t%d\t%d\n" % (pos, pos, pos + 1))
+    (d / "m.bed").write_text("\n".join(merged) + "\n")
+    (d / "l.bed").write_text("\n".join(labeled) + "\n")
+    return merged, truth
+
+
+def run(d, out, threads, awk=None):
+    env = dict(os.environ)
+    if awk:
+        env["EXTEND_AWK"] = awk
+    return subprocess.run(["bash", TOOL, str(d / "m.bed"), str(d / "l.bed"), str(d / "g.fa"), str(d / (out + ".bed")),
+                           str(d / out), "--threads", str(threads)], capture_output=True, text=True, env=env)
+
+
+def test_extend_ends(tmp_path):
+    merged, truth = make_toy(tmp_path)
+    r = run(tmp_path, "x", 4)
     assert r.returncode == 0, r.stderr
-    out = [l.split("\t") for l in (tmp_path / "o.bed").read_text().splitlines()]
+    out = [l.split("\t") for l in (tmp_path / "x.bed").read_text().splitlines()]
     assert len(out) == 300 and all(len(f) == 6 for f in out)
     good = 0
     for (kind, need), old, new in zip(truth, merged, out):
@@ -72,3 +84,20 @@ def test_extend_ends(tmp_path):
     assert any(l.startswith("E\t3'") and l.endswith("flag") for l in tsv)
     assert not any(l.startswith("F\t") and l.endswith("flag") for l in tsv)
     assert "EXTEND loci=300" in r.stdout
+    assert not [p for p in os.listdir(tmp_path / "x") if p.startswith("extend_")]     # its temporary folder is removed
+
+
+def test_same_result_any_threads_and_awk(tmp_path):
+    """the per-group K-mer counts are split over jobs: 1 thread, 7 threads, mawk and gawk must give the same files"""
+    make_toy(tmp_path)
+    runs = [("t1", 1, None), ("t7", 7, None)] + [("a_" + a, 3, shutil.which(a)) for a in ("mawk", "gawk") if shutil.which(a)]
+    res = {}
+    for name, thr, awk in runs:
+        r = run(tmp_path, name, thr, awk)
+        assert r.returncode == 0, r.stderr
+        res[name] = (r.stdout.replace(name, "X"), (tmp_path / (name + ".bed")).read_text(),
+                     (tmp_path / name / "ends_extension.tsv").read_text(), (tmp_path / name / "loci_extended.tsv").read_text())
+    first = res["t1"]
+    assert "flagged=1" in first[0]
+    for name in res:
+        assert res[name] == first, name
