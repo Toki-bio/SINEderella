@@ -412,17 +412,31 @@ def fig_funnel(stats: Dict[str, str]) -> dict:
 def add_soft_counts(stats: Dict[str, str], bysf_hdr: List[str], bysf_rows: List[List[str]]) -> None:
     """step2's summary.txt counts 'Unassigned' before step3 soft-assigns those copies to the subfamily of their best original search
     hit (unassigned.tsv, the soft_assigned column of summary.by_subfam.tsv). Adds 'soft' (sum of soft_assigned) and 'left'
-    (unassigned - soft) so that the page does not call soft-assigned copies unassigned. Leaves stats unchanged if a number is missing."""
+    (unassigned - soft) so that the page does not call soft-assigned copies unassigned. No Soft column (older runs): stats unchanged.
+    With the column, a cell that is not an integer, a non-blank row too short to have it, or soft > unassigned is recorded as
+    incomplete (step6 then stops without a page unless --allow-incomplete) instead of giving silently wrong numbers."""
     if not bysf_hdr or "soft_assigned" not in bysf_hdr:
         return
     i = bysf_hdr.index("soft_assigned")
-    try:
-        soft = sum(int(r[i]) for r in bysf_rows if len(r) > i and r[i] not in ("", "."))
-        stats["soft"] = str(soft)
-        if stats.get("unassigned", "").isdigit():
-            stats["left"] = str(int(stats["unassigned"]) - soft)
-    except ValueError:
+    soft, bad = 0, []
+    for n, r in enumerate(bysf_rows, 2):                 # line number in summary.by_subfam.tsv (header is line 1)
+        if not r or all(not c.strip() for c in r):
+            continue                                     # blank line
+        if len(r) <= i or not r[i].strip().isdigit():
+            bad.append("line %d: %r" % (n, r[i] if len(r) > i else "(row has %d columns)" % len(r)))
+            continue
+        soft += int(r[i])
+    if bad:
+        incomplete("summary.by_subfam.tsv soft_assigned not an integer in %d row(s): %s" % (len(bad), "; ".join(bad[:5])))
         return
+    stats["soft"] = str(soft)
+    if stats.get("unassigned", "").isdigit():
+        if soft > int(stats["unassigned"]):
+            incomplete("summary.by_subfam.tsv soft_assigned sum %d exceeds step2 unassigned %s (stale or mismatched files)"
+                       % (soft, stats["unassigned"]))
+            del stats["soft"]
+            return
+        stats["left"] = str(int(stats["unassigned"]) - soft)
 
 
 def funnel_html(stats: Dict[str, str]) -> str:

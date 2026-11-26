@@ -34,3 +34,42 @@ def test_control_without_soft_column_is_unchanged():
     assert "soft" not in s and "left" not in s
     h = R.funnel_html(s)
     assert "soft-assigned" not in h and "Not assigned in step2" in h
+
+
+# 2026-11-27: edge cases reported by a GLM read of fee9d5e (relayed by another session), reproduced here. When the Soft column
+# exists, a bad cell, a short row or soft > unassigned must not give silently wrong numbers: it is recorded as incomplete
+# (step6 then stops without a page unless --allow-incomplete, commit 250cc8a).
+def _fresh():
+    if hasattr(R, "INCOMPLETE"):
+        R.INCOMPLETE.clear()
+
+
+def test_bad_soft_cell_is_recorded():
+    _fresh()
+    s = {"total": "100", "assigned": "70", "unassigned": "30"}
+    R.add_soft_counts(s, HDR, [["A", "50", "x", "70"], ["B", "20", "6", "26"]])
+    assert "soft" not in s and "left" not in s
+    assert any("soft_assigned" in m for m in R.INCOMPLETE)
+
+
+def test_short_row_is_recorded_not_undercounted():
+    _fresh()
+    s = {"total": "100", "assigned": "70", "unassigned": "30"}
+    R.add_soft_counts(s, HDR, [["A", "50"], ["B", "20", "6", "26"]])
+    assert "soft" not in s
+    assert any("soft_assigned" in m for m in R.INCOMPLETE)
+
+
+def test_soft_above_unassigned_is_recorded():
+    _fresh()
+    s = {"total": "100", "assigned": "70", "unassigned": "30"}
+    R.add_soft_counts(s, HDR, [["A", "50", "40", "90"]])
+    assert "left" not in s
+    assert any("exceeds" in m for m in R.INCOMPLETE)
+
+
+def test_control_blank_row_is_ignored():
+    _fresh()
+    s = {"total": "100", "assigned": "70", "unassigned": "30"}
+    R.add_soft_counts(s, HDR, [["A", "50", "20", "70"], [], ["B", "20", "6", "26"], [""]])
+    assert s["soft"] == "26" and s["left"] == "4" and not R.INCOMPLETE
