@@ -510,38 +510,49 @@ run_assignment(){
     # Get list of unique subfamilies
     awk '$5=="assigned"{print $2}' "$TMPDIR/assignment_details.tsv" | sort -u > "$TMPDIR/subfamily_list.txt"
 
-    while IFS= read -r subfamily; do
-      [[ -z "$subfamily" ]] && continue
-
-      # Get sequence IDs for this subfamily
-
-      # Extract sequences with renamed headers
-      awk 'BEGIN{FS="\t"}
-      NR==FNR{
-        if($5 == "assigned"){ cons[$1] = $2; bs[$1] = $3 }   # only copies that passed (rejected_low_bitscore excluded)
-        next
+    # One pass over sines_clean.fa writes every subfamily file (until 2026-11-26 one pass per subfamily: 10 passes over
+    # 478 MB, 1.75 min on Ata ten10). Same files, records and order as the per-subfamily loop: every listed subfamily gets
+    # its file (empty when none of its copies is in the FASTA), records in FASTA order, header >seqID|subfamily|bitscore.
+    # Two names that map to one file name ('/' -> '_') leave the file to the later name in the list, as the loop's
+    # overwrite did; the log still counts each name's own copies, as the loop logged them before the overwrite.
+    SF_OUTDIR="$OUTDIR/subfamilies" SF_COUNTS="$TMPDIR/subfamily_counts.tsv" \
+    awk 'BEGIN{FS="\t"; outdir = ENVIRON["SF_OUTDIR"]; counts = ENVIRON["SF_COUNTS"]}
+    FILENAME==ARGV[1]{
+      if($0 == "") next
+      fn = $0; gsub(/\//, "_", fn); p = outdir "/" fn ".fasta"
+      if(!($0 in path)) order[++nsf] = $0
+      path[$0] = p; owner[p] = $0; nseq[$0] = 0
+      printf "" > p; close(p)
+      next
+    }
+    FILENAME==ARGV[2]{
+      if($5 == "assigned"){ cons[$1] = $2; bs[$1] = $3 }   # only copies that passed (rejected_low_bitscore excluded)
+      next
+    }
+    /^>/{
+      name = substr($0, 2)
+      split(name, a, " ")
+      seqid = a[1]
+      out = ""
+      if(seqid in cons && (cons[seqid] in path)){
+        sf = cons[seqid]; nseq[sf]++
+        if(owner[path[sf]] == sf) out = path[sf]
       }
-      /^>/{
-        name = substr($0, 2)
-        split(name, a, " ")
-        seqid = a[1]
-        if(seqid in cons && cons[seqid] == SUBFAMILY){
-          printf ">%s|%s|%d\n", seqid, cons[seqid], bs[seqid]
-          in_subfamily = 1
-        } else {
-          in_subfamily = 0
-        }
-        next
+      if(out != ""){
+        if(cur != "" && cur != out && nsf > 500) close(cur)   # mawk stops near 1021 open files
+        cur = out
+        printf ">%s|%s|%d\n", seqid, sf, bs[seqid] >> out
       }
-      {
-        if(in_subfamily) print
-      }' SUBFAMILY="$subfamily" "$TMPDIR/assignment_details.tsv" "$TMPDIR/sines_clean.fa" \
-        > "$OUTDIR/subfamilies/${subfamily//\//_}.fasta"
+      next
+    }
+    out != ""{ print >> out }
+    END{
+      for(i = 1; i <= nsf; i++) printf "%s\t%d\n", order[i], nseq[order[i]] > counts
+    }' "$TMPDIR/subfamily_list.txt" "$TMPDIR/assignment_details.tsv" "$TMPDIR/sines_clean.fa"
 
-      local count
-      count="$(count_fasta "$OUTDIR/subfamilies/${subfamily//\//_}.fasta")"
+    while IFS=$'\t' read -r subfamily count; do
       log "  ${subfamily}: $count sequences"
-    done < "$TMPDIR/subfamily_list.txt"
+    done < "$TMPDIR/subfamily_counts.tsv"
   fi
 
   # Generate statistics
