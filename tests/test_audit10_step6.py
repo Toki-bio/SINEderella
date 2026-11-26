@@ -68,8 +68,10 @@ def _build(R, tmp_path, monkeypatch, sineplot, stub):
     monkeypatch.setattr(R, "build_sineplot_iframe", fake_iframe)
     monkeypatch.setattr(R.shutil, "which", lambda *a, **k: None)      # no mafft: the built-in PCA card shows its note
     out = tmp_path / "report.html"
+    # without mafft the page is incomplete (no PCA); since 2026-11-26 step6 writes such a page only when allowed, marked
+    kw = {"allow_incomplete": True} if "allow_incomplete" in R.build_html.__code__.co_varnames else {}
     R.build_html(run, out, inline_plotly=False, max_table_rows=50, embed_images=False,
-                 sineplot=sineplot, sineplot_max=5, threads=1)
+                 sineplot=sineplot, sineplot_max=5, threads=1, **kw)
     text = out.read_text(encoding="utf-8")
     page = _Page()
     page.feed(text)
@@ -112,6 +114,8 @@ def test_sineplot_without_result_gives_a_note(R, tmp_path, monkeypatch):
 def test_options_are_accepted(R, tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(R, "build_html", lambda *a, **k: seen.update(k))
+    if hasattr(R, "preflight"):                                          # option parsing only, not the environment
+        monkeypatch.setattr(R, "preflight", lambda *a, **k: [])
     assert R.main([str(tmp_path), "--no-sineplot", "--sineplot-max", "5"]) in (0, None)
     assert seen["sineplot"] is False and seen["sineplot_max"] == 5
     seen.clear()

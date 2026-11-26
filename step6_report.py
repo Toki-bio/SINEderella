@@ -51,6 +51,71 @@ CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME",
 
 LOG = logging.getLogger("step6_report")
 
+# Parts of the page that could not be built because of the code or the environment (a missing library, helper module or
+# program, or a panel that raised an error). Missing input DATA is not listed here: that is a property of the run.
+# A report with entries here is not written unless --allow-incomplete, and then it carries a red box listing them
+# (2026-11-26: a page built with a Python lacking numpy silently lost its verdict columns, diagrams and similarity blocks).
+INCOMPLETE: List[str] = []
+
+
+def incomplete(msg: str) -> None:
+    LOG.error("INCOMPLETE: %s", msg)
+    INCOMPLETE.append(msg)
+
+
+REQUIRED_MODULES = ("numpy", "report_verdict", "report_flank_uniqueness", "report_profile", "report_annotate",
+                    "report_hierarchy", "report_blocks", "report_trna")
+
+
+def preflight(sineplot: bool, script_dir: Optional[Path] = None) -> List[str]:
+    """Everything step6 needs from the environment, checked before any work: the Python modules (numpy and the report_*
+    helpers next to this script), tools/consensus_blocks.py (found the way report_blocks finds it), mafft (PCA), and, when the
+    SINEplot panel is requested, SINEplot and ssearch36. Returns one line per missing thing; [] when complete."""
+    import importlib
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    missing = []
+    for m in REQUIRED_MODULES:
+        try:
+            importlib.import_module(m)
+        except Exception as e:
+            missing.append(f"Python module {m} cannot be imported ({type(e).__name__}: {e}); interpreter {sys.executable}")
+    try:
+        rb = importlib.import_module("report_blocks")
+        cb, why = rb._import_blocks()
+        if cb is None:
+            missing.append(f"tools/consensus_blocks.py: {why}")
+    except Exception:
+        pass                                   # already listed above
+    if not shutil.which("mafft"):
+        missing.append("mafft not in PATH (mutation-space PCA)")
+    if sineplot:
+        if find_sineplot(script_dir) is None:
+            missing.append("SINEplot not found (SINEplot panel; use --no-sineplot to leave the panel out on purpose)")
+        if not shutil.which("ssearch36"):
+            missing.append("ssearch36 not in PATH (SINEplot panel; use --no-sineplot to leave the panel out on purpose)")
+    return missing
+
+
+def apply_incomplete(html_doc: str, allow: bool) -> str:
+    """No INCOMPLETE entries: the page as built. Entries and not allow: stop before writing (exit 1). Entries and allow: the
+    page with a red box at the top of the body listing what is missing."""
+    if not INCOMPLETE:
+        return html_doc
+    if not allow:
+        LOG.error("The report is incomplete (%d part(s)); no page written. Fix the environment, or rerun with "
+                  "--allow-incomplete to write a page marked as incomplete:", len(INCOMPLETE))
+        for m in INCOMPLETE:
+            LOG.error("  - %s", m)
+        raise SystemExit(1)
+    box = ("<div style=\"border:3px solid #b00020;background:#fff0f0;color:#600;padding:12px 16px;margin:12px\">"
+           "<b>Incomplete report.</b> These parts could not be built (built with --allow-incomplete):<ul>"
+           + "".join("<li>%s</li>" % html.escape(m) for m in INCOMPLETE) + "</ul></div>")
+    i = html_doc.find("<body")
+    j = html_doc.find(">", i) + 1 if i >= 0 else 0
+    return html_doc[:j] + box + html_doc[j:]
+
 
 # ===========================================================================
 # Discovery
@@ -1069,10 +1134,10 @@ def build_sineplot_iframe(s2_out: Path,
     """
     sp = find_sineplot(script_dir)
     if sp is None:
-        LOG.info("SINEplot not found; skipping PCA panel")
+        incomplete("SINEplot panel: SINEplot not found")
         return None
     if not shutil.which("ssearch36"):
-        LOG.info("ssearch36 not in PATH; skipping SINEplot PCA panel")
+        incomplete("SINEplot panel: ssearch36 not in PATH")
         return None
     cons = s2_out.parent.parent / "consensuses.clean.fa"
     subfam_dir = s2_out / "subfamilies"
@@ -1159,16 +1224,15 @@ def build_sineplot_iframe(s2_out: Path,
                  "--consensuses", str(cons)],
                 capture_output=True, check=False, timeout=1800)
         except subprocess.TimeoutExpired:
-            LOG.warning("SINEplot.py timed out (>1800s); skipping PCA panel")
+            incomplete("SINEplot panel: SINEplot.py timed out (>1800 s)")
             return None
         if r2.returncode != 0 or not out_html.is_file():
-            LOG.warning("SINEplot.py failed (rc=%d): %s",
-                        r2.returncode,
-                        (r2.stderr or b"").decode(errors="replace")[:300])
+            incomplete("SINEplot panel: SINEplot.py failed (rc=%d): %s" % (
+                r2.returncode, (r2.stderr or b"").decode(errors="replace")[:300]))
             return None
         return out_html.read_text(encoding="utf-8", errors="replace")
     except Exception as exc:
-        LOG.warning("SINEplot embedding failed: %s", exc)
+        incomplete("SINEplot panel: embedding failed: %s" % exc)
         return None
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -1190,10 +1254,10 @@ def build_pca_fig(run_root: Path, s2_out: Path,
     try:
         import numpy as _np
     except ImportError:
-        LOG.warning("numpy not available; skipping mutation-space PCA")
+        incomplete("mutation-space PCA: numpy not available")
         return None
     if not shutil.which("mafft"):
-        LOG.warning("mafft not in PATH; skipping PCA")
+        incomplete("mutation-space PCA: mafft not in PATH")
         return None
 
     # Locate consensus FASTA
@@ -1403,6 +1467,7 @@ def build_pca_fig(run_root: Path, s2_out: Path,
         }
     except Exception as exc:
         LOG.warning("PCA failed: %s", exc, exc_info=True)
+        incomplete("mutation-space PCA failed: %s" % exc)
         return None
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -1965,7 +2030,7 @@ def compute_verdicts(species_code: str, subfams: List[str], aln_dir: Path) -> Di
         import report_verdict as V
         import report_flank_uniqueness as FU
     except ImportError as exc:
-        LOG.warning("Skipping verdict columns: %s (numpy required)", exc)
+        incomplete("verdict columns: %s (numpy required)" % exc)
         return {}
     out = {}
     for sf in subfams:
@@ -1977,18 +2042,21 @@ def compute_verdicts(species_code: str, subfams: List[str], aln_dir: Path) -> Di
                 v = V.verdict(str(t100))
             except Exception as exc:
                 v = {"error": str(exc)}
+                incomplete("verdict for %s failed: %s" % (sf, exc))
         fu_t = None
         if t100.is_file():
             try:
                 fu_t = FU.scan(str(t100))
             except Exception as exc:
                 fu_t = {"error": str(exc)}
+                incomplete("flank scan (top100) for %s failed: %s" % (sf, exc))
         fu_r = None
         if r100.is_file():
             try:
                 fu_r = FU.scan(str(r100))
             except Exception as exc:
                 fu_r = {"error": str(exc)}
+                incomplete("flank scan (rand100) for %s failed: %s" % (sf, exc))
         out[sf] = {"verdict": v, "flank_top": fu_t, "flank_rand": fu_r}
     return out
 
@@ -2010,7 +2078,7 @@ def compute_profiles(species_code: str, subfams: List[str], aln_dir: Path,
     try:
         import report_profile as RP
     except ImportError as exc:
-        LOG.warning("Skipping alignment diagrams: %s (numpy required)", exc)
+        incomplete("alignment diagrams: %s (numpy required)" % exc)
         return {}
     out: Dict[str, dict] = {}
     n = 0
@@ -2026,7 +2094,7 @@ def compute_profiles(species_code: str, subfams: List[str], aln_dir: Path,
                 p = RP.profile(str(fn))
                 m = RP.measure(str(fn))
             except Exception as exc:
-                LOG.warning("Alignment diagram failed for %s/%s: %s", sf, tier, exc)
+                incomplete("alignment diagram for %s/%s failed: %s" % (sf, tier, exc))
                 continue
             if p is None:
                 continue
@@ -2045,7 +2113,7 @@ def compute_annotations(species_code: str, subfams: List[str], aln_dir: Path,
     try:
         import report_annotate as RA
     except ImportError as exc:
-        LOG.warning("Skipping structural-feature annotations: %s", exc)
+        incomplete("structural-feature annotations: %s" % exc)
         return {}
     out: Dict[str, dict] = {}
     n = 0
@@ -2060,7 +2128,7 @@ def compute_annotations(species_code: str, subfams: List[str], aln_dir: Path,
             try:
                 a = RA.annotate(str(fn), profiles[key])
             except Exception as exc:
-                LOG.warning("Annotation failed for %s/%s: %s", sf, tier, exc)
+                incomplete("annotation for %s/%s failed: %s" % (sf, tier, exc))
                 continue
             if a is None:
                 continue
@@ -2322,7 +2390,8 @@ def build_html(run_root: Path,
                aln_base: Optional[str] = None,
                pages_index: Optional[str] = None,
                profile_diagrams: bool = True,
-               profile_diagrams_max: int = 200) -> None:
+               profile_diagrams_max: int = 200,
+               allow_incomplete: bool = False) -> None:
     LOG.info("Building report for %s", run_root)
     s2 = find_step2_out(run_root)
     LOG.info("step2 output: %s", s2)
@@ -2583,22 +2652,22 @@ def build_html(run_root: Path,
         hierarchy_section = RH.section(
             run_root, species_code, aln_base,
             subfams_for_aln if species_code else sorted({r[0] for r in stats_rows if r}))
-    except Exception as e:  # the report must not fail over an optional panel
-        sys.stderr.write("WARNING: element hierarchy skipped: %s\n" % e)
+    except Exception as e:  # recorded: the page is not written without --allow-incomplete
+        incomplete("element hierarchy: %s" % e)
     # Sequence similarity between consensuses (the sequence-part counterpart of the hierarchy); "" when numpy / bank missing
     blocks_section = ""
     try:
         import report_blocks as RB
         blocks_section = RB.section(run_root)
-    except Exception as e:  # optional panel
-        sys.stderr.write("WARNING: similarity blocks skipped: %s\n" % e)
+    except Exception as e:  # recorded: the page is not written without --allow-incomplete
+        incomplete("similarity blocks: %s" % e)
     # tRNA / 5S / 7SL origin of the heads (tools/trna_heads.sh in the publish run); "" without its table
     trna_section = ""
     try:
         import report_trna as RT
         trna_section = RT.section(run_root)
-    except Exception as e:  # optional panel
-        sys.stderr.write("WARNING: tRNA section skipped: %s\n" % e)
+    except Exception as e:  # recorded: the page is not written without --allow-incomplete
+        incomplete("tRNA section: %s" % e)
     profiles_json = json.dumps(aln_profiles, separators=(",", ":"))
     annotations_json = json.dumps(aln_annotations, separators=(",", ":"))
 
@@ -2916,6 +2985,7 @@ var ANNOTATIONS = {annotations_json};
 {SORT_JS}
 </body></html>
 """
+    html_doc = apply_incomplete(html_doc, allow_incomplete)      # exits 1 here if a part is missing (no page written)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(html_doc, encoding="utf-8")
     size_mb = out_path.stat().st_size / (1024 * 1024)
@@ -2979,6 +3049,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                          "https://raw.githubusercontent.com/org/repo/main/mysp/alignments/")
     ap.add_argument("--pages-index", default=None,
                     help="Optional URL for 'All species' nav link (multi-species site).")
+    ap.add_argument("--allow-incomplete", action="store_true", default=False,
+                    help="Write the page even if a part could not be built (missing library, helper, program, or a "
+                         "panel error); the page then carries a red box listing them. Default: stop without a page.")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
 
@@ -2994,6 +3067,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not run_root.is_dir():
         ap.error(f"RUN_ROOT does not exist: {run_root}")
 
+    missing = preflight(args.sineplot, Path(os.path.dirname(os.path.abspath(__file__))))
+    if missing:
+        for m in missing:
+            LOG.error("MISSING: %s", m)
+        if not args.allow_incomplete:
+            LOG.error("step6 needs these before it can build a complete page (interpreter %s). Fix the environment, "
+                      "or rerun with --allow-incomplete to write a page marked as incomplete.", sys.executable)
+            return 2
+        INCOMPLETE.extend(missing)
+
     out_path = args.out or (run_root / "results" / "report.html")
     build_html(run_root, out_path,
                inline_plotly=args.inline_plotly,
@@ -3006,7 +3089,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                aln_base=args.aln_base,
                pages_index=pages_index,
                profile_diagrams=args.profile_diagrams,
-               profile_diagrams_max=args.profile_diagrams_max)
+               profile_diagrams_max=args.profile_diagrams_max,
+               allow_incomplete=args.allow_incomplete)
     return 0
 
 
