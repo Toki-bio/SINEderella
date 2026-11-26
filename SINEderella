@@ -823,7 +823,70 @@ rebuild_from_searches(){
   (( EXTRACTED == BED_COUNT )) || die "rebuild: extracted $EXTRACTED sequences from $BED_COUNT merged intervals"
   mv extracted.fasta.tmp extracted.fasta
   log "Re-extracted $EXTRACTED sequences"
+  # the all-seed SubFam alignment of THIS run's loci and seeds, as step 1 makes it. The one copied with genome.clean_step1 is the
+  # source run's: an --exclude run published the excluded seed as a row and "9 seeds" for 8 consensuses (apple run 2026-11-26),
+  # an --add run had none of the added seeds
+  rebuild_allseeds "$(cat consensus.path)"
   )  # end outer subshell
+}
+
+###############################################################################
+# HELPER: step 1's sampling + SubFam + MAFFT (subfam_input/input.clw.al, published as <code>_allseeds_chunks.aln.fa) on
+# extracted.fasta of the current dir, with the seeds of the bank $1; same sample size (CHUNK_BP) and bin size (FLANK) as step 1
+###############################################################################
+rebuild_allseeds(){
+  local cons="$1" n
+  [[ -s "$cons" ]] || die "rebuild: consensus bank not found: $cons"
+  rm -rf subfam_input sampled_*.fasta
+  n=$(awk '/^>/{k++} END{print k+0}' extracted.fasta)
+  if (( n <= CHUNK_BP )); then
+    cp extracted.fasta "sampled_${CHUNK_BP}.fasta"
+  else
+    seqkit sample -n "$CHUNK_BP" extracted.fasta > "sampled_${CHUNK_BP}.fasta"
+  fi
+  mkdir -p subfam_input
+  cp "sampled_${CHUNK_BP}.fasta" subfam_input/input.fasta
+  (
+    cd subfam_input || exit 1
+    SubFam input.fasta "$FLANK" > subfam_log.txt 2>&1 || die "rebuild: SubFam failed (see subfam_input/subfam_log.txt)"
+    [[ -f input.clw ]] || die "rebuild: SubFam produced no input.clw"
+    if awk 'NR == 1 { exit !/^CLUSTAL/ }' input.clw; then      # Clustal -> FASTA, as step 1
+      awk '/^CLUSTAL/ || NF < 2 { next } { s = $2; gsub(/[-.]/, "", s); if (!($1 in q)) o[++c] = $1; q[$1] = q[$1] s }
+           END { for (i = 1; i <= c; i++) print ">" o[i] "\n" q[o[i]] }' input.clw > input_reps.fasta
+    else
+      cp input.clw input_reps.fasta
+    fi
+    cat input_reps.fasta "$cons" > combined_input.fasta
+    mafft --thread "${THREADS:-$(nproc)}" --threadit 0 --localpair --maxiterate 1000 --ep 0.123 --nuc --reorder --preservecase --quiet \
+      combined_input.fasta > input.clw.al
+    [[ -s input.clw.al ]] || die "rebuild: MAFFT produced no input.clw.al"
+  )
+  log "All-seed SubFam alignment rebuilt: $(awk '/^>/{k++} END{print k+0}' subfam_input/input.clw.al) rows (subfam_input/input.clw.al)"
+}
+
+###############################################################################
+# HELPER: --exclude: the consensus $2 out of the satellite tables $1 copied from the source run. Its row stayed in indication.tsv
+# (the report's satellite table listed the excluded family, apple run 2026-11-26), and its spans in exclude_regions.bed kept
+# removing merged loci of the other consensuses, which a run without it never does.
+###############################################################################
+satellite_drop_consensus(){
+  local sat="$1" name="$2" f c h safe had=0
+  [[ -d "$sat" ]] || return 0
+  # file:column of the consensus:header line
+  for f in indication.tsv:1:1 loci.bed:2:1 excluded_hits.bed:1:0 exclude_regions.bed:5:0; do
+    IFS=: read -r f c h <<< "$f"
+    [[ -f "$sat/$f" ]] || continue
+    awk -F'\t' -v c="$c" -v h="$h" -v n="$name" '(h && FNR == 1) || $c != n' "$sat/$f" > "$sat/$f.tmp"
+    mv "$sat/$f.tmp" "$sat/$f"
+  done
+  # its own files (satellite_stage.py names them by safe_file()); units.fa is rebuilt from the others, as satellite_stage --only does
+  safe="${name//[^[:alnum:]_.#+-]/_}"
+  [[ -e "$sat/$safe.kindA.units.fa" ]] && had=1
+  rm -f "$sat/$safe".kindA.* "$sat/$safe.cons.fa"
+  if (( had )); then
+    ( shopt -s nullglob; f=("$sat"/*.kindA.units.fa); cat /dev/null ${f[@]+"${f[@]}"} > "$sat/units.fa" )
+  fi
+  log "Satellite tables: $name removed from $sat"
 }
 
 
@@ -1145,8 +1208,9 @@ mode_add(){
   # for this run's step 1 (an interrupted --add was resumed with the old copies, exit 0)
   : > "$RUN/genome.clean_step1/.step1_incomplete"; rm -f "$RUN/genome.clean_step1/.step1_complete"
 
-  # Fix genome.path to point to this run's genome (absolute)
+  # Fix genome.path to point to this run's genome (absolute), consensus.path to this run's bank (the seeds of the all-seed alignment)
   echo "$RUN/genome.clean.fa" > "$RUN/genome.clean_step1/genome.path"
+  echo "$RUN/consensuses.clean.fa" > "$RUN/genome.clean_step1/consensus.path"
 
   # Search only for new consensus sequences
   log "Running sear searches for new consensuses only..."
@@ -1328,8 +1392,10 @@ mode_exclude(){
   # for this run's step 1 (an interrupted --add was resumed with the old copies, exit 0)
   : > "$RUN/genome.clean_step1/.step1_incomplete"; rm -f "$RUN/genome.clean_step1/.step1_complete"
 
-  # Fix genome.path to point to this run's genome (absolute)
+  # Fix genome.path to point to this run's genome (absolute), consensus.path to this run's bank (the seeds of the all-seed alignment)
   echo "$RUN/genome.clean.fa" > "$RUN/genome.clean_step1/genome.path"
+  echo "$RUN/consensuses.clean.fa" > "$RUN/genome.clean_step1/consensus.path"
+  satellite_drop_consensus "$RUN/genome.clean_step1/satellites" "$EXCLUDE_NAME"
 
   # Remove BED files and split files for the excluded family
   cd "$RUN/genome.clean_step1/searches" || die "Cannot cd into searches"

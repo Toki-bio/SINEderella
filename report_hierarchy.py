@@ -20,7 +20,7 @@ def _plate(fam, code, aln_base, sfnames):
     """MSA-viewer link to the top100 plate of the report subfamily matching the short name fam."""
     if not aln_base or not code:
         return None
-    sf = next((s for s in sfnames if s == fam or s.startswith(fam + "_")), None)
+    sf = _full(fam, list(sfnames))       # a short name that fits two subfamilies links to neither
     if sf is None:
         return None
     raw = aln_base.rstrip("/") + "/%s_%s_top100.aln.fa" % (code, sf)
@@ -66,12 +66,19 @@ def _composition(run_root):
 
 
 def _full(fam, names):
-    """bank name for a short part name (hierarchy.tsv writes r6 for r6_210seqs)"""
-    return fam if fam in names else next((n for n in names if n.startswith(fam + "_")), None)
+    """bank name for a short part name (hierarchy.tsv writes r6 for r6_210seqs); None when the short name fits more than one
+    bank name (consensus for consensus_354seqs and consensus_25seqs): the first one was taken"""
+    if fam in names:
+        return fam
+    c = [n for n in names if n.startswith(fam + "_")]
+    return c[0] if len(c) == 1 else None
 
 
-def _short(u):
-    return u.split("_")[0] if "_" in u and not u.startswith("MEG") else u
+def _short(u, names=()):
+    """label of a unit: r6_210seqs -> r6, but the full name when another bank name gives the same label (consensus_354seqs
+    and consensus_25seqs were both drawn as "consensus")"""
+    cut = lambda x: x.split("_")[0] if "_" in x and not x.startswith("MEG") else x
+    return u if any(n != u and cut(n) == cut(u) for n in names) else cut(u)
 
 
 def _track(comp, cons, a, b, x0, y, ucol, h=8):
@@ -124,7 +131,7 @@ def _bank_composites(comp, ucol):
             s.append('<rect x="%.1f" y="%d" width="%.1f" height="20" rx="2" fill="%s"><title>%s</title></rect>'
                      % (x, y, w, fill, html.escape(tip)))
             if w > 34:
-                lab = "?" if u == "-" else "%s %s" % (_short(u), pid if w > 70 else "")
+                lab = "?" if u == "-" else "%s %s" % (_short(u, set(comp) | set(ucol)), pid if w > 70 else "")
                 s.append('<text x="%.1f" y="%d" font-size="10.5" font-weight="600" fill="%s" text-anchor="middle">%s</text>'
                          % (x + w / 2, y + 14, "#555" if u == "-" else "#fff", html.escape(lab.strip())))
         y += RH

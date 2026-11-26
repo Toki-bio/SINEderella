@@ -18,11 +18,25 @@ import sys
 from pathlib import Path
 
 MINLEN, MINID, MAXN = 30, 80.0, 40
+LABELS = {}     # bank name -> label, set by section() from the run's bank
+
+
+def _cut(n):
+    m = re.match(r"(.+?)_\d+seqs$", n)
+    return m.group(1) if m else n
+
+
+def labels(names):
+    """bank name -> label: the name without its _<N>seqs suffix (r6_210seqs -> r6) only when no other bank name reads the
+    same; consensus_354seqs and consensus_25seqs both read "consensus", so both keep their full names (apple run 2026-11-26)"""
+    k = {}
+    for n in names:
+        k[_cut(n)] = k.get(_cut(n), 0) + 1
+    return {n: (_cut(n) if k[_cut(n)] == 1 else n) for n in names}
 
 
 def lab(n):
-    m = re.match(r"(.+?)_\d+seqs$", n)
-    return m.group(1) if m else n
+    return LABELS.get(n, n)
 
 
 def _bank(run_root):
@@ -255,11 +269,14 @@ def _import_blocks():
 
 
 def section(run_root):
+    global LABELS
+    bank = _bank(run_root)
+    # labels for the whole section, unique in the bank (a name outside the bank keeps its full name)
+    LABELS = labels([l[1:].split()[0] for l in open(bank, encoding="utf-8") if l.startswith(">") and l[1:].split()]) if bank else {}
     # the four decision tables (length versions, arrays, satellites, consensus audit) are shown whenever their files exist, with
     # or without the block matrix: before 2026-10-05 a missing consensus_blocks.py or a one-consensus bank dropped them all
     tables = (_length_versions(run_root) + _arrays(run_root) + _satellites(run_root) + _twins(run_root) + _consensus_audit(run_root)
               + _continuation(run_root))
-    bank = _bank(run_root)
     cb, why = _import_blocks()
     names = cb.rd(str(bank))[0] if (bank is not None and cb is not None) else []
     if bank is None or cb is None or len(names) < 2:

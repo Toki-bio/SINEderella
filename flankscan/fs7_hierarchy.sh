@@ -16,7 +16,7 @@
 #                          with gap:N entries for linkers / unexplained sequence between units, e.g.
 #                          r1:1-154;gap:39;r3:1-201. part1 / part2 = its first two units (older readers).
 #                          bank_name = the units joined by "_" + the peak id, family suffixes like _58seqs
-#                          dropped; open_ends = 5 / 3 / 53 / - (stage 6b / 6c: the end still continues into
+#                          dropped where the short name is unique in cons.tsv; open_ends = 5 / 3 / 53 / - (stage 6b / 6c: the end still continues into
 #                          a bank unit, open5_unit / open3_unit); a candidate accepted by stage 6 with an
 #                          open end gets verdict "open" and is left out of accepted.fa. Candidates that
 #                          were extended into a chain (status extended:...) are not listed - the chain is.
@@ -29,8 +29,9 @@ cd "$OUT"
 EF=ends.tsv; [[ -s "$EF" ]] || { echo "fs7: no $OUT/ends.tsv (stage 6b): the ends are unchecked, run fs6b first" >&2; exit 1; }
 CF=chains.tsv; [[ -s "$CF" ]] || CF=/dev/null    # stage 6c output
 gawk -F'\t' -v OFS='\t' '
-    function short(f) { sub(/_[0-9]+seqs$/, "", f); return f }
-    FILENAME == ARGV[1] { len[$1] = $2; next }                                   # cons.tsv: name len
+    # r6_210seqs -> r6 only when no other bank name reads the same (consensus_354seqs and consensus_25seqs keep their names)
+    function short(f,   s) { s = f; sub(/_[0-9]+seqs$/, "", s); return (ns[s] > 1) ? f : s }
+    FILENAME == ARGV[1] { len[$1] = $2; k = $1; sub(/_[0-9]+seqs$/, "", k); ns[k]++; next }   # cons.tsv: name len
     FILENAME == ARGV[2] { if (FNR > 1) pk[$15] = $0; next }                      # peaks.tsv by peak id
     FILENAME == ARGV[3] { if (FNR > 1) { pf[$1] = $5; vd[$1] = $6 }; next }      # reassign.tsv
     FILENAME == ARGV[4] { if (FNR > 1) { eo[$1] = $8; e5[$1] = $3; e3[$1] = $6 }; next }   # ends.tsv
