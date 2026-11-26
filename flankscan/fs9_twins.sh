@@ -41,7 +41,9 @@
 #      OUT/summary.txt       counts and shares
 # Env: SOFTMASK=both|0|1 IDMASK=95 BODYCHECK=1|0 MK1=6 MK2=3 (shared seeds needed in pass 1 / 2) W=100 IW=80 MINFL=50 MINLEN=50 START=20 BAND=3 CAP=20 GCAP=20 ID1=85 ID2=70 ARRKB=2000
 #      KCOUNT=<file "20-mer TAB count" of the genome, canonical, e.g. jellyfish dump -c>; counted here up to 300 Mb
-#      FS9_THREADS (default BODYCHECK_THREADS, else 1): workers of fs9_seeds.py and of the confirmation step
+#      FS9_THREADS (default BODYCHECK_THREADS, else 1): workers of fs9_seeds.py and of the confirmation step. The unmasked pass runs
+#      beside the masked passes, pass 1 beside pass 2 (2026-11-26), each branch with half of the workers; a failure in either
+#      branch stops the script. FS9_CONF_AWK: the awk of the confirmation (default mawk if on PATH, else gawk; the same rows)
 #      FS9_AWK=1: the repeat filter and steps 2-3 in awk, the reference implementation (it writes keys/hits files of tens of GB
 #      on families of 10^5 copies); default fs9_repmask.py and fs9_seeds.py: the same rows, nothing large on disk
 set -euo pipefail
@@ -50,6 +52,9 @@ W=${W:-100}; IW=${IW:-80}; MINFL=${MINFL:-50}; MINLEN=${MINLEN:-50}; START=${STA
 CAP=${CAP:-20}; GCAP=${GCAP:-20}; ID1=${ID1:-85}; ID2=${ID2:-70}; ARRKB=${ARRKB:-2000}; MK1=${MK1:-6}; MK2=${MK2:-3}
 SOFTMASK=${SOFTMASK:-0}; IDMASK=${IDMASK:-95}
 FS9_AWK=${FS9_AWK:-0}; FS9_THREADS=${FS9_THREADS:-${BODYCHECK_THREADS:-1}}
+# awk of the confirmation step (step 4): mawk when on PATH, else gawk; FS9_CONF_AWK overrides. The same rows (Ata e2-3, 6,055,205
+# confirmed pairs of 22.8 M candidates, byte-identical); mawk 2.3x faster than gawk there and 0.42 instead of 0.75 GB per worker
+CONF_AWK=${FS9_CONF_AWK:-$(command -v mawk || command -v gawk)}
 HERE9="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 case $SOFTMASK in both|0|1) ;; *) echo "fs9: SOFTMASK must be both, 0 or 1" >&2; exit 1 ;; esac
 mkdir -p "$OUT"; G=$(readlink -f "$G"); B=$(readlink -f "$B"); cd "$OUT"
@@ -73,8 +78,8 @@ for S in 5 3; do
         /^>/ { n = substr($0, 2); sub(/\([+-]\)$/, "", n); next }
         { x = $0; gsub(/[^ACGTacgt]/, "N", x); print n "\t" S "\t" (S == 5 ? rev(x) : x) }' "f$S.fa"
 done > seqs.raw.tsv
-make_seqs() {   # SM: 1 = soft-masked bases become N; then upper case
-    gawk -F'\t' -v OFS='\t' -v SM=$1 '{ x = $3; if (SM == 1) gsub(/[acgt]/, "N", x); print $1, $2, toupper(x) }' seqs.raw.tsv > seqs.tsv
+make_seqs() {   # SM [OUT=seqs.tsv]: 1 = soft-masked bases become N; then upper case
+    gawk -F'\t' -v OFS='\t' -v SM=$1 '{ x = $3; if (SM == 1) gsub(/[acgt]/, "N", x); print $1, $2, toupper(x) }' seqs.raw.tsv > "${2:-seqs.tsv}"
 }
 make_seqs 0
 # untestable: a copy with a missing or short flank (contig end) on either side
@@ -117,14 +122,14 @@ rep_mask() {   # bases covered by a repeated 20-mer become N (seqs.tsv in place)
     mv seqs.masked.tsv seqs.tsv
 }
 
-# 2-4) one pass: pass_run PATTERN MINKEYS IDMIN TAG
+# 2-4) one pass: pass_run PATTERN MINKEYS IDMIN TAG SEQS THREADS (SEQS: the flank table read, THREADS: workers)
 pass_run() {
-    local PAT=$1 MK=$2 IDM=$3 TAG=$4
+    local PAT=$1 MK=$2 IDM=$3 TAG=$4 SQ=$5 TH=$6
     if [[ $FS9_AWK != 1 ]]; then
         # steps 2-3 in memory, row for row the awk below (fs9_seeds.py): the awk writes one text row per seed shared by two copies
         # and sorts them (tbr VES, 620,807 copies: hits.p1.tsv 45 GB, hits.p2.tsv 92 GB, keys 3.6 GB each)
-        python3 -I "$HERE9/fs9_seeds.py" seqs.tsv "$PAT" "$MK" --iw "$IW" --cap "$CAP" --band "$BAND" --start "$START" --slack 25 \
-            --threads "$FS9_THREADS" | sort -u > "cand.$TAG.tsv"
+        python3 -I "$HERE9/fs9_seeds.py" "$SQ" "$PAT" "$MK" --iw "$IW" --cap "$CAP" --band "$BAND" --start "$START" --slack 25 \
+            --threads "$TH" | sort -u > "cand.$TAG.tsv"
     else
     # seeds: the pattern's 1-positions of each window, with the offset of the window start from the junction; windows with N
     # or with at most 2 distinct bases are skipped
@@ -134,7 +139,7 @@ pass_run() {
               m = ""; for (j = 1; j <= np; j++) m = m substr(w, pos[j], 1)
               nd = 0; for (j = 1; j <= np; j++) { c = substr(m, j, 1); if (!(c in seen)) { seen[c] = 1; nd++ } } delete seen
               if (nd <= 2) continue
-              print m "\t" i "\t" $1 "\t" $2 } }' seqs.tsv | sort -t$'\t' -k1,1 -T . > "keys.$TAG.tsv"
+              print m "\t" i "\t" $1 "\t" $2 } }' "$SQ" | sort -t$'\t' -k1,1 -T . > "keys.$TAG.tsv"
     # buckets of one seed (same orientation: both flanks are in element orientation): pairs, with the delta of the offsets
     gawk -F'\t' -v CAP=$CAP -v OFS='\t' '
         function flush(   i, j) { if (n > 1) { split("", cnt); for (i = 1; i <= n; i++) cnt[of[i]]++
@@ -163,24 +168,27 @@ pass_run() {
     # FS9_THREADS > 1: the candidate rows are cut into consecutive ranges, one awk each, and the outputs joined in order: the same
     # rows in the same order as one awk (one awk took 6-28 min per pass on the 340k-620k copy VES families)
     local NCAND P k lo hi rc=0; local -a pids=()
-    NCAND=$(wc -l < "cand.$TAG.tsv"); P=$FS9_THREADS; (( NCAND < 20000 )) && P=1
+    NCAND=$(wc -l < "cand.$TAG.tsv"); P=$TH; (( NCAND < 20000 )) && P=1
     for (( k = 0; k < P; k++ )); do
     lo=$(( NCAND * k / P )); hi=$(( NCAND * (k + 1) / P ))
-    gawk -F'\t' -v OFS='\t' -v IDM=$IDM -v ML=$MINLEN -v START=$START -v BAND=$BAND -v TAG=$TAG -v LO=$lo -v HI=$hi '
+    "$CONF_AWK" -F'\t' -v OFS='\t' -v IDM=$IDM -v ML=$MINLEN -v START=$START -v BAND=$BAND -v TAG=$TAG -v LO=$lo -v HI=$hi '
         FILENAME == ARGV[1] { sq[$1 SUBSEP $2] = $3; next }
         FNR <= LO || FNR > HI { next }
         { A =sq[$2 SUBSEP $1]; Bq = sq[$3 SUBSEP $1]; la = length(A); lb = length(Bq); bestid = 0; bestl = 0
           for (dd = $4 - BAND; dd <= $4 + BAND; dd++) {
               sc = 0; st = 0; mt = 0; ln = 0; bs = 0; bm = 0; bl = 0
-              for (j = 1; j <= lb; j++) { i = j + dd; if (i < 1 || i > la) continue
+              # j runs only where 1 <= i <= la (the first version skipped the other j one by one). A segment can start only
+              # where i and j are both <= START; once the score is back at 0 past that point it can never start again (i, j
+              # only grow), so the diagonal is finished: break (2026-11-26; the same rows, the first version scanned on)
+              j = 1; if (j + dd < 1) j = 1 - dd; je = lb; if (je + dd > la) je = la - dd
+              for (; j <= je; j++) { i = j + dd
+                  if (sc <= 0) { sc = 0; st = (i <= START && j <= START) ? 1 : 0; mt = 0; ln = 0; if (!st) break }
                   x = substr(A, i, 1); y = substr(Bq, j, 1)
-                  if (sc <= 0) { sc = 0; st = (i <= START && j <= START) ? 1 : 0; mt = 0; ln = 0 }
-                  if (!st) continue
                   if (x == "N" || y == "N") continue                    # a masked base is neither a match nor a mismatch
                   ln++; if (x == y) { sc++; mt++ } else sc--
                   if (sc > bs) { bs = sc; bm = mt; bl = ln } }
               if (bl >= ML && 100 * bm / bl >= IDM && bl > bestl) { bestl = bl; bestid = 100 * bm / bl } }
-          if (bestl >= ML) printf "%s\t%s\t%s\t%.1f\t%d\t%s\n", $2, $3, $1, bestid, bestl, TAG }' seqs.tsv "cand.$TAG.tsv" > "conf.$TAG.tsv.$k" &
+          if (bestl >= ML) printf "%s\t%s\t%s\t%.1f\t%d\t%s\n", $2, $3, $1, bestid, bestl, TAG }' "$SQ" "cand.$TAG.tsv" > "conf.$TAG.tsv.$k" &
     pids+=($!)
     done
     for k in "${pids[@]}"; do wait "$k" || rc=1; done
@@ -189,10 +197,20 @@ pass_run() {
     for (( k = 0; k < P; k++ )); do rm -f "conf.$TAG.tsv.$k"; done
 }
 
-find_pairs() {   # SM IDa IDb OUTFILE: pairs of one masking mode, pass 1 at IDa, pass 2 at IDb
+half() { echo $(( $1 > 1 ? ($1 + 1) / 2 : 1 )); }   # threads of one of two branches that run side by side
+both() {   # NAME CMD1 -- CMD2: two commands side by side; either failing stops fs9 (set -e holds inside each subshell)
+    local name=$1 pa pb rc=0; shift
+    local -a c1=() c2=(); while [[ $1 != -- ]]; do c1+=("$1"); shift; done; shift; c2=("$@")
+    ( "${c1[@]}" ) & pa=$!
+    ( "${c2[@]}" ) & pb=$!
+    wait "$pa" || rc=1; wait "$pb" || rc=1
+    (( rc == 0 )) || { echo "fs9: $name failed" >&2; exit 1; }
+}
+find_pairs() {   # SM IDa IDb OUTFILE THREADS: pairs of one masking mode, pass 1 at IDa, pass 2 at IDb
     make_seqs $1; rep_mask
-    pass_run 111111111111 $MK1 $2 p1
-    pass_run 111010010100110111 $MK2 $3 p2
+    # pass 1 and pass 2 read the same seqs.tsv and write only their own files: side by side, half the threads each (2026-11-26;
+    # they ran one after the other; the rows do not depend on the thread count)
+    both "pass 1 / pass 2" pass_run 111111111111 $MK1 $2 p1 seqs.tsv "$(half $5)" -- pass_run 111010010100110111 $MK2 $3 p2 seqs.tsv "$(half $5)"
     # a pair found in both passes keeps its pass 1 row; the tier follows the identity
     gawk -F'\t' -v OFS='\t' -v ID1=$ID1 '{ key = $1 SUBSEP $2 SUBSEP $3; if (key in done) next; done[key] = 1
           print $1, $2, $3, $4, $5, ($4 >= ID1 ? "T1" : "T2"), "twin" }' conf.p1.tsv conf.p2.tsv | sort -k1,1 -k2,2 -k3,3 > "$4"
@@ -202,18 +220,23 @@ find_pairs() {   # SM IDa IDb OUTFILE: pairs of one masking mode, pass 1 at IDa,
 # copy inserted at a hot spot (inside copies of a repeat) shares its neighbourhood with many copies, and that is the evidence,
 # even where the repeat filter has masked the shared 20-mers. Before 2026-11-01 the 5' flanks were never masked (orientation bug)
 # and gave hot-spot copies these partners by accident (toy HOT009: 38 partners; with the 5' mask working and no count, 2).
-make_seqs 0
-pass_run 111111111111 $MK1 $ID2 nomask
+# The unmasked pass reads its own copy of the SM=0 flanks (seqs.nomask.tsv) and runs side by side with the masked passes below,
+# which rewrite seqs.tsv; until 2026-11-26 they ran one after the other on seqs.tsv (the same input, the same rows).
+make_seqs 0 seqs.nomask.tsv
+masked_pairs() {
+    if [[ $SOFTMASK == both ]]; then
+        find_pairs 0 $IDMASK $IDMASK pairs.masked95.body "$1"      # masked bases kept, near-identical flanks only
+        find_pairs 1 $ID1 $ID2 pairs.strict.body "$1"              # masked bases as N, the usual tiers (its seqs.tsv stays)
+        gawk -F'\t' '{ key = $1 SUBSEP $2 SUBSEP $3; if (!(key in done)) { done[key] = 1; print } }' pairs.strict.body pairs.masked95.body |
+            sort -k1,1 -k2,2 -k3,3 > pairs.body
+    else
+        find_pairs $SOFTMASK $ID1 $ID2 pairs.body "$1"
+    fi
+}
+both "unmasked pass / masked passes" pass_run 111111111111 $MK1 $ID2 nomask seqs.nomask.tsv "$(half $FS9_THREADS)" -- masked_pairs "$(half $FS9_THREADS)"
+rm -f seqs.nomask.tsv
 gawk -F'\t' -v OFS='\t' '{ k = $1 SUBSEP $2; if (k in seen) next; seen[k]; n[$1]++; n[$2]++ } END { for (c in n) print c, n[c] }' \
     conf.nomask.tsv | sort > partners_unmasked.tsv
-if [[ $SOFTMASK == both ]]; then
-    find_pairs 0 $IDMASK $IDMASK pairs.masked95.body       # masked bases kept, near-identical flanks only
-    find_pairs 1 $ID1 $ID2 pairs.strict.body               # masked bases as N, the usual tiers (its seqs.tsv stays)
-    gawk -F'\t' '{ key = $1 SUBSEP $2 SUBSEP $3; if (!(key in done)) { done[key] = 1; print } }' pairs.strict.body pairs.masked95.body |
-        sort -k1,1 -k2,2 -k3,3 > pairs.body
-else
-    find_pairs $SOFTMASK $ID1 $ID2 pairs.body
-fi
 # masked: a copy with fewer than MINFL testable (non-N) bases in a flank after masking has nothing to compare on that side; it is
 # reported as "masked", never as "unique" (the first version called such copies unique). With SOFTMASK=both: the strict pass, so a
 # masked copy was compared only at >= IDMASK.

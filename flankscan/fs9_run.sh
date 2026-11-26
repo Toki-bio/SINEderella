@@ -14,13 +14,16 @@
 #      RUN_DIR/genome.clean.fa.k20gt20.tsv  canonical 20-mers seen more than 20 times (jellyfish; kept, it is the repeat mask of
 #                                           every stage-9 run on this genome; made again when older than the genome)
 # The run's genome has no soft-masking (the header cleaning writes upper case), so the k-mer mask is the only repeat filter here.
-# Env: FS9_SKIP=1 skips; MIN_COPIES; anything fs9_twins.sh reads (W, MINLEN, ID1, ...).
+# Env: FS9_SKIP=1 skips; MIN_COPIES; FS9_JOBS (default 2): families run at once, each with 1/FS9_JOBS of the threads (the
+#      largest families start first; every family's files are its own, the rows of flank_twins.tsv keep the family order);
+#      anything fs9_twins.sh reads (W, MINLEN, ID1, ...).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # MIN_COPIES 2: any two copies can be compared; until 2026-10-21 it was 20, and smaller families never got a copy verdict
 RUN=$(readlink -f "${1:?RUN_DIR}"); T=${2:-8}; MINC=${3:-${MIN_COPIES:-2}}
-export BODYCHECK_THREADS=${BODYCHECK_THREADS:-$T}   # parallel ssearch36 calls in fs9_bodycheck.py
-export FS9_THREADS=${FS9_THREADS:-$T}               # workers of fs9_seeds.py and of the confirmation awks
+BODYCHECK_THREADS=${BODYCHECK_THREADS:-$T}   # parallel ssearch36 calls in fs9_bodycheck.py
+FS9_THREADS=${FS9_THREADS:-$T}               # workers of fs9_seeds.py and of the confirmation awks
+JOBS=${FS9_JOBS:-2}; [[ $JOBS =~ ^[1-9][0-9]*$ ]] || { echo "fs9_run: FS9_JOBS must be a number >= 1" >&2; exit 1; }
 G="$RUN/genome.clean.fa"; AF="$RUN/results/assignment_full.tsv"; OUT="$RUN/results/flank_twins"
 [[ -s "$G" && -s "$AF" ]] || { echo "fs9_run: need $G and $AF" >&2; exit 1; }
 # an index older than the genome is made again (as fs1_extract.sh since 2026-10-19; here any non-empty one was used until 2026-11-10)
@@ -57,21 +60,57 @@ if [[ ! -s "$KC" || "$KC" -ot "$G" ]]; then
 fi
 
 printf "family\tcopies\ttwin1\ttwin2\tarray\tmasked\tuntestable\tunique\tpct_twin\n" > "$OUT.tsv"
-gawk -F'\t' 'NR > 1 && $5 == "assigned" { print $2 }' "$AF" | sort | uniq -c | gawk -v M="$MINC" '$1 >= M { print $2 }' | while read -r FAM; do
-    D="$OUT/$FAM"; mkdir -p "$D"
-    gawk -F'\t' -v OFS='\t' -v F="$FAM" 'NR > 1 && $2 == F && $5 == "assigned" {
-        # a "+,-" locus (runs with MERGE_STRAND_AWARE=0) was extracted as + by SINEderella: taken as +, as in fs1_extract.sh
-        # (until 2026-11-10 such loci were counted in the family and left without a stage-9 status)
-        if (match($1, /^(.+):([0-9]+)-([0-9]+)\(([^)]*)\)$/, m)) print m[1], m[2], m[3], $1, 0, (m[4] == "-" ? "-" : "+") }' "$AF" | sort -k1,1 -k2,2n > "$D/copies.bed"
-    if (( USEKC )); then KCOUNT="$KC" bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || { echo "fs9_run: $FAM failed, see $D/fs9.log" >&2; continue; }
-    else bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || { echo "fs9_run: $FAM failed, see $D/fs9.log" >&2; continue; }
+# work files of this script (family lists, per-family exit status and summary row); removed at the end
+WK="$OUT.work"; rm -rf "$WK"; mkdir -p "$WK"
+gawk -F'\t' 'NR > 1 && $5 == "assigned" { print $2 }' "$AF" | sort | uniq -c | gawk -v M="$MINC" '$1 >= M { print $2 "\t" $1 }' > "$WK/families"
+gawk -F'\t' '{ print $1 }' "$WK/families" > "$WK/order"                                  # the row order of flank_twins.tsv, as before
+sort -t$'\t' -k2,2nr -k1,1 "$WK/families" | gawk -F'\t' '{ print $1 }' > "$WK/start"       # largest families first
+while IFS= read -r FAM; do mkdir -p "$OUT/$FAM"; : > "$OUT/$FAM/copies.bed.unsorted"; done < "$WK/order"
+# every family's copies in one pass over assignment_full.tsv (until 2026-11-26 one gawk pass per family, 2-9 s each on 1.9 M
+# loci); the same rows per family in the same order, then sorted as before
+gawk -F'\t' -v OFS='\t' -v O="$OUT" 'FILENAME == ARGV[1] { want[$1]; next }
+    FNR > 1 && $5 == "assigned" && ($2 in want) {
+    # a "+,-" locus (runs with MERGE_STRAND_AWARE=0) was extracted as + by SINEderella: taken as +, as in fs1_extract.sh
+    # (until 2026-11-10 such loci were counted in the family and left without a stage-9 status)
+    if (match($1, /^(.+):([0-9]+)-([0-9]+)\(([^)]*)\)$/, m)) print m[1], m[2], m[3], $1, 0, (m[4] == "-" ? "-" : "+") > (O "/" $2 "/copies.bed.unsorted") }' "$WK/order" "$AF"
+
+# one family. Exit status: 0 done; 1 fs9_twins.sh failed (reported, the family gets no row, as before); 2 a step of this
+# script failed (the stage stops with status 1, as a failing step of the family loop stopped it before)
+run_family() {   # FAM
+    local FAM=$1 D="$OUT/$1"
+    sort -k1,1 -k2,2n "$D/copies.bed.unsorted" > "$D/copies.bed" || return 2
+    rm -f "$D/copies.bed.unsorted"
+    if (( USEKC )); then KCOUNT="$KC" FS9_THREADS=$FT BODYCHECK_THREADS=$BT bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || return 1
+    else FS9_THREADS=$FT BODYCHECK_THREADS=$BT bash "$HERE/fs9_twins.sh" "$G" "$D/copies.bed" "$D" > "$D/fs9.log" 2>&1 || return 1
     fi
     gawk -F'\t' -v OFS='\t' -v F="$FAM" '{ n[$2]++; t++ }
         END { printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.1f\n", F, t, n["twin1"], n["twin2"], n["array"], n["masked"], n["untestable"], n["unique"],
-                     t ? 100 * (n["twin1"] + n["twin2"]) / t : 0 }' "$D/copy_status.tsv" >> "$OUT.tsv"
-    rm -f "$D"/keys.p?.tsv "$D"/hits.p?.tsv "$D"/f5.fa "$D"/f3.fa "$D"/seqs.tsv "$D"/rep20.tsv "$D"/flank20.tsv
+                     t ? 100 * (n["twin1"] + n["twin2"]) / t : 0 }' "$D/copy_status.tsv" > "$WK/$FAM.row" || return 2
+    rm -f "$D"/keys.p?.tsv "$D"/hits.p?.tsv "$D"/f5.fa "$D"/f3.fa "$D"/seqs.tsv "$D"/rep20.tsv "$D"/flank20.tsv || return 2
     # intermediates no other step reads (2026-10-24; cand.p1/p2 were 0.6 GB on tbr VES); FS9_KEEP=1 keeps them for debugging
-    [[ ${FS9_KEEP:-0} == 1 ]] || rm -f "$D"/cand.p?.tsv "$D"/conf.p?.tsv "$D"/cand.nomask.tsv "$D"/conf.nomask.tsv "$D"/pairs*.body "$D"/flank_groups.body "$D"/seqs.raw.tsv
-done
+    [[ ${FS9_KEEP:-0} == 1 ]] || rm -f "$D"/cand.p?.tsv "$D"/conf.p?.tsv "$D"/cand.nomask.tsv "$D"/conf.nomask.tsv "$D"/pairs*.body "$D"/flank_groups.body "$D"/seqs.raw.tsv || return 2
+    return 0
+}
+# FS9_JOBS families at once (2026-11-26; one after the other before), each with 1/FS9_JOBS of the threads. No output depends on
+# the thread count (confirmation ranges joined in order, seed blocks through sort -u, ssearch36 -T 1 per body-check call).
+FT=$(( FS9_THREADS / JOBS > 0 ? FS9_THREADS / JOBS : 1 )); BT=$(( BODYCHECK_THREADS / JOBS > 0 ? BODYCHECK_THREADS / JOBS : 1 ))
+NRUN=0
+while IFS= read -r FAM; do
+    if (( NRUN >= JOBS )); then wait -n || true; NRUN=$(( NRUN - 1 )); fi
+    ( set +e; run_family "$FAM"; echo $? > "$WK/$FAM.rc" ) &
+    NRUN=$(( NRUN + 1 ))
+done < "$WK/start"
+wait
+BAD=0
+while IFS= read -r FAM; do
+    RC=$(cat "$WK/$FAM.rc" 2> /dev/null || echo 2)
+    case $RC in
+        0) cat "$WK/$FAM.row" >> "$OUT.tsv" ;;
+        1) echo "fs9_run: $FAM failed, see $OUT/$FAM/fs9.log" >&2 ;;
+        *) echo "fs9_run: $FAM: a step of fs9_run.sh failed (status $RC)" >&2; BAD=1 ;;
+    esac
+done < "$WK/order"
+(( BAD == 0 )) || exit 1
+rm -rf "$WK"
 echo "fs9_run: $(( $(wc -l < "$OUT.tsv") - 1 )) families -> $OUT.tsv"
 column -t "$OUT.tsv" 2> /dev/null || cat "$OUT.tsv"

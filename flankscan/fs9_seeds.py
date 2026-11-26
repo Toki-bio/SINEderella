@@ -93,8 +93,20 @@ del seed_l, off_l, row_l
 cop = copy_of_row[row]; sid = side_of_row[row]; del row
 
 # ---- bucket order of the awk (seed, then the rest of the line), CAP per (seed, offset)
-o = np.lexsort((sid, cop, offrank[off], seed))
-seed, off, cop, sid = seed[o], off[o], cop[o], sid[o]; del o
+# One packed 64-bit key (seed | offset rank | copy | side) sorted as numbers is the same order as np.lexsort over the four
+# columns, and a row is fully given by its key, so the sorted keys unpacked are the lexsort rows (2026-11-26: the lexsort of
+# 140 M seed rows was most of the single-threaded time on Ata e2-3, 874,097 copies). Fields too wide for 63 bits: lexsort.
+CB = max(1, (NC - 1).bit_length()); OB = max(1, a.iw.bit_length()); SB = 2 * len(POS)
+if SB + OB + CB + 1 <= 63:
+    key = seed << (OB + CB + 1); key |= offrank[off] << (CB + 1); key |= cop << 1; key |= sid
+    del seed, off, cop, sid
+    key.sort()
+    off_of_rank = np.zeros(a.iw, dtype=np.int64); off_of_rank[offrank[1:]] = np.arange(1, a.iw + 1)
+    sid = key & 1; cop = (key >> 1) & ((1 << CB) - 1); off = off_of_rank[(key >> (CB + 1)) & ((1 << OB) - 1)]; seed = key >> (OB + CB + 1)
+    del key
+else:
+    o = np.lexsort((sid, cop, offrank[off], seed))
+    seed, off, cop, sid = seed[o], off[o], cop[o], sid[o]; del o
 N = len(seed)
 if N == 0: sys.exit(0)
 brk = np.flatnonzero((seed[1:] != seed[:-1]) | (off[1:] != off[:-1])) + 1
@@ -109,7 +121,10 @@ if NC * NC * 512 >= 2 ** 63 or K * K >= 2 ** 63:
     sys.exit("fs9_seeds: %d copies / %d seed rows: too many for the 64-bit pair keys; use FS9_AWK=1" % (NC, K))
 
 # ---- partner index: rows grouped by (seed, side), copies ascending; partners of a row = rows of its group with a larger copy
-o2 = np.lexsort((cop, sid, seed))
+if SB + CB + 1 <= 63:    # one packed key, stable argsort: the same permutation as the stable lexsort over (seed, side, copy)
+    o2 = np.argsort((seed << (CB + 1)) | (sid << CB) | cop, kind="stable")
+else:
+    o2 = np.lexsort((cop, sid, seed))
 seed2, sid2, cop2, off2, pos2 = seed[o2], sid[o2], cop[o2], off[o2], pos[o2]; del seed, off, cop, sid, pos, o2
 g_brk = np.flatnonzero((seed2[1:] != seed2[:-1]) | (sid2[1:] != sid2[:-1])) + 1
 c_brk = np.flatnonzero((seed2[1:] != seed2[:-1]) | (sid2[1:] != sid2[:-1]) | (cop2[1:] != cop2[:-1])) + 1
@@ -119,7 +134,11 @@ ge = run_end(g_brk); ub = run_end(c_brk); del g_brk, c_brk
 del seed2
 cnt = ge - ub                                   # partners of each row
 hits_per_copy = np.bincount(cop2, weights=cnt, minlength=NC)
-order_by_copy = np.argsort(cop2, kind="stable")  # rows of one copy together
+KB = max(1, K.bit_length())
+if CB + KB <= 63:       # rows of one copy together, in row order: the stable argsort by copy, as (copy | row) keys sorted
+    order_by_copy = np.sort((cop2 << KB) | np.arange(K, dtype=np.int64)) & ((1 << KB) - 1)
+else:
+    order_by_copy = np.argsort(cop2, kind="stable")
 copy_start = np.searchsorted(cop2[order_by_copy], np.arange(NC + 1))
 
 # blocks of whole copies of about --block-hits seed pairs
