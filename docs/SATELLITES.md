@@ -368,6 +368,38 @@ short hits (r9, one r4) whose identity sits at the 85 cut on one side or the oth
 Timema (KIT) was not rerun from this session. Toy tests: `tests/test_satellite_kindB_verify.py::test_flank_method_gives_the_planted_verdicts` (B1 array,
 dimeric, 7 kb-unit, near-threshold, diverged, unrelated flank) and the earlier 25 satellite tests pass.
 
+## 5k. Speed of the stage on a large genome (2026-11-26, branch fix/satellite-speed)
+
+Ata (2.79 Gb, 10 consensuses, 1.9 M loci, 64 threads; therioserver `/home/toki/sine_runs/Ata/ten10/run_20261126_160931/genome.clean_step1`):
+the stage took 65.7 min, kind B about 60 of them, the six dense consensuses (about 1 M hits each) 8.7-11.4 min each. Profile of one dense
+consensus (e2-1, 1 190 411 hits, 163 712 + 772 checked runs; old code, 16 threads, cProfile; `/home/toki/tmp/sd_satfix/prof_e2-1/prof.log`):
+1 612 s in all = kindB_flank_check.sh 926 s, `tiles()` in satellite_stage.py 427 s, kind A (TRF) 165 s, `satellite_screen.screen` 66 s
+(of it the chance null `null_b` 55 s), `array_order.regular_runs` 43 s, removing the per-run files 10 s.
+
+* **`tiles()` and the edge halves** listed the hits inside each run by a scan over all hits of the contig (runs x hits: 427 s on e2-1,
+  25 s on the sparse ERI-1). They now take the slice of the sorted hit list by bisection (hits that start in [s, e], then end <= e: the same
+  hits in the same order; a contig with an end < start hit keeps the scan).
+* **kindB_flank_check.sh steps 2-4.** Where the time of the check goes (ERI-1, 16 355 runs, old script, 8 threads): step 3 104 s, step 4 12 s,
+  step 2 2 s. ssearch36 itself is 54.5 ms per run (2 000 runs, serial); the old `sh -c` + basename + grep per run added 7 ms (12 %); a bare
+  ssearch36 start is 3.3 ms. So the Smith-Waterman work, fixed by the grouping and the arguments (all pieces of one run against each other,
+  `-g -3 -m 8 -E 10 -z -1 -T 1`), is the floor; those are unchanged. What changed: the runs are packed into THREADS x 4 chunk files (one line
+  per run, its FASTA records byte for byte), one bash per chunk loops over its runs (one ssearch36 per run, as before), and one gawk per chunk
+  keeps only the lines step 4 reads (same run, same flank kind, lag 1 or 2: the test of step 4, copied). No file per run (old: 3 per run,
+  567 k files on e2-1), no flanks.fa. e2-1 at 32 threads: 538 s -> 426 s, peak work-dir disk 5.0 GB -> 1.6 GB, every intermediate
+  (regions, names, lens, nhits, flank and piece scores, verdicts) and the per-run search inputs and kept ssearch36 lines identical.
+  A failing ssearch36 (exit code, or '***' on stderr) or gawk in any worker ends it with 255 and the check fails
+  (tests `test_flank_check_stops_when_a_parallel_child_fails`; with the exits removed, all three fail).
+* **Whole stage, old (bd2a54e) vs new, same machine, 32 threads, one consensus (`--only`)**: e1-4 11:37 -> 8:49 min, e2-1 14:34 -> 9:47 min;
+  every file in satellites/, the filtered BED, its .before_satellites and the count lines of the log identical (also ERI-1).
+  **Full stage, 10 consensuses, 64 threads**: 47:50 min (the production run with the old code: 65.7 min, under other load), all 55 files of
+  satellites/, all 20 BEDs and .before_satellites and the 41 count lines of satellites.log identical to that run.
+  Scripts and logs: therioserver `/home/toki/tmp/sd_satfix/` (`s/run_stage.sh`, `s/cmp_stage.sh`, `series.log`, `run_*/time.txt`;
+  the copied hit files were removed after the check).
+  What is left on a dense consensus is mostly ssearch36 itself (about 55 ms per run, 125-164 k runs).
+* Left as they are, reported: the chance null of `satellite_screen.null_b` (55 s on e2-1, single-threaded, random draws) and
+  `array_order.regular_runs` (43 s). The step-5 piece test still writes up to 4 files per borderline run (e2-1: 22 453 runs, 75 544 files, 310 MB; 31 s), the
+  next candidate for the same chunk scheme.
+
 ## 6. Decisions and requirements from the user (2026-10-03)
 
 * **The SINE inside the satellite must still be detected and reported properly, and clearly separated from the
