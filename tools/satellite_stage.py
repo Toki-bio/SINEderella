@@ -23,6 +23,7 @@ Usage: satellite_stage.py --searches DIR --genome G.fa --cons CONSENSUSES.fa --o
        [--exclude-b verified|flagged|long|all|none] [--max-verify-runs 2000] [--only NAME,...]
 """
 import argparse
+import bisect
 import collections
 import glob
 import os
@@ -187,12 +188,22 @@ def main():
                 st[q][c].append((s, e))
             for c in st[q]:
                 st[q][c].sort()
+            reversed_hits = {c for c in st[q] if any(h[1] < h[0] for h in st[q][c])}
             # A long run is checked as tiles of at most TILE consecutive hits, each on its own: the check reads the first
             # MAX_UNITS + 1 hits only, and the whole run span was excluded, so an array with ordinary copies beside it in one run
             # took the copies with it (audit 2026-10-14: a 9-unit array + 8 copies 7 kb apart, all 17 excluded). A run whose
             # tiles are all ARRAY is excluded whole as before; a run with some ARRAY tiles ("PARTIAL") only over those tiles.
+            def inside(c, s, e):
+                """the hits of contig c inside [s, e], in list order. The list is sorted, so the candidates (start in [s, e]) are one
+                slice found by bisection; the old linear scan over all hits of the contig per run cost 25-30 min on Ata (1.9 M hits).
+                A hit with end < start (not valid BED) could lie inside while starting after e: such a contig keeps the linear scan."""
+                lst = st[q][c]
+                if c in reversed_hits:
+                    return [h for h in lst if s <= h[0] and h[1] <= e]
+                return [h for h in lst[bisect.bisect_left(lst, (s,)):bisect.bisect_right(lst, (e, float("inf")))] if h[1] <= e]
+
             def tiles(c, s, e):
-                hs = [h for h in st[q][c] if s <= h[0] and h[1] <= e]
+                hs = inside(c, s, e)
                 if len(hs) <= TILE:
                     return [(s, e, len(hs))]
                 k = -(-len(hs) // TILE); size = -(-len(hs) // k)
@@ -214,7 +225,7 @@ def main():
                     edge = any(0 <= j + d < len(tl) and lab[j + d] != lab[j] for d in (-1, 1))
                     if not edge or t[4] < 6:
                         continue
-                    hs = [h for h in st[q][key[0]] if t[0] <= h[0] and h[1] <= t[1]]
+                    hs = inside(key[0], t[0], t[1])
                     m = len(hs) // 2
                     for part in (hs[:m], hs[m:]):
                         half_runs.append((q, key[0], part[0][0], part[-1][1], t[3], len(part))); half_of.append((key, j))

@@ -50,22 +50,53 @@ gawk -F'\t' -v OFS='\t' -v FL="$FL" -v MINFL="$MINFL" -v UMAX="$UMAX" -v MAXH=$(
 : > /dev/null
 [[ -s regions.txt ]] || { echo "kindB_flank_check: no flank regions" >&2; : > verdicts.tsv; exit 0; }
 
-# 2. cut them, name them, one FASTA per run
+# 2. cut them, name them, write their lengths (lens.tsv) and pack the runs into NCH chunk files m/c<j>.runs (run i -> chunk i % NCH),
+# one line per run: run id, TAB, the run's FASTA records exactly as samtools wrote them, each "\n" written as \001.
+# Until 2026-11-26 every run had its own FASTA file (m/<run>.fa, opened and closed once per record: up to 164 k files and ~6 M
+# open/close calls per consensus on Ata) and the whole flank FASTA was kept as flanks.fa as well.
+NCH=$((THREADS * 4))
 samtools faidx "$GENOME" -r regions.txt \
-| gawk 'FNR == NR { n[FNR] = $0; next } /^>/ { i++; print ">" n[i]; next } { print }' names.txt - > flanks.fa
-gawk '/^>/ { if (nm != "") print nm "\t" L; nm = substr($0, 2); L = 0; next } { L += length($0) } END { if (nm != "") print nm "\t" L }' flanks.fa > lens.tsv
-gawk -v RS='>' 'NR > 1 { split($0, a, "\n"); split(a[1], p, "_"); f = "m/" p[1] ".fa"; printf ">%s", $0 >> f; close(f) }' flanks.fa
+| gawk -v NCH="$NCH" '
+    FNR == NR { n[FNR] = $0; next }
+    function put() { if (started) printf "%s\t%s\n", cur, buf > ("m/c" (nr++ % NCH) ".runs") }
+    function len_out() { if (nm != "") print nm "\t" L > "lens.tsv" }
+    /^>/ { len_out(); i++; nm = n[i]; L = 0; split(nm, p, "_")
+           if (!started || (p[1] "") != cur) { put(); started = 1; cur = p[1] ""; buf = "" }
+           buf = buf ">" nm "\001"; next }
+    { L += length($0); buf = buf $0 "\001" }
+    END { len_out(); put() }' names.txt -
+: >> lens.tsv
 
-# file lists via find, not a glob: ttr (2026-10-24) had so many runs that `ls *.fa` hit "Argument list too long"
-# 3. all-against-all inside each run (26 pieces of 150 bp), the lag-1/lag-2 pairs of one flank kind are read from it
+# 3. all-against-all inside each run (26 pieces of 150 bp), the lag-1/lag-2 pairs of one flank kind are read from it.
+# One ssearch36 call per run as before (the same pieces searched together, same arguments, -T 1), but THREADS workers (xargs -P) each
+# take a whole chunk file and loop over its runs in one bash: the run is written to the chunk's own c<j>.fa and searched. No sh,
+# basename and grep processes and no file per run. Only the lines step 4 reads (same run, same flank kind, lag 1 or 2: the test of
+# step 4, copied) are kept, by one gawk per chunk: the full output was ~290 lines per run (250 MB for the 16 k runs of Ata ERI-1).
 # ssearch36 exits 0 when it finds nothing, but also when it cannot open a file (only "***" on stderr): both are checked. Until
-# 2026-10-19 a failed search was "|| true": its run scored 0 and was verdicted COPIES, so a real array stayed in (GLM audit)
-ss_check='rc=$?; if [ "$rc" -ne 0 ] || grep -q "\*\*\*" "$b.err"; then echo "kindB_flank_check: ssearch36 failed on $1 (exit $rc): $(head -c 300 "$b.err")" >&2; exit 255; fi'
-( cd m && find . -maxdepth 1 -name '*.fa' -printf '%f
-' | sort | xargs -P "$THREADS" -I{} sh -c 'b=$(basename "$1" .fa); "$2" -g -3 -m 8 -E 10 -z -1 -T 1 "$1" "$1" > "$b.m8" 2> "$b.err"; '"$ss_check" _ {} "$SSEARCH" )
+# 2026-10-19 a failed search was "|| true": its run scored 0 and was verdicted COPIES, so a real array stayed in (GLM audit).
+# A failed call, or a failed gawk, ends its worker with 255: xargs stops and exits non-zero, and set -e stops this script.
+# Bare file names inside m/: ssearch36 cannot open a path longer than ~120 characters.
+cat > m/worker.sh <<'WORKER'
+set -o pipefail
+c=${1%.runs}
+{ while IFS=$'\t' read -r id rec; do
+      printf '%s' "${rec//$'\001'/$'\n'}" > "$c.fa" || exit 255
+      "$2" -g -3 -m 8 -E 10 -z -1 -T 1 "$c.fa" "$c.fa" 2> "$c.err" && rc=0 || rc=$?
+      e=""; if [[ -s $c.err ]]; then IFS= read -r -d '' e < "$c.err" || true; fi
+      if (( rc != 0 )) || [[ $e == *'***'* ]]; then
+          echo "kindB_flank_check: ssearch36 failed on run $id (exit $rc): ${e:0:300}" >&2; exit 255
+      fi
+  done < "$1"; } \
+| gawk -F'\t' '{ split($1, a, "_"); split($2, b, "_")
+                 if (a[1] != b[1] || a[3] != b[3]) next
+                 d = b[2] - a[2]; if (d < 0) d = -d
+                 if (d != 1 && d != 2) next
+                 print }' > "$c.m8" || exit 255
+WORKER
+( cd m && find . -maxdepth 1 -name 'c*.runs' -printf '%f\n' | sort | xargs -P "$THREADS" -I{} bash worker.sh {} "$SSEARCH" )
 
 # 4. per-hit best score, per-run median
-find m -maxdepth 1 -name '*.m8' -exec cat {} + 2>/dev/null | gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" '
+find m -maxdepth 1 -name 'c*.m8' -exec cat {} + 2>/dev/null | gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" '
     FILENAME == "lens.tsv" { L[$1] = $2; next }
     { split($1, a, "_"); split($2, b, "_")
       if (a[1] != b[1] || a[3] != b[3]) next
@@ -97,6 +128,8 @@ gawk -F'\t' -v OFS='\t' -v MIN_ID="$MIN_ID" -v BORDER_LO="$BORDER_LO" '
 # 5. second opinion for the borderline runs: a 150 bp piece from the middle of stretch k against stretches k+1 and k+2
 awk -F'\t' '$5 == "BORDER" || $5 == "ARRAY" { print $1 }' verdicts.flank.tsv > border.ids
 if [[ -s border.ids ]]; then
+    # one ssearch36 per borderline run (few: 46-772 per consensus on Ata), checked as in step 3
+    ss_check='rc=$?; if [ "$rc" -ne 0 ] || grep -q "\*\*\*" "$b.err"; then echo "kindB_flank_check: ssearch36 failed on $1 (exit $rc): $(head -c 300 "$b.err")" >&2; exit 255; fi'
     gawk -F'\t' -v OFS='\t' -v PIECE="$PIECE" -v TMAX="$TARGET_MAX" -v MAXH=$((MAX_UNITS + 1)) '
         FILENAME == "border.ids" { want[$1] = 1; next }
         FILENAME ~ /fai$/ { len[$1] = $2; next }

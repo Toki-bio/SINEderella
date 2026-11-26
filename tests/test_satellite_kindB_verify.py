@@ -148,3 +148,53 @@ def test_flank_method_is_the_switch(tmp_path, monkeypatch):
     monkeypatch.setenv("SATELLITE_KINDB_METHOD", "flank")
     assert kb.verify_runs([], {}, "none.fa", str(tmp_path)) == {}
     assert seen == [1]
+
+
+def _stub(bindir, name, body):
+    """an executable `name` in bindir that runs `body` (sh) and otherwise hands over to the real program"""
+    real = shutil.which(name)
+    p = bindir / name
+    p.write_text("#!/bin/sh\n" + body + "\nexec %s \"$@\"\n" % real, encoding="utf-8", newline="\n")
+    p.chmod(0o755)
+
+
+@need_flank_tools
+@pytest.mark.parametrize("how", ["exit", "stars", "gawk"])
+def test_flank_check_stops_when_a_parallel_child_fails(tmp_path, monkeypatch, how):
+    """the step-3 workers (one bash per chunk of runs, xargs -P): a failing ssearch36 (exit code, or exit 0 with '***' on stderr:
+    a file it cannot open) or a failing gawk in any worker must stop the check, never leave its runs scored 0 (= COPIES)"""
+    g, runs, starts, expect = toy(tmp_path)
+    b = tmp_path / "bin"
+    b.mkdir()
+    n = tmp_path / "calls"
+    if how == "gawk":           # only the gawk of the workers runs inside m/
+        _stub(b, "gawk", 'case "$PWD" in */m) echo "gawk stub: boom" >&2; exit 3;; esac')
+    else:                       # the 4th and later ssearch36 calls of step 3 (run inside m/) fail
+        fail = 'echo "*** cannot open library" >&2; exit 0' if how == "stars" else 'echo "ssearch36 stub: boom" >&2; exit 2'
+        _stub(b, "ssearch36", 'case "$PWD" in */m) echo x >> "%s"; [ "$(wc -l < "%s")" -ge 4 ] && { %s; };; esac' % (n, n, fail))
+    monkeypatch.setenv("PATH", str(b) + os.pathsep + os.environ["PATH"])
+    with pytest.raises(RuntimeError) as ex:
+        kb.verify_runs_flank(runs, starts, g, str(tmp_path), threads=3)
+    assert "kindB_flank_check.sh failed" in str(ex.value)
+    if how != "gawk":
+        assert "ssearch36 failed on run" in str(ex.value)
+
+
+@need_flank_tools
+def test_flank_check_keeps_few_files(tmp_path):
+    """runs are packed into THREADS x 4 chunk files, not one FASTA (and .m8, .err) per run"""
+    import subprocess
+    g, runs, starts, expect = toy(tmp_path)
+    many = runs * 30                                            # 180 runs
+    hits = tmp_path / "hits.tsv"
+    with open(hits, "w") as fh:
+        for i, (q, c, s, e, unit, nh) in enumerate(many):
+            for hs, he in kb._hits_in(starts[q][c], s, e)[:13]:
+                fh.write("%d\t%s\t%d\t%d\n" % (i, c, hs, he))
+    sh = os.path.join(os.path.dirname(os.path.abspath(kb.__file__)), "kindB_flank_check.sh")
+    r = subprocess.run(["bash", sh, str(hits), g, str(tmp_path / "w")], env=dict(os.environ, THREADS="2"), capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    m = os.listdir(tmp_path / "w" / "m")
+    assert len(m) <= 2 * 4 * 4 + 1, m                           # c<j>.runs/.fa/.err/.m8 per chunk + worker.sh
+    v = [l.split("\t") for l in open(tmp_path / "w" / "verdicts.tsv")]
+    assert len(v) == 180 and [x[4] for x in v] == [expect[i % 6] for i in range(180)]
