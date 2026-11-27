@@ -241,7 +241,9 @@ flush_done(){
   done
 }
 
-trap 'kill $(jobs -pr) 2>/dev/null; wait; rm -rf "$tmpdir"' EXIT
+# on exit: stop subfamilies still running (only after a failure or a signal), then remove the temp dir; under errexit a
+# failing command in the trap would replace the exit status, hence the || true
+trap 'kill $(jobs -pr) 2>/dev/null || true; wait || true; rm -rf "$tmpdir"' EXIT
 isf=0
 for sf_fasta in "${subfam_files[@]}"; do
   isf=$((isf+1))
