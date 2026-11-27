@@ -371,13 +371,18 @@ def profile(path):
     colmed = np.nanmedian(Mk, axis=0)
     Mk = np.where(np.isfinite(Mk), Mk, colmed[None, :])
     mosaic = np.full(len(starts), np.nan)
-    if Mk.shape[0] >= 8:
-        U, S, Vt = np.linalg.svd(Mk - Mk.mean(), full_matrices=False)
+    # A window empty in every kept row has no median, so it stays NaN; one NaN made the whole SVD input NaN and step 6
+    # stopped ("SVD did not converge", Atelerix e1-4 top100/rand100, 2026-11-27). Such windows are left out and keep NaN;
+    # with no empty window the arithmetic is unchanged.
+    ok = np.isfinite(Mk).all(axis=0)
+    if Mk.shape[0] >= 8 and ok.any():
+        X = Mk[:, ok]
+        U, S, Vt = np.linalg.svd(X - X.mean(), full_matrices=False)
         fit = np.outer(U[:, 0] * S[0], Vt[0])
-        resid = (Mk - Mk.mean()) - fit
-        denom = np.linalg.norm(Mk - Mk.mean(), axis=0)
+        resid = (X - X.mean()) - fit
+        denom = np.linalg.norm(X - X.mean(), axis=0)
         with np.errstate(invalid="ignore", divide="ignore"):
-            mosaic = np.where(denom > 1e-9, np.linalg.norm(resid, axis=0) / denom, np.nan)
+            mosaic[ok] = np.where(denom > 1e-9, np.linalg.norm(resid, axis=0) / denom, np.nan)
     mos_x = (starts + WIN // 2).tolist()
 
     import re as _re
