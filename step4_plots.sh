@@ -210,13 +210,14 @@ process_sf(){
 }
 
 ###############################################################################
-# Run the subfamilies JOBS at a time (2026-11-27). Each subfamily's commands are the old ones with the same arguments;
-# only the thread count of ssearch36 and MAFFT changes (SF_THREADS = THREADS / JOBS). Neither changes the output with
-# the thread count: the ssearch36 lines are sorted before the best hit is taken, and mafft --addfragments gave the same
-# alignment at --thread 1, 4, 8, 24 and 64 (docs/SPEEDUP_SSEARCH.md, step 4). Log lines of a subfamily are kept
-# together and printed in subfamily order, as before.
+# Run the subfamilies JOBS at a time (2026-11-27). Each subfamily runs the old commands with the same arguments; only
+# the thread count of ssearch36 and MAFFT changes (SF_THREADS = THREADS / JOBS, default 4). Neither output depends on
+# it: the ssearch36 lines are sorted before the best hit is taken, and mafft --addfragments wrote the same alignment at
+# --thread 1, 4, 8 and 24 (Ata e2-4, 10,000 copies). MAFFT is the slow part and hardly gains past 4 threads (e2-4: 245 s
+# at 1, 150 s at 4, 145 s at 24), so several subfamilies at 4 threads each use the cores better than one at THREADS.
+# STEP4_JOBS overrides the number of subfamilies at a time. Log lines of a subfamily stay together, in subfamily order.
 ###############################################################################
-JOBS="${STEP4_JOBS:-$(( THREADS / 8 ))}"
+JOBS="${STEP4_JOBS:-$(( THREADS / 4 ))}"
 (( JOBS >= 1 )) || JOBS=1
 (( JOBS <= nsf )) || JOBS=$nsf
 SF_THREADS=$(( THREADS / JOBS ))
