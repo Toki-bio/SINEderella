@@ -39,24 +39,35 @@ cols() {   # CHUNK
 # window i of g (1-based) and its reverse complement substr(r, n - i - 18, 20)
 WIN='{ if ($2 == 5) { g = $4; r = $5 } else { g = $3; r = $6 }; n = length(g); hasn = index(g, "N") }'
 if [[ $MODE == rep ]]; then
-    # 1) per chunk: flank k-mers that are KCOUNT k-mers above GCAP, each once per chunk
-    run_rep() {   # CHUNK
-        cols "$1" | "$AWK" -v C="$C" '
-            FILENAME == ARGV[1] { if (NF >= 2 && $2 + 0 > C) kc[toupper($1)] = 1; next }   # KCOUNT: blank-separated
+    # Workers: G row chunks x H classes of k-mers (class = the 9th-10th bases of the canonical k-mer), G * H = THREADS. Each
+    # worker hashes only the KCOUNT k-mers of its class (loading all 5.6 M of Ata took 10 s per mawk: the cost of one worker
+    # with H = 1) and looks up only the windows of its class. H: the power of two that minimizes the estimated time of one
+    # worker, KCOUNT_lines / H * 1.8 us + windows * H / THREADS * 0.4 us (measured on therioserver, mawk).
+    read -r G H < <("$AWK" -v K="$(wc -l < "$KC")" -v W=$(( NR_ * 81 )) -v P="$P" 'BEGIN { bh = 1
+        for (h = 1; h <= P; h *= 2) { t = K / h * 1.8 + W * h / P * 0.4; if (h == 1 || t < bt) { bt = t; bh = h } }
+        g = int(P / bh); if (g < 1) g = 1; print g, bh }')
+    if (( G != P )); then rm -f "$TD"/c[0-9][0-9][0-9]
+        "$AWK" -v P="$G" -v N="$NR_" -v D="$TD" '{ print > sprintf("%s/c%03d", D, int((FNR - 1) * P / N)) }' "$SQ"; [[ -e $TD/c000 ]] || : > "$TD/c000"; fi
+    # 1) per worker: "KCOUNT_line_number TAB k-mer" for the flank k-mers of its class found in KCOUNT (count > GCAP)
+    run_rep() {   # CHUNK CLASS
+        cols "$1" | "$AWK" -v C="$C" -v H="$H" -v HC="$2" '
+            BEGIN { split("AA AC AG AT CA CC CG CT GA GC GG GT TA TC TG TT", d, " "); for (i = 1; i <= 16; i++) CL[d[i]] = (i - 1) % H }
+            FILENAME == ARGV[1] { if (NF >= 2 && $2 + 0 > C) { m = toupper($1); x = substr(m, 9, 2)   # KCOUNT: blank-separated
+                                      if ((x in CL) && CL[x] == HC) kc[m] = (m in kc) ? kc[m] " " FNR : FNR }; next }
             !tabs { FS = "\t"; tabs = 1; $0 = $0 }                                         # the flank rows: tab-separated
             '"$WIN"'
             { for (i = 1; i + 19 <= n; i++) { m = substr(g, i, 20); if (hasn && index(m, "N")) continue
                   x = substr(r, n - i - 18, 20); if (x < m) m = x
-                  if ((m in kc) && !(m in hit)) { hit[m] = 1; print m } } }' "$KC" - > "$1.hit"
+                  if (CL[substr(m, 9, 2)] != HC || !(m in kc) || (m in hit)) continue
+                  hit[m] = 1; k = split(kc[m], L, " "); for (j = 1; j <= k; j++) print L[j] "\t" m } }' "$KC" - > "$1.$2.hit"
     }
-    pids=(); for c in "$TD"/c[0-9][0-9][0-9]; do run_rep "$c" & pids+=($!); done
+    pids=(); for c in "$TD"/c[0-9][0-9][0-9]; do for (( h = 0; h < H; h++ )); do run_rep "$c" "$h" & pids+=($!); done; done
     rc=0; for p in "${pids[@]}"; do wait "$p" || rc=1; done
     (( rc == 0 )) || { echo "fs9_repmask.sh: rep chunk failed" >&2; exit 1; }
-    # 2) KCOUNT lines whose upper-cased k-mer was found, in KCOUNT order; no line with two fields: exit 1 (wrong file)
-    cat "$TD"/c[0-9][0-9][0-9].hit > "$TD/hits"
-    "$AWK" -v C="$C" 'FILENAME == ARGV[1] { h[$1]; next }
-        NF >= 2 { any = 1; m = toupper($1); if ($2 + 0 > C && (m in h)) print m }
-        END { if (!any) exit 1 }' "$TD/hits" "$KC"
+    # 2) no KCOUNT line with two fields: exit 1 (wrong file); else the k-mers found, once per KCOUNT line, in KCOUNT order
+    "$AWK" 'NF >= 2 { f = 1; exit } END { exit !f }' "$KC" || exit 1
+    SORT=$(command -v gnusort || command -v sort)
+    cat "$TD"/c[0-9][0-9][0-9].*.hit | "$SORT" -t "$(printf '\t')" -k1,1n -u -S 1G -T "$TD" | cut -f2
 else
     run_mask() {   # CHUNK: rows in order; covered runs built in genome orientation, written in stored orientation
         cols "$1" | "$AWK" -F'\t' -v REP="$REP" '
