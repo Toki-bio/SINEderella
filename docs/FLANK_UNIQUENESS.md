@@ -267,10 +267,10 @@ job stops the stage. Not changed (they would not change results either, but are 
 The awk reference path (`FS9_AWK=1`) still pairs every row of a seed bucket and checks CAP inside the double loop (n^2 per
 bucket); it is used only by tests/test_fs9_engines.sh.
 
-## Stage 9 in awk instead of Python? (measured 2026-11-27, branch awk/fs9-seeds-repmask, not wired)
+## Stage 9 in awk instead of Python? (measured 2026-11-27; in main as test references, not wired)
 
 Question: can the repeat mask (`fs9_repmask.py`) and the seed step (`fs9_seeds.py`) be done in awk/bash at the same speed with
-identical rows. Two awk versions were written and are kept on the branch for this comparison only; `fs9_twins.sh` still calls the
+identical rows. Two awk versions were written and are kept in main as test references for the Python steps (owner 2026-11-27; tests/test_fs9_awk_steps.sh); `fs9_twins.sh` still calls the
 Python steps. `flankscan/fs9_repmask.sh` (rep, mask): rev/tr make the reversed and complemented flanks, mawk takes each 20-mer
 and its reverse complement with two substr; rep splits the work into row chunks x k-mer classes so that no mawk holds all of
 KCOUNT. `flankscan/fs9_seeds.sh`: seeds written as fixed-width lines into 64 files by seed prefix, sort per prefix (= bucket
