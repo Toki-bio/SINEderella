@@ -51,6 +51,13 @@ Inside step 1 (rsi, `step1.stdout.log`): 22 searches 19.4 min, satellite screen 
 clusters 4.8 min. One search covers 20 genome parts. The ssearch36 call on one part takes 0.96 s at -T 32 (27 s CPU, 87 %
 parallel efficiency), but after each part sear also ran `samtools faidx` + `sort -V` of that part: 1.4-2.0 s.
 
+Satellite stage, Python (main 1ed8961) against the awk port (branch awk/satellite 2c55cf5, mawk), Atelerix ten11_nodash
+ERI-1 + e2-4, 8 threads, run py, awk, py, awk on therioserver (`therioserver:/home/toki/tmp/sd_sattime/PROGRESS.md`,
+2026-11-28): wall 34:57 / 47:45 / 53:27 / 45:47, so awk is not slower overall; Python's own CPU time rose 53 % between its two
+runs on the same input, at server load 55-180. Kind-B verification (shared ssearch36) is 80-90 % of the wall and follows load.
+The only step slower in awk every time is the screen with the null draw, about 2-3 min per run. Memory: awk 1.0 GB, Python
+2.9 GB. Output differs only in `kindB_excess_pct` (1 of 2 rows, -1.7 vs -1.6 %).
+
 ssearch36 thread scaling (`/home/toki/ssspeed/bench/scale/`): a step-2 call (22 consensuses x 20,000 copies) 13.6 s at -T 32
 (342 s CPU), 23.5 s at -T 16 (317 s), 40.1 s at -T 8 (303 s), 78.5 s at -T 4 (304 s); a step-1 call (1 consensus x 107,695
 windows) 1.58 s at -T 32 (47 s CPU), 11.8 s at -T 4 (48 s).
