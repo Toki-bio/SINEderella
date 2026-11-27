@@ -126,3 +126,20 @@ class TestNoShorterVariantMerge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNonACGTWarning(unittest.TestCase):
+    def test_warns_on_removed_letters(self):
+        """N / IUPAC letters are dropped from the bank: the script must say so (owner 2026-11-27: warn, go on)."""
+        import subprocess
+        import sys
+        repo = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as d:
+            inp = Path(d) / "in.fa"
+            inp.write_text(">clean\n" + "ACGT" * 30 + "\n>dirty\n" + "ACGT" * 20 + "NNRY" + "ACGT" * 20 + "\n")
+            out = Path(d) / "out.fa"
+            r = subprocess.run([sys.executable, str(repo / "canonicalize_consensus_bank.py"), str(inp), "-o", str(out)],
+                               capture_output=True, text=True, check=True)
+            self.assertIn("WARNING: dirty: 4 letters other than A/C/G/T removed (N:2,R:1,Y:1); searched as 160 bp", r.stderr)
+            self.assertNotIn("clean", r.stderr)
+            self.assertEqual(len(read_fa(out)["dirty"]), 160)

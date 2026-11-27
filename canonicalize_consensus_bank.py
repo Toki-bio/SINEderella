@@ -55,6 +55,16 @@ def main() -> int:
         print("ERROR: empty input", file=sys.stderr)
         return 1
 
+    # letters other than A/C/G/T (N, IUPAC codes) are dropped from every consensus below (ungap in orient_at_rich_3prime):
+    # warn, so a shortened query is never silent (Atelerix ERI-2 196 -> 188 bp, 2026-11-26; owner 2026-11-27: warn, go on)
+    for name in sorted(cons):
+        bad = [c for c in cons[name].upper() if c not in "ACGT-."]
+        if bad:
+            kinds = ",".join("%s:%d" % (k, bad.count(k)) for k in sorted(set(bad)))
+            n_acgt = sum(1 for c in cons[name].upper() if c in "ACGT")
+            print(f"WARNING: {name}: {len(bad)} letters other than A/C/G/T removed ({kinds}); searched as {n_acgt} bp",
+                  file=sys.stderr)
+
     clusters = find_rc_clusters(cons, args.min_id, args.min_len_ratio, args.direct_min_id)
     drop: set[str] = set()
     alias_rows: list[tuple] = []
