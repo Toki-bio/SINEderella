@@ -27,7 +27,7 @@ FULL_ID, FULL_FRAC, MIN_REST = 90.0, 0.70, 120
 
 if len(sys.argv) > 3 and sys.argv[1] == "--bank":
     # composite_units.py --bank BANK.fa OUT.tsv [THREADS]: the same table from a bank alone (step 1 uses it to search the
-    # composites' stretches as queries of their own, tools/composite_pieces.py)
+    # composites' stretches as queries of their own, tools/composite_pieces.sh)
     bank, outp = sys.argv[2], sys.argv[3]
     threads = sys.argv[4] if len(sys.argv) > 4 else "4"
 else:

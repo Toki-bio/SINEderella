@@ -75,7 +75,7 @@ Bank without r1, otherwise as rsi_nor1_20261026; finished 19:50, report built.
   intermediate length into one stretch (single linkage). Whether they should stay apart is open.
 
 ## Piece search in step 1 (branch piece-search, 057a0f3)
-`step1_search_extract.sh` runs `tools/composite_units.py --bank` and `tools/composite_pieces.py` before the search and adds
+`step1_search_extract.sh` runs `tools/composite_units.py --bank` and `tools/composite_pieces.sh` before the search and adds
 every composite stretch >= 50 bp (`PIECE_MIN_LEN`) to the queries; the header of each piece file names the composite, so
 every hit-labelling path gives its hits the composite's label; the satellite screen covers the pieces under their file
 names; step 2 votes with the bank only. `PIECE_SEARCH=0` turns it off.
@@ -102,3 +102,11 @@ rfe_main_20261026,hla_rsibank_20261026}`, Tal directories of the same names.
   covered one. Not built (owner's decision).
 - Copies without a subfamily, partial copies included, are not_SINE in loci_verdict.tsv; their flanks are not tested.
 - Stretch rows and plates on the report page.
+
+## Stretches no unit explains are not searched (2026-11-27)
+`tools/composite_pieces.sh` (awk; replaces composite_pieces.py, same files byte for byte on 15 real unit tables of the rsi,
+rfe, hla and hedgehog runs, mawk and gawk) skips composite rows whose unit is "-". Atelerix e2-3longB counted as a
+composite (e2-4 matches its first 203 bp at 91.2 %); its 69 bp tail 281-349 had no unit and, searched alone, found 195,644
+loci of its own in Atelerix and 162,685 in E. europaeus, all unassigned (3' tails of e2 copies). In the rsi-type banks the
+only such stretch of >= 50 bp is r10_r8_P18 152-289 (253 loci of its own in rsi_final, none assigned); the r1 rescue
+comes from unit-labelled head pieces (C11 1-80, P1 1-80, P2 2-85), which are kept.

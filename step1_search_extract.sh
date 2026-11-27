@@ -110,11 +110,11 @@ echo "[$(date)] Found ${#QUERY_FILES[@]} consensus sequences to search"
 #     first word is the composite, so its hits carry the composite's label. Step 2 votes with the bank only. PIECE_SEARCH=0: off.
 _TOOLS_P="${SINEDERELLA_TOOLS:-$(dirname "$(readlink -f "$0")")/tools}"
 rm -f pieces.part_*.fa pieces.named.fa composite_units.bank.tsv
-if [[ "${PIECE_SEARCH:-1}" != "0" && -f "$_TOOLS_P/composite_units.py" && -f "$_TOOLS_P/composite_pieces.py" ]]; then
+if [[ "${PIECE_SEARCH:-1}" != "0" && -f "$_TOOLS_P/composite_units.py" && -f "$_TOOLS_P/composite_pieces.sh" ]]; then
     python3 "$_TOOLS_P/composite_units.py" --bank "$CONSENSUS" composite_units.bank.tsv "${THREADS:-4}" >&2 \
         || { echo "ERROR: composite_units.py --bank failed (PIECE_SEARCH=0 searches without composite pieces)"; exit 1; }
-    _npieces=$(python3 "$_TOOLS_P/composite_pieces.py" composite_units.bank.tsv "$CONSENSUS" . "${PIECE_MIN_LEN:-50}") \
-        || { echo "ERROR: composite_pieces.py failed (PIECE_SEARCH=0 searches without composite pieces)"; exit 1; }
+    _npieces=$(bash "$_TOOLS_P/composite_pieces.sh" composite_units.bank.tsv "$CONSENSUS" . "${PIECE_MIN_LEN:-50}") \
+        || { echo "ERROR: composite_pieces.sh failed (PIECE_SEARCH=0 searches without composite pieces)"; exit 1; }
     if (( _npieces > 0 )); then
         QUERY_FILES+=(pieces.part_*.fa)
         echo "[$(date)] + ${_npieces} composite pieces (>= ${PIECE_MIN_LEN:-50} bp) searched as queries of their own"
