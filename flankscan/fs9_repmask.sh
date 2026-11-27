@@ -12,7 +12,7 @@
 # part), so the awk takes each window and its reverse complement with two substr. The rows are cut into THREADS consecutive
 # chunks, one awk each; mask outputs are joined in chunk order. rep: each awk holds the KCOUNT k-mers above GCAP in a hash and
 # prints the flank k-mers found there; a last awk prints the KCOUNT lines whose k-mer was found, in KCOUNT order.
-# Env: FS9_REP_AWK (default mawk if on PATH, else gawk; both give the same rows), TMPDIR (chunk files, about the size of SEQS).
+# Env: SD_AWK (the awk; default mawk >= 1.3.4, else gawk; both give the same rows), TMPDIR (chunk files, about the size of SEQS).
 set -euo pipefail
 export LC_ALL=C
 MODE=${1:-}; SQ=${2:-}
@@ -22,7 +22,14 @@ case $MODE in
     *) echo "usage: fs9_repmask.sh rep SEQS KCOUNT GCAP [THREADS] | mask SEQS REP20 [THREADS]" >&2; exit 2 ;;
 esac
 [[ -r $SQ ]] || { echo "fs9_repmask.sh: cannot read $SQ" >&2; exit 1; }
-AWK=${FS9_REP_AWK:-$(command -v mawk || command -v gawk)}
+# the awk (pipeline rule 2026-11-27): $SD_AWK when set, else mawk if its version is >= 1.3.4 (1.3.3 crashed on KIT), else gawk
+AWK=${SD_AWK:-}
+if [[ -z $AWK ]]; then
+    m=$(command -v mawk || true); v=""; [[ -n $m ]] && v=$("$m" -W version 2>&1 | head -n 1)
+    if [[ $v =~ mawk\ ([0-9]+)\.([0-9]+)\.([0-9]+) ]] && (( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] >= 1003004 )); then AWK=$m
+    else AWK=$(command -v gawk) || { echo "fs9_repmask.sh: needs mawk >= 1.3.4 or gawk" >&2; exit 1; }; fi
+fi
+echo "fs9_repmask.sh: awk $AWK ($("$AWK" -W version 2>&1 | head -n 1))" >&2
 [[ $P =~ ^[1-9][0-9]*$ ]] || P=1
 TD=$(mktemp -d "${TMPDIR:-/tmp}/fs9_repmask.XXXXXX"); trap 'rm -rf "$TD"' EXIT
 # chunks: consecutive rows c000, c001, ... (the order of SEQS)

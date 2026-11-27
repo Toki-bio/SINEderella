@@ -19,7 +19,7 @@
 #     of its two residues (sort -m of the two residue streams: bucket order kept), pairs them, and counts per (pair, delta) in
 #     a hash with NUMERIC keys (mawk hashes numbers about 7x faster than strings). The count's value also holds the order in which
 #     the (pair, delta) was first seen = the bucket order, which decides bd on ties. Memory per class: about Q^-2 of all seed pairs.
-# Env: FS9_SEEDS_AWK (default mawk if on PATH, else gawk; the same rows), FS9_SORT (default gnusort if on PATH, else sort),
+# Env: SD_AWK (the awk; default mawk >= 1.3.4, else gawk; the same rows), FS9_SORT (default gnusort if on PATH, else sort),
 #      FS9_Q (default 16), FS9_SORT_MEM (default 512M per sort).
 set -euo pipefail
 export LC_ALL=C
@@ -33,7 +33,14 @@ while (( $# )); do
 done
 [[ $PAT =~ ^1[01]*$ ]] || { echo "fs9_seeds.sh: PATTERN must be 0/1 and start with 1" >&2; exit 2; }
 [[ $TH =~ ^[1-9][0-9]*$ ]] || TH=1
-AWK=${FS9_SEEDS_AWK:-$(command -v mawk || command -v gawk)}
+# the awk (pipeline rule 2026-11-27): $SD_AWK when set, else mawk if its version is >= 1.3.4 (1.3.3 crashed on KIT), else gawk
+AWK=${SD_AWK:-}
+if [[ -z $AWK ]]; then
+    m=$(command -v mawk || true); v=""; [[ -n $m ]] && v=$("$m" -W version 2>&1 | head -n 1)
+    if [[ $v =~ mawk\ ([0-9]+)\.([0-9]+)\.([0-9]+) ]] && (( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 1000 + BASH_REMATCH[3] >= 1003004 )); then AWK=$m
+    else AWK=$(command -v gawk) || { echo "fs9_seeds.sh: needs mawk >= 1.3.4 or gawk" >&2; exit 1; }; fi
+fi
+echo "fs9_seeds.sh: awk $AWK ($("$AWK" -W version 2>&1 | head -n 1))" >&2
 SORT=${FS9_SORT:-$(command -v gnusort || command -v sort)}
 Q=${FS9_Q:-16}; SMEM=${FS9_SORT_MEM:-512M}
 (( IW + BAND < 128 && IW < 128 )) || { echo "fs9_seeds.sh: IW + BAND must be < 128 (delta and count fields)" >&2; exit 2; }
