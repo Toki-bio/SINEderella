@@ -5,8 +5,9 @@ The stretches of the bank's composites as search queries of their own, for step 
 
 sear keeps a hit only when it covers >= 80 % of its query, so a copy of one unit of a composite (rsi: the head that
 r1_r3_P1, r1_r3_P2 and C11 share) is found only if it is also 80 % of some other bank entry. Searching every composite
-stretch of >= MIN_LEN bp (rows of kind "composite" in UNITS.tsv, from composite_units.py --bank) finds them: rsi without
-r1_9seqs, all 21 r1 loci, the 3 the bank missed included.
+stretch of >= MIN_LEN bp that a unit explains (rows of kind "composite" in UNITS.tsv, from composite_units.py --bank)
+finds them: rsi without r1_9seqs, all 21 r1 loci, the 3 the bank missed included. Stretches no unit explains ("-") are
+not searched (2026-11-27).
 
 Writes, per stretch, OUTDIR/pieces.part_<composite>__piece_<start>-<end>.fa whose header's first word is the COMPOSITE's
 name, so every place that labels hits by the query header (step 1, the orchestrator's rebuild, --exclude) gives piece hits
@@ -39,6 +40,10 @@ with open(os.path.join(outdir, "pieces.named.fa"), "w") as named:
             continue
         s, e = int(f[2]), int(f[3])
         if e - s + 1 < min_len:
+            continue
+        if f[4] in ("-", ""):
+            # a stretch no unit explains ("-", drawn grey) is not a module: searched alone it found 195,644 loci in
+            # Atelerix (e2-3longB 281-349, the shared 3' tail of e2 copies), all unassigned (owner 2026-11-27)
             continue
         piece = seq[f[0]][s - 1:e]
         tag = "%s__piece_%d-%d" % (re.sub(r"[^\w.#+-]", "_", f[0]), s, e)
