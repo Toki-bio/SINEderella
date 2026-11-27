@@ -117,14 +117,14 @@ pairs() {   # R1 R2
             for (b = 0; b < 2; b++) { n = N[b]; x0 = b * 4096
                 for (i = x0 + 1; i < x0 + n; i++) { ci = C[i]
                     for (j = i + 1; j <= x0 + n; j++) { cj = C[j]
-                        if (ci == cj || (!SAME && RS[i] == RS[j])) continue
+                        if (ci == cj || (!SAME && RR[i] == RR[j])) continue
                         if (ci < cj) { a = ci; bb = cj; oa = O[i]; ob = O[j] } else { a = cj; bb = ci; oa = O[j]; ob = O[i] }
                         pk = (a * NC + bb) * 2 + b; k = pk * 256 + oa - ob + 128
                         if ((v = c[k]) == 0) c[k] = (++idx) * 128 + 1; else c[k] = v + 1   # first-seen order * 128 + count (count <= IW)
                         if (oa <= LIM) la[pk]; if (ob <= LIM) lb[pk] } }
                 N[b] = 0 } }
         { s = substr($0, 1, 10); if (s != cur) { flush(); cur = s }
-          b = SB[substr($0, PS + 1, 1)]; n = b * 4096 + (++N[b]); C[n] = substr($0, PO + 1, WC) + 0; O[n] = substr($0, 15, WF) + 0; RS[n] = C[n] % Q }   # numeric keys: side * 4096 + row
+          b = SB[substr($0, PS + 1, 1)]; n = b * 4096 + (++N[b]); C[n] = substr($0, PO + 1, WC) + 0; O[n] = substr($0, 15, WF) + 0; RR[n] = C[n] % Q }   # numeric keys: side * 4096 + row
         END { flush()
               for (k in c) { k += 0; pk = int(k / 256); if (!(pk in la) || !(pk in lb)) continue
                   s = 0; for (dd = -BAND; dd <= BAND; dd++) if ((k + dd) in c) s += c[k + dd] % 128
