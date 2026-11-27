@@ -38,6 +38,8 @@ SORT=${FS9_SORT:-$(command -v gnusort || command -v sort)}
 Q=${FS9_Q:-16}; SMEM=${FS9_SORT_MEM:-512M}
 (( IW + BAND < 128 && IW < 128 )) || { echo "fs9_seeds.sh: IW + BAND must be < 128 (delta and count fields)" >&2; exit 2; }
 TD=$(mktemp -d "${TMPDIR:-/tmp}/fs9_seeds.XXXXXX"); trap 'rm -rf "$TD"' EXIT
+stamp() { [[ -z ${FS9_SEEDS_LOG:-} ]] || echo "$1 $(date +%s.%N) $(du -sk "$TD" | cut -f1)" >> "$FS9_SEEDS_LOG"; }   # FS9_SEEDS_LOG=file: stage times (diagnostics)
+stamp start
 
 # copy rank of every row = place of its name among the distinct names in byte order (as sorted(set(names))); made with sort, not
 # with an awk hash of the names (mawk hashes 10 characters of a long string: names that differ in the middle share hash slots)
@@ -53,6 +55,7 @@ SIDES=$(cut -f2 "$SQ" | "$SORT" -u | "$AWK" '{ s = s (NR > 1 ? "," : "") $0; n++
 WC=${#NC}; WO=${#IW}; WEIGHT=$(( $(tr -cd 1 <<< "$PAT" | wc -c) )); PL=$(( WEIGHT < 3 ? WEIGHT : 3 ))
 mkdir -p "$TD/A" "$TD/B" "$TD/C"
 
+stamp ranks
 # ---- A: seed rows, by row chunk
 NR_=$(wc -l < "$SQ"); P=$TH; (( NR_ >= P )) || P=1
 paste "$TD/rank" <(cut -f2,3 "$SQ") | "$AWK" -v P="$P" -v N="$NR_" -v D="$TD" '{ print > sprintf("%s/q%03d", D, int((NR - 1) * P / N)) }'
@@ -75,6 +78,7 @@ pids=(); k=0; for c in "$TD"/q[0-9][0-9][0-9]; do seedgen "$c" "$k" & pids+=($!)
 rc=0; for p in "${pids[@]}"; do wait "$p" || rc=1; done; (( rc == 0 )) || { echo "fs9_seeds.sh: seed step failed" >&2; exit 1; }
 rm -f "$TD"/q[0-9][0-9][0-9]
 
+stamp A
 # ---- B: buckets, by seed prefix (prefix index in byte order = the order of the buckets)
 "$AWK" -v PL="$PL" 'BEGIN { F[""] = 1; for (k = 1; k <= PL; k++) { split("", G); for (p in F) { G[p "A"]; G[p "C"]; G[p "G"]; G[p "T"] }; split("", F); for (p in G) F[p] = 1 }
                              for (p in F) print p }' | "$SORT" | "$AWK" '{ print NR - 1, $1 }' > "$TD/prefixes"
@@ -109,6 +113,7 @@ export -f buckets; export TD SORT SMEM AWK WEIGHT WO WC IW CAP Q
 xargs -P "$TH" -n 2 bash -c 'buckets "$@"' _ < "$TD/prefixes"
 # a failing buckets() makes xargs return 123: set -e stops the script
 
+stamp B
 # ---- C: pairs, by residue class (r1 <= r2)
 "$AWK" -v Q="$Q" 'BEGIN { for (a = 0; a < Q; a++) for (b = a; b < Q; b++) print a, b }' > "$TD/classes"
 pairs() {   # R1 R2
@@ -116,7 +121,7 @@ pairs() {   # R1 R2
     [[ -e ${f1[0]} ]] || f1=(); [[ -e ${f2[0]} ]] || f2=()
     if [[ $1 == "$2" ]]; then (( ${#f1[@]} )) || return 0; cat "${f1[@]}"
     else (( ${#f1[@]} && ${#f2[@]} )) || return 0; "$SORT" -m <(cat "${f1[@]}") <(cat "${f2[@]}"); fi |
-    "$AWK" -v WF="${#IW}" -v WC="$WC" -v Q="$Q" -v SAME=$([[ $1 == "$2" ]] && echo 1 || echo 0) -v NC="$NC" -v MK="$MK" -v BAND="$BAND" \
+    "$AWK" -v WF="${#IW}" -v WC="$WC" -v Q="$Q" -v R1="$1" -v SAME=$([[ $1 == "$2" ]] && echo 1 || echo 0) -v NC="$NC" -v MK="$MK" -v BAND="$BAND" \
         -v LIM=$(( START + SLACK )) -v SIDES="$SIDES" -v NAMES="$TD/names" '
         BEGIN { ns = split(SIDES, SV, ","); for (i = 1; i <= ns; i++) SB[SV[i]] = i - 1; PO = 14 + WF; PS = PO + WC; HP = 2147483647 }
         # The pair keys k = ((a * NC + b) * 2 + side) * 256 + delta + 128 are up to 2^48. mawk hashes a number that is not a 31-bit
@@ -125,11 +130,19 @@ pairs() {   # R1 R2
         # the full key in K[] and linear probing when two keys share a slot (open addressing; few slots are shared at 10^7 keys).
         function pslot(x,   h) { h = x % HP; while (h in PK) { if (PK[h] == x) return h; if (++h >= HP) h = 0 } PK[h] = x; return h }   # pair slot (made if new)
         function kfind(x,   h) { h = x % HP; while (h in K) { if (K[h] == x) return h; if (++h >= HP) h = 0 } return -1 }
-        function flush(   b, i, j, n, x0, ci, cj, a, bb, oa, ob, k, h, f, v) {
-            for (b = 0; b < 2; b++) { n = N[b]; x0 = b * 4096
-                for (i = x0 + 1; i < x0 + n; i++) { ci = C[i]
-                    for (j = i + 1; j <= x0 + n; j++) { cj = C[j]
-                        if (ci == cj || (!SAME && RR[i] == RR[j])) continue
+        function flush(   b, i, j, n, x0, ci, cj, a, bb, oa, ob, k, h, f, v, t, n1, n2, c1, c2, q, qs, qe) {
+            for (b = 0; b < 2; b++) { n = N[b]; x0 = b * 4096; N[b] = 0
+                if (n < 2) continue
+                # partners of row i: the later rows of the bucket (SAME) or the later rows of the other residue, so that the pairs
+                # come in the order (i, j), i < j, of the bucket rows without visiting the pairs of one residue (other classes)
+                if (SAME) for (t = 1; t <= n; t++) IX[t] = x0 + t
+                else { n1 = 0; n2 = 0; for (i = x0 + 1; i <= x0 + n; i++) if (RR[i] == R1) IX[++n1] = i; else IX[10000 + (++n2)] = i
+                       if (!n1 || !n2) continue }
+                c1 = 0; c2 = 0
+                for (i = x0 + 1; i <= x0 + n; i++) { ci = C[i]
+                    if (SAME) { qs = i - x0 + 1; qe = n } else if (RR[i] == R1) { c1++; qs = 10001 + c2; qe = 10000 + n2 } else { c2++; qs = 1 + c1; qe = n1 }
+                    for (q = qs; q <= qe; q++) { j = IX[q]; cj = C[j]
+                        if (ci == cj) continue
                         if (ci < cj) { a = ci; bb = cj; oa = O[i]; ob = O[j] } else { a = cj; bb = ci; oa = O[j]; ob = O[i] }
                         k = ((a * NC + bb) * 2 + b) * 256 + oa - ob + 128
                         h = k % HP; f = 0
@@ -138,8 +151,7 @@ pairs() {   # R1 R2
                         if (f) v = V[h] + 1; else { K[h] = k; v = (++idx) * 512 + 1 }
                         if (oa <= LIM && int(v / 256) % 2 == 0) v += 256
                         if (ob <= LIM && int(v / 128) % 2 == 0) v += 128
-                        V[h] = v } }
-                N[b] = 0 } }
+                        V[h] = v } } } }
         { s = substr($0, 1, 10); if (s != cur) { flush(); cur = s }
           b = SB[substr($0, PS + 1, 1)]; n = b * 4096 + (++N[b]); C[n] = substr($0, PO + 1, WC) + 0; O[n] = substr($0, 15, WF) + 0; RR[n] = C[n] % Q }   # numeric keys: side * 4096 + row
         END { flush()
@@ -158,4 +170,5 @@ pairs() {   # R1 R2
 }
 export -f pairs; export NC MK BAND START SLACK SIDES
 xargs -P "$TH" -n 2 bash -c 'pairs "$@"' _ < "$TD/classes"
+stamp C
 cat "$TD"/C/*
