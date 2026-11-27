@@ -653,8 +653,12 @@ step4_plots.sh <RUN_ROOT> [THREADS] [MAX_SEQS]
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `RUN_ROOT` | *required* | Path to a SINEderella run directory |
-| `THREADS` | auto (`nproc`) | CPU threads for ssearch36 and MAFFT |
+| `THREADS` | auto (`nproc`) | CPU threads in all; subfamilies run `THREADS / 4` at a time with 4 threads each for ssearch36 and MAFFT |
 | `MAX_SEQS` | 10000 | Maximum copies per subfamily to use for alignment (random subsample if exceeded) |
+| `STEP4_JOBS` (env) | `THREADS / 4` | Subfamilies at a time; each gets `THREADS / STEP4_JOBS` threads. The output does not depend on it |
+
+A subfamily whose commands fail (for example a failing `seqkit`) stops the step with a non-zero exit and an
+`ERROR: subfamily ... failed` line; no ssearch36 hits, empty MAFFT output and a failed plot stay warnings, as before.
 
 ### What It Does
 

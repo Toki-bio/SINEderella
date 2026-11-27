@@ -62,7 +62,7 @@ windows) 1.58 s at -T 32 (47 s CPU), 11.8 s at -T 4 (48 s).
 | sear (step 1) | 1 consensus x 1/20 of the genome in 3 kb windows, `-E 2 -m 8C` | ~55k windows | THREADS | 11 | 20 parts x consensuses in a row | ~1/3 of step 1 before the change |
 | step2_asSINEment.sh | all consensuses x 20,000 copies, `-E 2`, 10 cycles | 20k | THREADS | 11 | cycles and parts in a row | 7.6 min rsi, 13.6 min ttr |
 | step3_postprocess.sh | consensus x its copies, `-m 10` streamed into awk | per subfamily | THREADS | 11 | in a row | 9 s rsi |
-| step4_plots.sh | consensus x <= 10,000 copies, then MAFFT --addfragments | per subfamily | THREADS | 11 | in a row | MAFFT and plots dominate |
+| step4_plots.sh | consensus x <= 10,000 copies, then MAFFT --addfragments | per subfamily | 4 (THREADS / STEP4_JOBS) | 3 | THREADS/4 subfamilies at a time (2026-11-27) | MAFFT dominates and hardly scales past 4 threads (Ata e2-4: 245 s at 1, 150 s at 4, 145 s at 24, same alignment); 24 cores: Ata 11 subfamilies 10:45 -> 3:52, rsi 21 subfamilies 11:15 -> 4:09, identical plots and tables |
 | fs9_bodycheck.py | 1 copy x its 1-50 partners | tiny | none (= all CPUs) | default | parallel workers (8d4961c) | tbr 2 h serial |
 | flankscan fs3, fs_lib (fold, ends) | consensuses x windows in chunks; candidate folds | chunks / tiny | T / none | 11 | in a row | fs3 193 s, fs5 491 s rsi |
 | tools (kind-B, TRF verify, continuation, length variants, tRNA heads) | small | small | 1 or T | -1 / 11 / default | parallel where needed | minutes |
