@@ -17,7 +17,7 @@ chk() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; FAILS=$((FAILS +
 make_run() {
   local R="$1"
   mkdir -p "$R/step2/step2_output/subfamilies"
-  awk 'BEGIN{
+  awk -v R="$R" 'BEGIN{
     srand(7); b="ACGT"
     for (k = 1; k <= 3; k++) {
       name = "SF" k; s = ""
@@ -32,7 +32,7 @@ make_run() {
       }
       close(f)
     }
-  }' R="$R"
+  }'
 }
 
 run_step4() {  # RUN_ROOT JOBS MAX_SEQS [PATH prefix]
@@ -44,8 +44,9 @@ for j in 1 3; do make_run "$T/j$j"; run_step4 "$T/j$j" $j 8; echo "jobs=$j exit=
 chk "jobs=1 exit 0"                     'grep -q "exit=0" "$T/j1/rc"'
 chk "jobs=3 exit 0"                     'grep -q "exit=0" "$T/j3/rc"'
 chk "jobs=3: 3 pctid tables and 12 plots" '[ $(ls "$T/j3/step2/step2_output/plots" | grep -c "_pctid.tsv$") -eq 3 ] && [ $(ls "$T/j3/step2/step2_output/plots" | grep -c "\.png$\|\.pdf$") -eq 12 ]'
-chk "jobs=1 and jobs=3: same tables and PNG bytes" \
-    '[ "$(cd "$T/j1/step2/step2_output/plots" && md5sum *_pctid.tsv *.png)" = "$(cd "$T/j3/step2/step2_output/plots" && md5sum *_pctid.tsv *.png)" ]'
+sums() { ( cd "$1/step2/step2_output/plots" && md5sum ./*_pctid.tsv ./*.png ); }
+chk "jobs=1 and jobs=3: same tables and PNG bytes (9 files)" \
+    '[ $(sums "$T/j1" | wc -l) -eq 9 ] && [ "$(sums "$T/j1")" = "$(sums "$T/j3")" ]'
 order() { awk '$3 ~ /^\[[0-9]+\/3\]$/ {printf "%s ", $3}' "$1"; }
 chk "jobs=3: log blocks in subfamily order" '[ "$(order "$T/j3/step4.err")" = "[1/3] [2/3] [3/3] " ]'
 
