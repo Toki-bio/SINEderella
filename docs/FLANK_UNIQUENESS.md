@@ -267,6 +267,48 @@ job stops the stage. Not changed (they would not change results either, but are 
 The awk reference path (`FS9_AWK=1`) still pairs every row of a seed bucket and checks CAP inside the double loop (n^2 per
 bucket); it is used only by tests/test_fs9_engines.sh.
 
+## Stage 9 in awk instead of Python? (measured 2026-11-27, branch awk/fs9-seeds-repmask, not wired)
+
+Question: can the repeat mask (`fs9_repmask.py`) and the seed step (`fs9_seeds.py`) be done in awk/bash at the same speed with
+identical rows. Two awk versions were written and are kept on the branch for this comparison only; `fs9_twins.sh` still calls the
+Python steps. `flankscan/fs9_repmask.sh` (rep, mask): rev/tr make the reversed and complemented flanks, mawk takes each 20-mer
+and its reverse complement with two substr; rep splits the work into row chunks x k-mer classes so that no mawk holds all of
+KCOUNT. `flankscan/fs9_seeds.sh`: seeds written as fixed-width lines into 64 files by seed prefix, sort per prefix (= bucket
+order), CAP and partner filter, rows into 16 files by copy rank mod 16; one mawk per pair of residues counts (pair, delta) in a
+hash. Both pick the awk by the pipeline rule (SD_AWK, else mawk >= 1.3.4, else gawk).
+
+Inputs: therioserver `/home/toki/sine_runs/Ata/ten11_nodash/run_20261127_093910` (genome.clean.fa, genome.clean.fa.k20gt20.tsv,
+results/assignment_full.tsv), flanks made with step 1 of fs9_twins.sh for ERI-1 (13,407 copies), e1-2 (95,085) and e2-3longA
+(658,982). Work folder therioserver `/home/toki/tmp/sd_fs9awk/` (results.log, PROGRESS.md, sh/). 16 workers for both versions,
+same machine, server load 50-85 of 128 cores from other users (timings +- 30 %). "pass" rows: fs9_seeds | sort -u as in
+fs9_twins.sh; nomask_p1 = the unmasked pass, masked_p1 / masked_p2 = the passes on the masked flanks.
+
+| step | family | Python s | awk s | reference awk (FS9_AWK=1) s | rows identical |
+|---|---|---|---|---|---|
+| rep | ERI-1 / e1-2 / e2-3 | 6.8 / 13.8 / 32.7 | 6.2 / 9.6 / 33.1 | 24.5 / 135 / - | yes, all three |
+| mask | ERI-1 / e1-2 / e2-3 | 2.1 / 11.6 / 76.9 | 0.6 / 3.0 / 18.6 | 17.7 / 128 / - | yes |
+| nomask_p1 | ERI-1 / e1-2 / e2-3 | 2.1 / 8.5 / 66.4 | 4.1 / 93.5 / 1153 | 52 / 619 / - | yes (e2-3: 16,867,438 rows) |
+| masked_p1 | ERI-1 / e1-2 / e2-3 | 0.9 / 7.2 / 42.1 | 0.8 / 16.0 / 314 | 9.6 / 105 / - | yes |
+| masked_p2 | ERI-1 / e1-2 / e2-3 | 0.9 / 7.3 / 49.9 | 1.4 / 41.0 / 904 | 9.9 / 150 / - | yes |
+
+Memory and disk on e2-3 (summed PSS of the process group, peak temporary disk): rep Python 2.1 GB / awk 6.4 GB; mask 2.3 /
+5.2 GB; nomask_p1 16 GB, 1.3 GB (the sort -u) / 45 GB, 3.5 GB; masked_p2 16 GB / 34 GB, 1.4 GB. The reference awk was not run on
+e2-3: its hits file would be about 1.7 x 10^9 rows (e1-2 nomask_p1 already wrote 18 GB).
+
+Result: the repeat mask in awk ties with Python on rep and is 3-4x faster on mask (Python's per-row loop over covered windows),
+with more memory. The seed step in awk is 2-18x slower than Python at the same 16 workers, and the gap grows with the family: the
+seed pairs to count are 1.67 x 10^9 (e2-3 unmasked pass 1, 2.6 x 10^9 pass 2); numpy counts them at about 0.3 us each, an awk
+hash operation costs about 1 us at these sizes (mawk int keys; measured 2 M inserts 2.2 s), so even the pair loop alone of
+the best awk version (about 3 us per pair, stage C of fs9_seeds.sh; one residue class of e1-2: hits 2.5 s, end loops 5 s) is
+more than the whole Python step. Not a reasonable replacement; fs9_seeds.py stays.
+
+Traps found (also for other awk work): mawk hashes a string by its first and last 5 characters only (and a number that is not
+a 31-bit integer as its decimal string): 10^7 pair keys took 40 us each, the 5.6 M KCOUNT 20-mers 10 s to load, as numeric codes
+103 s. Keys kept below 2^31 (k mod 2^31-1 with linear probing) fixed it; `for (k in A)` over such an array turns every key into a
+string again. `conda activate sinederella` sets TMPDIR=/home/toki/tmp on therioserver: export TMPDIR after activating.
+Tests: tests/test_fs9_awk_steps.sh (toys of test_fs9_engines.sh, KCOUNT with lower-case and duplicated lines, mawk and gawk,
+1 and 4 workers, FS9_Q 16 and 3): 81 comparisons identical.
+
 ## Class R: manual, not wired (decision 2026-10-19, GLM audit 46)
 
 `fs9_dupregion.sh` stays a manual follow-up tool; nothing in the run calls it and its marks stay off the plates. Reasons:
