@@ -39,8 +39,14 @@ Q=${FS9_Q:-16}; SMEM=${FS9_SORT_MEM:-512M}
 (( IW + BAND < 128 && IW < 128 )) || { echo "fs9_seeds.sh: IW + BAND must be < 128 (delta and count fields)" >&2; exit 2; }
 TD=$(mktemp -d "${TMPDIR:-/tmp}/fs9_seeds.XXXXXX"); trap 'rm -rf "$TD"' EXIT
 
-cut -f1 "$SQ" | "$SORT" -u > "$TD/names"                 # copy rank = line number - 1 (byte order, as sorted(set(names)))
-NC=$(wc -l < "$TD/names"); (( NC > 0 )) || exit 0
+# copy rank of every row = place of its name among the distinct names in byte order (as sorted(set(names))); made with sort, not
+# with an awk hash of the names (mawk hashes 10 characters of a long string: names that differ in the middle share hash slots)
+TAB=$'\t'
+cut -f1 "$SQ" | "$AWK" '{ print NR "\t" $0 }' | "$SORT" -t "$TAB" -k2,2 -S "$SMEM" -T "$TD" |
+    "$AWK" -F'\t' -v NM="$TD/names" '{ if (NR == 1 || $2 != p) { r++; p = $2; print $2 > NM } print $1 "\t" r - 1 }' |
+    "$SORT" -t "$TAB" -k1,1n -S "$SMEM" -T "$TD" | cut -f2 > "$TD/rank"
+[[ -s $TD/names ]] || exit 0
+NC=$(wc -l < "$TD/names")
 SIDES=$(cut -f2 "$SQ" | "$SORT" -u | "$AWK" '{ s = s (NR > 1 ? "," : "") $0; n++ } END { if (n > 2) exit 1; print s }') ||
     { echo "fs9_seeds.sh: more than two flank sides in $SQ" >&2; exit 1; }
 "$AWK" -v n="$NC" 'BEGIN { if (n * n * 512 >= 2 ^ 53) exit 1 }' || { echo "fs9_seeds.sh: $NC copies: too many for the 53-bit pair keys" >&2; exit 1; }
@@ -49,16 +55,16 @@ mkdir -p "$TD/A" "$TD/B" "$TD/C"
 
 # ---- A: seed rows, by row chunk
 NR_=$(wc -l < "$SQ"); P=$TH; (( NR_ >= P )) || P=1
-"$AWK" -v P="$P" -v N="$NR_" -v D="$TD" '{ print > sprintf("%s/q%03d", D, int((FNR - 1) * P / N)) }' "$SQ"
+paste "$TD/rank" <(cut -f2,3 "$SQ") | "$AWK" -v P="$P" -v N="$NR_" -v D="$TD" '{ print > sprintf("%s/q%03d", D, int((NR - 1) * P / N)) }'
+rm -f "$TD/rank"
 seedgen() {   # CHUNK INDEX
-    "$AWK" -F'\t' -v PAT="$PAT" -v IW="$IW" -v WO="$WO" -v WC="$WC" -v PL="$PL" -v NAMES="$TD/names" -v OUT="$TD/A/$2" '
+    "$AWK" -F'\t' -v PAT="$PAT" -v IW="$IW" -v WO="$WO" -v WC="$WC" -v PL="$PL" -v OUT="$TD/A/$2" '
     BEGIN { L = length(PAT); nr = 0
             for (j = 1; j <= L; j++) if (substr(PAT, j, 1) == "1") { if (j > 1 && substr(PAT, j - 1, 1) == "1") rl[nr]++; else { rs[++nr] = j - 1; rl[nr] = 1 } }
             for (o = 1; o <= IW; o++) { r = 0; for (o2 = 1; o2 <= IW; o2++) if ((o2 "") < (o "")) r++; ORK[o] = sprintf("%0" WO "d", r) }   # offsets ranked as text
-            while ((getline l < NAMES) > 0) RK[l] = sprintf("%0" WC "d", nn++); close(NAMES)
             np = split("A C G T", B, " "); F[""] = ""; for (k = 1; k <= PL; k++) { split("", G); for (p in F) for (b = 1; b <= 4; b++) G[p B[b]] = 1; split("", F); for (p in G) F[p] = OUT "." p } }
     { if (length($2) != 1) { print "fs9_seeds.sh: flank side must be one character: " $2 > "/dev/stderr"; exit 2 }
-      s = substr($3, 1, IW + L - 1); n = length(s); hasn = index(s, "N"); c = RK[$1] $2
+      s = substr($3, 1, IW + L - 1); n = length(s); hasn = index(s, "N"); c = sprintf("%0" WC "d", $1) $2   # $1: copy rank
       for (i = 1; i <= IW && i + L - 1 <= n; i++) {
           if (hasn && index(substr(s, i, L), "N")) continue
           if (nr == 1) m = substr(s, i, rl[1]); else { m = ""; for (k = 1; k <= nr; k++) m = m substr(s, i + rs[k], rl[k]) }
@@ -112,29 +118,43 @@ pairs() {   # R1 R2
     else (( ${#f1[@]} && ${#f2[@]} )) || return 0; "$SORT" -m <(cat "${f1[@]}") <(cat "${f2[@]}"); fi |
     "$AWK" -v WF="${#IW}" -v WC="$WC" -v Q="$Q" -v SAME=$([[ $1 == "$2" ]] && echo 1 || echo 0) -v NC="$NC" -v MK="$MK" -v BAND="$BAND" \
         -v LIM=$(( START + SLACK )) -v SIDES="$SIDES" -v NAMES="$TD/names" '
-        BEGIN { ns = split(SIDES, SV, ","); for (i = 1; i <= ns; i++) SB[SV[i]] = i - 1; PO = 14 + WF; PS = PO + WC }
-        function flush(   b, i, j, n, x0, ci, cj, a, bb, oa, ob, pk, k, v) {
+        BEGIN { ns = split(SIDES, SV, ","); for (i = 1; i <= ns; i++) SB[SV[i]] = i - 1; PO = 14 + WF; PS = PO + WC; HP = 2147483647 }
+        # The pair keys k = ((a * NC + b) * 2 + side) * 256 + delta + 128 are up to 2^48. mawk hashes a number that is not a 31-bit
+        # integer as its decimal string, and its string hash looks at 10 characters only: 10^7 such keys took 40 us each (e1-2,
+        # 2026-11-27). So the arrays here are indexed by k mod (2^31 - 1), a 31-bit integer (hashed well by mawk and gawk), with
+        # the full key in K[] and linear probing when two keys share a slot (open addressing; few slots are shared at 10^7 keys).
+        function pslot(x,   h) { h = x % HP; while (h in PK) { if (PK[h] == x) return h; if (++h >= HP) h = 0 } PK[h] = x; return h }   # pair slot (made if new)
+        function kfind(x,   h) { h = x % HP; while (h in K) { if (K[h] == x) return h; if (++h >= HP) h = 0 } return -1 }
+        function flush(   b, i, j, n, x0, ci, cj, a, bb, oa, ob, k, h, f, v) {
             for (b = 0; b < 2; b++) { n = N[b]; x0 = b * 4096
                 for (i = x0 + 1; i < x0 + n; i++) { ci = C[i]
                     for (j = i + 1; j <= x0 + n; j++) { cj = C[j]
                         if (ci == cj || (!SAME && RR[i] == RR[j])) continue
                         if (ci < cj) { a = ci; bb = cj; oa = O[i]; ob = O[j] } else { a = cj; bb = ci; oa = O[j]; ob = O[i] }
-                        pk = (a * NC + bb) * 2 + b; k = pk * 256 + oa - ob + 128
-                        if ((v = c[k]) == 0) c[k] = (++idx) * 128 + 1; else c[k] = v + 1   # first-seen order * 128 + count (count <= IW)
-                        if (oa <= LIM) la[pk]; if (ob <= LIM) lb[pk] } }
+                        k = ((a * NC + bb) * 2 + b) * 256 + oa - ob + 128
+                        h = k % HP; f = 0
+                        while (h in K) { if (K[h] == k) { f = 1; break } if (++h >= HP) h = 0 }
+                        # V = first-seen order * 512 + (a hit with offset_a <= LIM) * 256 + (offset_b <= LIM) * 128 + count (<= IW < 128)
+                        if (f) v = V[h] + 1; else { K[h] = k; v = (++idx) * 512 + 1 }
+                        if (oa <= LIM && int(v / 256) % 2 == 0) v += 256
+                        if (ob <= LIM && int(v / 128) % 2 == 0) v += 128
+                        V[h] = v } }
                 N[b] = 0 } }
         { s = substr($0, 1, 10); if (s != cur) { flush(); cur = s }
           b = SB[substr($0, PS + 1, 1)]; n = b * 4096 + (++N[b]); C[n] = substr($0, PO + 1, WC) + 0; O[n] = substr($0, 15, WF) + 0; RR[n] = C[n] % Q }   # numeric keys: side * 4096 + row
         END { flush()
-              for (k in c) { k += 0; pk = int(k / 256); if (!(pk in la) || !(pk in lb)) continue
-                  s = 0; for (dd = -BAND; dd <= BAND; dd++) if ((k + dd) in c) s += c[k + dd] % 128
+              # per pair: seeds in all, and whether some seed has offset_a <= LIM and some offset_b <= LIM (PF 2 + 1)
+              for (h in K) { v = V[h]; hp = pslot(int(K[h] / 256)); PT[hp] += v % 128; x = PF[hp] + 0
+                  if (int(v / 256) % 2 && int(x / 2) % 2 == 0) x += 2; if (int(v / 128) % 2 && x % 2 == 0) x += 1; PF[hp] = x }
+              for (h in K) { k = K[h]; hp = pslot(int(k / 256)); if (PF[hp] != 3 || PT[hp] < MK) continue
+                  s = 0; for (dd = -BAND; dd <= BAND; dd++) if ((g = kfind(k + dd)) >= 0) s += V[g] % 128
                   if (s < MK) continue
-                  id = int(c[k] / 128)
-                  if (!(pk in BE) || s > BE[pk] || (s == BE[pk] && id < BI[pk])) { BE[pk] = s; BI[pk] = id; BD[pk] = k % 256 - 128 } }
+                  id = int(V[h] / 512)
+                  if (!(hp in BE) || s > BE[hp] || (s == BE[hp] && id < BI[hp])) { BE[hp] = s; BI[hp] = id; BD[hp] = k % 256 - 128 } }
               if (length(BE) == 0) exit 0
               while ((getline l < NAMES) > 0) NM[nn++] = l; close(NAMES)
-              for (pk in BE) { pk += 0; ab = int(pk / 2); a = int(ab / NC); bb = ab - a * NC
-                  printf "%s\t%s\t%s\t%d\t%d\n", SV[pk % 2 + 1], NM[a], NM[bb], BD[pk], BE[pk] } }' > "$TD/C/$1.$2"
+              for (hp in BE) { pk = PK[hp]; ab = int(pk / 2); a = int(ab / NC); bb = ab - a * NC
+                  printf "%s\t%s\t%s\t%d\t%d\n", SV[pk % 2 + 1], NM[a], NM[bb], BD[hp], BE[hp] } }' > "$TD/C/$1.$2"
 }
 export -f pairs; export NC MK BAND START SLACK SIDES
 xargs -P "$TH" -n 2 bash -c 'pairs "$@"' _ < "$TD/classes"
