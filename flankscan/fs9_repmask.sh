@@ -41,13 +41,13 @@ WIN='{ if ($2 == 5) { g = $4; r = $5 } else { g = $3; r = $6 }; n = length(g); h
 if [[ $MODE == rep ]]; then
     # 1) per chunk: flank k-mers that are KCOUNT k-mers above GCAP, each once per chunk
     run_rep() {   # CHUNK
-        cols "$1" | "$AWK" -F'\t' -v C="$C" -v KC="$KC" '
-            BEGIN { while ((getline l < KC) > 0) if (split(l, f, " ") >= 2 && f[2] + 0 > C) kc[toupper(f[1])] = 1   # " ": split at blank runs
-                    close(KC) }
+        cols "$1" | "$AWK" -v C="$C" '
+            FILENAME == ARGV[1] { if (NF >= 2 && $2 + 0 > C) kc[toupper($1)] = 1; next }   # KCOUNT: blank-separated
+            !tabs { FS = "\t"; tabs = 1; $0 = $0 }                                         # the flank rows: tab-separated
             '"$WIN"'
             { for (i = 1; i + 19 <= n; i++) { m = substr(g, i, 20); if (hasn && index(m, "N")) continue
                   x = substr(r, n - i - 18, 20); if (x < m) m = x
-                  if ((m in kc) && !(m in hit)) { hit[m] = 1; print m } } }' > "$1.hit"
+                  if ((m in kc) && !(m in hit)) { hit[m] = 1; print m } } }' "$KC" - > "$1.hit"
     }
     pids=(); for c in "$TD"/c[0-9][0-9][0-9]; do run_rep "$c" & pids+=($!); done
     rc=0; for p in "${pids[@]}"; do wait "$p" || rc=1; done
