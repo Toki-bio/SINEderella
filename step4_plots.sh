@@ -90,13 +90,19 @@ log "  OUT=$OUT"
 log "  CONS=$CONS"
 log "  SUBFAM_DIR=$SUBFAM_DIR"
 
-isf=0
-for sf_fasta in "${subfam_files[@]}"; do
+###############################################################################
+# One subfamily: subsample, %identity (ssearch36), consensus profile (MAFFT --addfragments), plots
+###############################################################################
+# Runs in its own subshell with errexit on, as the old serial loop did: what stopped the old step (a failing seqkit,
+# awk, sort or cp) stops this subfamily with a non-zero exit, and the parent then stops the step non-zero. What the old
+# loop only warned about (no ssearch36 hits, empty MAFFT output, plot failure) is still only a warning.
+process_sf(){
+  local sf_fasta="$1" isf="$2"
+  local sf_name nseqs copies_fa npctid cons_sz copies_sz m8_sz err_sz
   sf_name="$(basename "$sf_fasta" .fasta)"
-  isf=$((isf+1))
 
   nseqs=$(count_fasta "$sf_fasta")
-  [[ $nseqs -ge 1 ]] || { log "  Skipping $sf_name (0 sequences)"; continue; }
+  [[ $nseqs -ge 1 ]] || { log "  Skipping $sf_name (0 sequences)"; return 0; }
 
   log "[$isf/$nsf] $sf_name ($nseqs copies)"
 
@@ -108,7 +114,7 @@ for sf_fasta in "${subfam_files[@]}"; do
 
   [[ -s "$tmpdir/cons_${sf_name}.fa" ]] || {
     log "  WARNING: consensus not found for $sf_name, skipping"
-    continue
+    return 0
   }
 
   # --- Subsample if needed ---
@@ -129,7 +135,7 @@ for sf_fasta in "${subfam_files[@]}"; do
 
   [[ -s "$tmpdir/copies_clean_${sf_name}.fa" ]] || {
     log "  WARNING: copies_clean is empty for $sf_name, skipping"
-    continue
+    return 0
   }
 
   # ===================================================================
@@ -141,7 +147,7 @@ for sf_fasta in "${subfam_files[@]}"; do
   # bare file names inside $tmpdir (2026-11-23): ssearch36 cannot open a path longer than ~120 characters (FASTA36
   # file-name limit) - it truncates the name and reports "cannot open library ...". $tmpdir plus a long subfamily name
   # crosses that. Same pattern as tools/continuation_check.py and the satellite tools.
-  ( cd "$tmpdir" && ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$THREADS" -m 8 \
+  ( cd "$tmpdir" && ssearch36 -g -3 -Q -n -z 3 -E 100 -T "$SF_THREADS" -m 8 \
       "cons_${sf_name}.fa" "copies_clean_${sf_name}.fa" ) \
     > "$tmpdir/sim_${sf_name}.m8" 2>"$tmpdir/ssearch_err_${sf_name}.txt" || true
 
@@ -170,7 +176,7 @@ for sf_fasta in "${subfam_files[@]}"; do
     fi
     log "    consensus hdr: $(head -1 "$tmpdir/cons_${sf_name}.fa")"
     log "    1st copy hdr:  $(head -1 "$tmpdir/copies_clean_${sf_name}.fa")"
-    continue
+    return 0
   fi
 
   # ===================================================================
@@ -181,13 +187,13 @@ for sf_fasta in "${subfam_files[@]}"; do
   # --addfragments: align each copy INDIVIDUALLY against the consensus
   # (pairwise, not a full MSA).  The consensus is the reference.
   mafft --addfragments "$tmpdir/copies_clean_${sf_name}.fa" \
-    --adjustdirection --thread "$THREADS" --quiet \
+    --adjustdirection --thread "$SF_THREADS" --quiet \
     "$tmpdir/cons_${sf_name}.fa" \
     > "$tmpdir/msa_${sf_name}.fa" 2>/dev/null || true
 
   [[ -s "$tmpdir/msa_${sf_name}.fa" ]] || {
     log "  WARNING: MAFFT produced empty output for $sf_name"
-    continue
+    return 0
   }
 
   # ===================================================================
@@ -201,8 +207,56 @@ for sf_fasta in "${subfam_files[@]}"; do
     --outdir "$PLOTS_DIR" \
     --consensus-name "$sf_name" \
   || log "  WARNING: plot generation failed for $sf_name"
+}
 
+###############################################################################
+# Run the subfamilies JOBS at a time (2026-11-27). Each subfamily's commands are the old ones with the same arguments;
+# only the thread count of ssearch36 and MAFFT changes (SF_THREADS = THREADS / JOBS). Neither changes the output with
+# the thread count: the ssearch36 lines are sorted before the best hit is taken, and mafft --addfragments gave the same
+# alignment at --thread 1, 4, 8, 24 and 64 (docs/SPEEDUP_SSEARCH.md, step 4). Log lines of a subfamily are kept
+# together and printed in subfamily order, as before.
+###############################################################################
+JOBS="${STEP4_JOBS:-$(( THREADS / 8 ))}"
+(( JOBS >= 1 )) || JOBS=1
+(( JOBS <= nsf )) || JOBS=$nsf
+SF_THREADS=$(( THREADS / JOBS ))
+(( SF_THREADS >= 1 )) || SF_THREADS=1
+log "  $JOBS subfamilies at a time, $SF_THREADS threads each"
+
+# print the finished subfamilies in order; a subfamily that exited non-zero is an error of the step
+next_out=1
+failed=0
+flush_done(){
+  local rc
+  while (( next_out <= nsf )) && [[ -e "$tmpdir/job_${next_out}.rc" ]]; do
+    cat "$tmpdir/job_${next_out}.out"
+    cat "$tmpdir/job_${next_out}.err" >&2
+    rc=$(< "$tmpdir/job_${next_out}.rc")
+    if [[ "$rc" != 0 ]]; then
+      log "ERROR: subfamily $(basename "${subfam_files[next_out-1]}" .fasta) failed (exit $rc)"
+      failed=1
+    fi
+    next_out=$((next_out+1))
+  done
+}
+
+trap 'kill $(jobs -pr) 2>/dev/null; wait; rm -rf "$tmpdir"' EXIT
+isf=0
+for sf_fasta in "${subfam_files[@]}"; do
+  isf=$((isf+1))
+  while (( $(jobs -pr | wc -l) >= JOBS )); do wait -n || true; flush_done; done
+  (( failed == 0 )) || break
+  (
+    set +e
+    ( set -euo pipefail; process_sf "$sf_fasta" "$isf" ) > "$tmpdir/job_${isf}.out" 2> "$tmpdir/job_${isf}.err"
+    echo "$?" > "$tmpdir/job_${isf}.rc.part"
+    mv "$tmpdir/job_${isf}.rc.part" "$tmpdir/job_${isf}.rc"
+  ) &
 done
+wait
+flush_done
+(( failed == 0 )) || die "step 4 stopped: a subfamily failed (see the ERROR line above)"
+(( next_out > nsf )) || die "step 4 stopped: only $((next_out-1)) of $nsf subfamilies finished"
 
 log "All plots written to: $PLOTS_DIR"
 log "Done."
