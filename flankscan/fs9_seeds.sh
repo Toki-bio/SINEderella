@@ -147,25 +147,27 @@ pairs() {   # R1 R2
                         k = ((a * NC + bb) * 2 + b) * 256 + oa - ob + 128
                         h = k % HP; f = 0
                         while (h in K) { if (K[h] == k) { f = 1; break } if (++h >= HP) h = 0 }
-                        # V = first-seen order * 512 + (a hit with offset_a <= LIM) * 256 + (offset_b <= LIM) * 128 + count (<= IW < 128)
-                        if (f) v = V[h] + 1; else { K[h] = k; v = (++idx) * 512 + 1 }
+                        # V = (a hit with offset_a <= LIM) * 256 + (offset_b <= LIM) * 128 + count (<= IW < 128); SL[t] = slot of the
+                        # t-th new (pair, delta): t is the first-seen order (= the bucket order of the reference), which decides bd on ties
+                        if (f) v = V[h] + 1; else { K[h] = k; SL[++nk] = h; v = 1 }
                         if (oa <= LIM && int(v / 256) % 2 == 0) v += 256
                         if (ob <= LIM && int(v / 128) % 2 == 0) v += 128
                         V[h] = v } } } }
         { s = substr($0, 1, 10); if (s != cur) { flush(); cur = s }
           b = SB[substr($0, PS + 1, 1)]; n = b * 4096 + (++N[b]); C[n] = substr($0, PO + 1, WC) + 0; O[n] = substr($0, 15, WF) + 0; RR[n] = C[n] % Q }   # numeric keys: side * 4096 + row
         END { flush()
+              # (no "for (x in A)" here: mawk turns every key of A into a string for it, with the poor string hash)
               # per pair: seeds in all, and whether some seed has offset_a <= LIM and some offset_b <= LIM (PF 2 + 1)
-              for (h in K) { v = V[h]; hp = pslot(int(K[h] / 256)); PT[hp] += v % 128; x = PF[hp] + 0
+              for (t = 1; t <= nk; t++) { h = SL[t]; v = V[h]; hp = pslot(int(K[h] / 256)); PT[hp] += v % 128; x = PF[hp] + 0
                   if (int(v / 256) % 2 && int(x / 2) % 2 == 0) x += 2; if (int(v / 128) % 2 && x % 2 == 0) x += 1; PF[hp] = x }
-              for (h in K) { k = K[h]; hp = pslot(int(k / 256)); if (PF[hp] != 3 || PT[hp] < MK) continue
+              # best = most seeds within delta +- BAND; ties: the (pair, delta) seen first (t ascending, strict >)
+              for (t = 1; t <= nk; t++) { h = SL[t]; k = K[h]; hp = pslot(int(k / 256)); if (PF[hp] != 3 || PT[hp] < MK) continue
                   s = 0; for (dd = -BAND; dd <= BAND; dd++) if ((g = kfind(k + dd)) >= 0) s += V[g] % 128
                   if (s < MK) continue
-                  id = int(V[h] / 512)
-                  if (!(hp in BE) || s > BE[hp] || (s == BE[hp] && id < BI[hp])) { BE[hp] = s; BI[hp] = id; BD[hp] = k % 256 - 128 } }
-              if (length(BE) == 0) exit 0
+                  if (!(hp in BE)) { PL[++np] = hp; BE[hp] = s; BD[hp] = k % 256 - 128 } else if (s > BE[hp]) { BE[hp] = s; BD[hp] = k % 256 - 128 } }
+              if (!np) exit 0
               while ((getline l < NAMES) > 0) NM[nn++] = l; close(NAMES)
-              for (hp in BE) { pk = PK[hp]; ab = int(pk / 2); a = int(ab / NC); bb = ab - a * NC
+              for (t = 1; t <= np; t++) { hp = PL[t]; pk = PK[hp]; ab = int(pk / 2); a = int(ab / NC); bb = ab - a * NC
                   printf "%s\t%s\t%s\t%d\t%d\n", SV[pk % 2 + 1], NM[a], NM[bb], BD[hp], BE[hp] } }' > "$TD/C/$1.$2"
 }
 export -f pairs; export NC MK BAND START SLACK SIDES
