@@ -158,11 +158,12 @@ pairs() {   # R1 R2
         END { flush()
               # (no "for (x in A)" here: mawk turns every key of A into a string for it, with the poor string hash)
               # per pair: seeds in all, and whether some seed has offset_a <= LIM and some offset_b <= LIM (PF 2 + 1)
-              for (t = 1; t <= nk; t++) { h = SL[t]; v = V[h]; hp = pslot(int(K[h] / 256)); PT[hp] += v % 128; x = PF[hp] + 0
+              for (t = 1; t <= nk; t++) { h = SL[t]; v = V[h]; hp = pslot(int(K[h] / 256)); HS[t] = hp; PT[hp] += v % 128; x = PF[hp] + 0
                   if (int(v / 256) % 2 && int(x / 2) % 2 == 0) x += 2; if (int(v / 128) % 2 && x % 2 == 0) x += 1; PF[hp] = x }
               # best = most seeds within delta +- BAND; ties: the (pair, delta) seen first (t ascending, strict >)
-              for (t = 1; t <= nk; t++) { h = SL[t]; k = K[h]; hp = pslot(int(k / 256)); if (PF[hp] != 3 || PT[hp] < MK) continue
-                  s = 0; for (dd = -BAND; dd <= BAND; dd++) if ((g = kfind(k + dd)) >= 0) s += V[g] % 128
+              for (t = 1; t <= nk; t++) { h = SL[t]; k = K[h]; hp = HS[t]; if (PF[hp] != 3 || PT[hp] < MK) continue
+                  s = 0; for (dd = -BAND; dd <= BAND; dd++) { y = k + dd; g = y % HP        # kfind(y), written out
+                      while (g in K) { if (K[g] == y) { s += V[g] % 128; break } if (++g >= HP) g = 0 } }
                   if (s < MK) continue
                   if (!(hp in BE)) { PL[++np] = hp; BE[hp] = s; BD[hp] = k % 256 - 128 } else if (s > BE[hp]) { BE[hp] = s; BD[hp] = k % 256 - 128 } }
               if (!np) exit 0
