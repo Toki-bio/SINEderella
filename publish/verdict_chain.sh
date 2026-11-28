@@ -106,5 +106,10 @@ log "flank verdicts"
 python3 "$SINEDERELLA_BIN/tools/flank_verdict.py" "$RUN_ROOT" >&2 || {
   echo "ERROR: tools/flank_verdict.py failed" >&2; exit 1; }
 
+# copies found only by a composite piece, neither assigned nor partial, are not loci (docs/PARTIAL_COPIES.md, 2026-11-28)
+log "piece-only loci"
+bash "$SINEDERELLA_BIN/tools/piece_only_drop.sh" "$RUN_ROOT" || {
+  echo "ERROR: tools/piece_only_drop.sh failed" >&2; exit 1; }
+
 printf 'finished\t%s\ncode\t%s\n' "$(date '+%F %T')" "$(bash "$SINEDERELLA_BIN/tools/pipeline_commit.sh" "$SINEDERELLA_BIN" 2>/dev/null || echo unknown)" \
   > "$S2/verdict_chain.done"
