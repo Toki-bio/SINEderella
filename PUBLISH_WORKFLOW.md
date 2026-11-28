@@ -65,6 +65,7 @@ SINEderella --publish genome.fa consensi.fa
 | `DISC` | for publish alignments | SINE-discriminator root |
 | `RAW_ALN_BASE` | for live MSA links | Raw URL through `…/alignments/` |
 | `PAGES_INDEX` | optional | “All species” link in report header |
+| `SPECIES_NAME` | optional | Latin name in the report title and heading (e.g. `Atelerix albiventris`, shown in italics); saved as `<run>/species_name.txt` and reused by later rebuilds; without it the page is unchanged |
 | `USE_DISC` | optional (default 1) | Run `inject_disc_report.py` |
 | `SKIP_ALIGN` | optional | Skip align_for_publish if MSAs exist |
 | `SKIP_STEP4` | optional | Skip step4 regen |
