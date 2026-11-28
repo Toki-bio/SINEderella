@@ -24,13 +24,14 @@ OUT=$S2/piece_only_dropped.tsv
 if [[ -f "$OUT" && "$OUT" -nt "$LV" ]]; then log "PIECE_ONLY already applied ($OUT); loci_verdict.tsv unchanged"; exit 0; fi
 shopt -s nullglob
 SEARCHES=("$RUN"/*_step1/searches)
-(( ${#SEARCHES[@]} == 1 )) || { echo "ERROR: piece_only_drop: expected one <step1>/searches in $RUN, found ${#SEARCHES[@]}" >&2; exit 1; }
-PIECES=("${SEARCHES[0]}"/gen-pieces.part_*.bed)
-WHOLE=("${SEARCHES[0]}"/gen-consensuses.clean.part_*.bed)
+(( ${#SEARCHES[@]} <= 1 )) || { echo "ERROR: piece_only_drop: expected one <step1>/searches in $RUN, found ${#SEARCHES[@]}" >&2; exit 1; }
+PIECES=()
+(( ${#SEARCHES[@]} == 1 )) && PIECES=("${SEARCHES[0]}"/gen-pieces.part_*.bed)
 printf 'copy\tsubfamily\tassignment_status\treason\n' > "$OUT.tmp"
 if (( ${#PIECES[@]} == 0 )); then
   mv "$OUT.tmp" "$OUT"; touch "$OUT"; log "PIECE_ONLY no pieces searched; loci_verdict.tsv unchanged"; exit 0
 fi
+WHOLE=("${SEARCHES[0]}"/gen-consensuses.clean.part_*.bed)
 (( ${#WHOLE[@]} > 0 )) || { echo "ERROR: piece_only_drop: no whole-consensus hit files in ${SEARCHES[0]}" >&2; exit 1; }
 command -v bedtools > /dev/null || { echo "ERROR: piece_only_drop: bedtools not on PATH" >&2; exit 1; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/piece_only.XXXXXX"); trap 'rm -rf "$T"' EXIT

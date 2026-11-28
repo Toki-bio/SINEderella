@@ -45,4 +45,7 @@ chk "PIECE_ONLY_DROP=0: unchanged"           "cmp -s $T/lv0 $L/loci_verdict.tsv 
 mk nopiece 1; rm "$T/nopiece/genome.clean_step1/searches/gen-pieces.part_A__piece_1-69.bed"; L=$T/nopiece/step2/step2_output
 cp $L/loci_verdict.tsv $T/lv2; bash "$TOOL" "$T/nopiece" 2> /dev/null
 chk "no pieces searched: unchanged"          "cmp -s $T/lv2 $L/loci_verdict.tsv && [[ \$(wc -l < $L/piece_only_dropped.tsv) == 1 ]]"
+mk nostep1 1; rm -rf "$T/nostep1/genome.clean_step1"; L=$T/nostep1/step2/step2_output
+cp $L/loci_verdict.tsv $T/lv3; bash "$TOOL" "$T/nostep1" 2> /dev/null
+chk "no step-1 folder: unchanged, exit 0"    "cmp -s $T/lv3 $L/loci_verdict.tsv"
 exit $fail
