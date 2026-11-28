@@ -110,3 +110,20 @@ composite (e2-4 matches its first 203 bp at 91.2 %); its 69 bp tail 281-349 had 
 loci of its own in Atelerix and 162,685 in E. europaeus, all unassigned (3' tails of e2 copies). In the rsi-type banks the
 only such stretch of >= 50 bp is r10_r8_P18 152-289 (253 loci of its own in rsi_final, none assigned); the r1 rescue
 comes from unit-labelled head pieces (C11 1-80, P1 1-80, P2 2-85), which are kept.
+
+## Piece-only loci that step 2 does not resolve are not loci (2026-11-28, owner)
+Atelerix bank10 (therioserver `/home/toki/sine_runs/Ata/bank10/run_20261127_205520`, bank with e2-4long): e2-4long holds the
+e2-3longB tail, so composite_units labelled e2-3longB 281-349 as unit e2-4long, the "-" rule above no longer skipped it, and
+the 69 bp piece found 108,429 loci that no whole consensus hit (129 assigned). End extension does not grow them (their group
+e2-3longB: 27 shared 10-mers on the 5' side), and step 2 rejects them; they only filled loci_verdict.tsv as not_SINE.
+A length rule (piece >= 70 % of its unit) would have dropped the rsi r1 head pieces too (C11 1-80 = 31 % of r10_r8_P18del).
+
+`tools/piece_only_drop.sh` (run by `publish/verdict_chain.sh` after `tools/flank_verdict.py`; `PIECE_ONLY_DROP=0` skips it):
+a copy that overlaps no hit of a whole bank consensus (`<step1>/searches/gen-consensuses.clean.part_*.bed`) and is neither
+assigned nor a partial copy (`family_view/partial_copies.tsv` Status `partial`; `below_stretch_threshold` is dropped) is
+moved from `loci_verdict.tsv` to `step2_output/piece_only_dropped.tsv`. Log line `PIECE_ONLY piece_only= dropped=
+kept_assigned= kept_partial=`.
+Checks (therioserver `/home/toki/tmp/pod/`): `tests/test_piece_only_drop.sh` 13 cases under mawk and gawk; rsi_final:
+1,511 piece-only, 459 dropped, 281 kept assigned, 771 kept partial, the 22 rsi_final loci holding the 21 assigned r1 loci
+all kept; Ata bank10: 109,198 piece-only, 108,536 dropped, 662 kept (15 s, 0.7 GB); kept rows = original minus dropped, same
+order; `tests/toy/run_toy.sh` 19 PASS on main and branch, toy loci_verdict.tsv identical.
