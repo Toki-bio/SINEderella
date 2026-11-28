@@ -2405,7 +2405,8 @@ def build_html(run_root: Path,
                pages_index: Optional[str] = None,
                profile_diagrams: bool = True,
                profile_diagrams_max: int = 200,
-               allow_incomplete: bool = False) -> None:
+               allow_incomplete: bool = False,
+               species_name: Optional[str] = None) -> None:
     LOG.info("Building report for %s", run_root)
     s2 = find_step2_out(run_root)
     LOG.info("step2 output: %s", s2)
@@ -2782,7 +2783,7 @@ def build_html(run_root: Path,
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SINEderella report &mdash; {html.escape(title)}</title>
+<title>{html.escape(species_name) + ' &mdash; ' if species_name else ''}SINEderella report &mdash; {html.escape(title)}</title>
 <style>{CSS}{VCHIP_CSS}</style>
 {plotly_tag}
 </head><body>
@@ -2800,7 +2801,7 @@ def build_html(run_root: Path,
 </div>
 {cross_nav}
 <header>
-  <h1>SINEderella run report &mdash; {html.escape(title)}</h1>
+  <h1>{'<i>' + html.escape(species_name) + '</i> &mdash; ' if species_name else ''}SINEderella run report &mdash; {html.escape(title)}</h1>
   <div class="sub">Genome: <code>{html.escape(genome_name)}</code> &middot;
        Consensus: <code>{html.escape(cons_name)}</code> &middot;
        Generated {generated} &middot; plotly.js: {plotly_mode}</div>
@@ -3063,6 +3064,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                          "https://raw.githubusercontent.com/org/repo/main/mysp/alignments/")
     ap.add_argument("--pages-index", default=None,
                     help="Optional URL for 'All species' nav link (multi-species site).")
+    ap.add_argument("--species-name", default=os.environ.get("SPECIES_NAME") or None,
+                    help="Latin species name for the page title and heading (default: $SPECIES_NAME). It is saved "
+                         "as <run>/species_name.txt and reused by later rebuilds that do not give one.")
     ap.add_argument("--allow-incomplete", action="store_true", default=False,
                     help="Write the page even if a part could not be built (missing library, helper, program, or a "
                          "panel error); the page then carries a red box listing them. Default: stop without a page.")
@@ -3104,8 +3108,22 @@ def main(argv: Optional[List[str]] = None) -> int:
                pages_index=pages_index,
                profile_diagrams=args.profile_diagrams,
                profile_diagrams_max=args.profile_diagrams_max,
-               allow_incomplete=args.allow_incomplete)
+               allow_incomplete=args.allow_incomplete,
+               species_name=resolve_species_name(run_root, args.species_name))
     return 0
+
+
+def resolve_species_name(run_root: Path, given: Optional[str]) -> Optional[str]:
+    """Species name for the page: the given one (saved to <run>/species_name.txt), else the saved one, else None."""
+    saved = run_root / "species_name.txt"
+    name = (given or "").strip()
+    if name:
+        if not saved.is_file() or saved.read_text(encoding="utf-8").strip() != name:
+            saved.write_text(name + "\n", encoding="utf-8")
+        return name
+    if saved.is_file():
+        return saved.read_text(encoding="utf-8").strip() or None
+    return None
 
 
 if __name__ == "__main__":
